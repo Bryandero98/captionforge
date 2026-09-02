@@ -26,9 +26,7 @@ KARAOKE_ASS_FILENAME = "karaoke.ass"
 
 
 def write_segments_json(segments_dir: Path, segments: list[Segment]) -> None:
-    (segments_dir / SEGMENTS_FILENAME).write_text(
-        json.dumps(segments_to_dicts(segments)), encoding="utf-8"
-    )
+    (segments_dir / SEGMENTS_FILENAME).write_text(json.dumps(segments_to_dicts(segments)), encoding="utf-8")
 
 
 def read_segments_json(segments_dir: Path) -> list[Segment]:

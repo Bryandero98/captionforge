@@ -155,6 +155,12 @@ sintetizada) usado por las pruebas del pipeline en vivo - no es un mock.
 - "Trabajos recientes" vive en `localStorage`, así que es privado de un
   solo navegador - no sobrevive a borrar los datos del sitio y nunca se
   comparte entre dispositivos.
+- Los archivos de un trabajo (video, `.srt`/`.vtt`/`.ass`, `segments.json`)
+  se borran automáticamente 7 días después de la última escritura - cada
+  subida nueva limpia lo que ya pasó ese tiempo. Una entrada puede
+  sobrevivir más que sus archivos en "trabajos recientes" (que no tiene
+  vencimiento propio); sus enlaces de descarga simplemente devuelven 404
+  cuando eso pasa.
 
 ## Hoja de ruta
 

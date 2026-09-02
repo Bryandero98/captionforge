@@ -40,7 +40,7 @@ def _current_job_or_none(job_id: str, store: JobStore) -> Job | None:
         return None
 
 
-def _resolve_srt_readiness(job_id: str, store: JobStore, settings: Settings) -> tuple[Path, bool]:
+def _resolve_srt_readiness(job_id: str, store: JobStore, settings: Settings) -> tuple[Path | None, bool]:
     """Returns (srt_path, ready) for either the current job (JobStore flag) or a past one (disk).
 
     A job that is NOT the one JobStore currently tracks can only be a job
@@ -59,7 +59,7 @@ def _resolve_srt_readiness(job_id: str, store: JobStore, settings: Settings) -> 
     return srt_path, srt_path.exists()
 
 
-def _resolve_video_readiness(job_id: str, store: JobStore, settings: Settings) -> tuple[Path, bool]:
+def _resolve_video_readiness(job_id: str, store: JobStore, settings: Settings) -> tuple[Path | None, bool]:
     current = _current_job_or_none(job_id, store)
     if current is not None:
         return current.captioned_path, current.video_ready
@@ -83,7 +83,7 @@ async def get_vtt(
     job_id: str, store: JobStore = Depends(get_job_store), settings: Settings = Depends(get_settings)
 ):
     srt_path, ready = _resolve_srt_readiness(job_id, store, settings)
-    if not ready:
+    if not ready or srt_path is None:
         raise HTTPException(404, "El .vtt todavia no esta listo.")
     segments_dir = srt_path.parent
     try:
@@ -105,7 +105,7 @@ async def get_ass(
     settings: Settings = Depends(get_settings),
 ):
     srt_path, ready = _resolve_srt_readiness(job_id, store, settings)
-    if not ready:
+    if not ready or srt_path is None:
         raise HTTPException(404, "El .ass todavia no esta listo.")
     segments_dir = srt_path.parent
     try:

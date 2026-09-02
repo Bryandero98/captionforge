@@ -13,3 +13,7 @@ class Settings:
     default_model_size: str = "small"
     host: str = "127.0.0.1"
     port: int = 8420
+    # A job's video/srt/vtt/ass files outlive JobStore's own single-job memory
+    # (see routes/upload.py's _cleanup_old_jobs) - this bounds how long they
+    # sit on disk before an upload's background cleanup removes them.
+    job_retention_days: int = 7

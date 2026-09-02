@@ -77,6 +77,4 @@ def translate_segments(segments: list[Segment], from_code: str, to_code: str) ->
     # (different words, different count, often different order). Keeping it
     # would silently feed a future karaoke renderer mismatched word/timing
     # pairs under translated text - `None` is the honest "not available" answer.
-    return [
-        replace(segment, text=translation.translate(segment.text), words=None) for segment in segments
-    ]
+    return [replace(segment, text=translation.translate(segment.text), words=None) for segment in segments]

@@ -300,9 +300,18 @@
     renderHistory();
   });
 
+  // How many consecutive EventSource errors to let the browser's own
+  // automatic reconnect absorb silently before giving up and telling the
+  // user - a transient drop typically heals within a retry or two, but a
+  // server that's genuinely gone (crashed, killed) would otherwise retry
+  // forever with the progress bar frozen and no explanation.
+  const MAX_SSE_RECONNECT_ATTEMPTS = 4;
+
   function watchJobEvents(jobId, { onUpdate, onDone }) {
     const source = new EventSource(`/api/jobs/${jobId}/events`);
+    let consecutiveErrors = 0;
     source.onmessage = (event) => {
+      consecutiveErrors = 0;
       const job = JSON.parse(event.data);
       onUpdate(job);
       if (job.status === "error") {
@@ -315,10 +324,10 @@
       }
     };
     source.onerror = () => {
-      // The browser retries automatically; if the job genuinely
-      // disappeared server-side the next GET-based check on reconnect
-      // will surface it as a 404-driven error instead of hanging silently.
+      consecutiveErrors += 1;
+      if (consecutiveErrors < MAX_SSE_RECONNECT_ATTEMPTS) return; // let the browser's own retry keep trying
       source.close();
+      showError("connectionLostError");
     };
     return source;
   }

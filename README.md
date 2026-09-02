@@ -140,6 +140,11 @@ speech) used by the live-pipeline tests - not a mock.
 - "Recent jobs" lives in `localStorage`, so it's private to one browser -
   it does not survive clearing site data and is never shared between
   devices.
+- A job's files (video, `.srt`/`.vtt`/`.ass`, `segments.json`) are deleted
+  automatically 7 days after they were last written - each new upload
+  prunes anything past that age. An entry can outlive its files in "recent
+  jobs" (which has no expiry of its own); its download links just 404 once
+  that happens.
 
 ## Roadmap
 

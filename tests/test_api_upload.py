@@ -1,4 +1,6 @@
 import io
+import os
+import time
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +11,7 @@ from captionforge.app import create_app
 from captionforge.config import Settings
 from captionforge.jobs import JobStatus
 from captionforge.pipeline import write_segments_json
+from captionforge.routes.upload import _cleanup_old_jobs
 from captionforge.srt import Segment, WordTiming, segments_to_srt
 
 
@@ -341,3 +344,65 @@ class TestHistoricalDownloads:
 
         assert app_client.get(f"/api/jobs/{old_job_id}/segments").status_code == 404
         assert app_client.post(f"/api/jobs/{old_job_id}/burn").status_code == 404
+
+
+def _set_mtime(path, age_seconds: float) -> None:
+    stamp = time.time() - age_seconds
+    os.utime(path, (stamp, stamp))
+
+
+class TestCleanupOldJobs:
+    """Unit tests for the pure retention-cleanup helper - no HTTP, no JobStore."""
+
+    def test_removes_a_directory_older_than_the_retention_window(self, tmp_path):
+        old_job = tmp_path / "old-job"
+        old_job.mkdir()
+        _set_mtime(old_job, age_seconds=100)
+
+        _cleanup_old_jobs(tmp_path, keep_job_id="current-job", max_age_seconds=10)
+
+        assert not old_job.exists()
+
+    def test_keeps_a_directory_within_the_retention_window(self, tmp_path):
+        recent_job = tmp_path / "recent-job"
+        recent_job.mkdir()
+
+        _cleanup_old_jobs(tmp_path, keep_job_id="current-job", max_age_seconds=1000)
+
+        assert recent_job.exists()
+
+    def test_never_removes_the_job_being_kept_even_if_it_looks_stale(self, tmp_path):
+        current = tmp_path / "current-job"
+        current.mkdir()
+        _set_mtime(current, age_seconds=100)
+
+        _cleanup_old_jobs(tmp_path, keep_job_id="current-job", max_age_seconds=10)
+
+        assert current.exists()
+
+    def test_missing_jobs_dir_is_a_noop(self, tmp_path):
+        _cleanup_old_jobs(tmp_path / "does-not-exist", keep_job_id="x", max_age_seconds=10)  # must not raise
+
+    def test_ignores_files_directly_inside_jobs_dir(self, tmp_path):
+        stray_file = tmp_path / "not-a-job-dir.txt"
+        stray_file.write_text("x")
+        _set_mtime(stray_file, age_seconds=100)
+
+        _cleanup_old_jobs(tmp_path, keep_job_id="current-job", max_age_seconds=10)
+
+        assert stray_file.exists()
+
+
+class TestJobRetentionCleanupWiring:
+    """Confirms the upload route actually calls the cleanup helper, not just that it exists."""
+
+    def test_uploading_prunes_a_stale_job_directory(self, app_client, tmp_path):
+        stale_dir = tmp_path / "jobs" / "stale-job-id"
+        stale_dir.mkdir(parents=True)
+        (stale_dir / "input.mp4").write_bytes(b"old video bytes")
+        _set_mtime(stale_dir, age_seconds=Settings().job_retention_days * 86400 + 3600)
+
+        job_id = _create_job(app_client)
+
+        assert not stale_dir.exists()
+        assert (tmp_path / "jobs" / job_id).exists()
