@@ -11,6 +11,11 @@ license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = ["faster-whisper", "argostranslate", "fastapi", "uvicorn", "python-multipart"]
 
+[project.urls]
+Homepage = "https://github.com/Bryandero98/captionforge"
+Repository = "https://github.com/Bryandero98/captionforge"
+Issues = "https://github.com/Bryandero98/captionforge/issues"
+
 [project.optional-dependencies]
 dev = ["pytest", "httpx", "ruff", "mypy"]
 
@@ -19,6 +24,9 @@ captionforge = "captionforge.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+captionforge = ["static/*"]
 
 [tool.ruff]
 line-length = 110
