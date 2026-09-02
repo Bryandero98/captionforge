@@ -155,3 +155,41 @@ sintetizada) usado por las pruebas del pipeline en vivo - no es un mock.
 - "Trabajos recientes" vive en `localStorage`, así que es privado de un
   solo navegador - no sobrevive a borrar los datos del sitio y nunca se
   comparte entre dispositivos.
+
+## Hoja de ruta
+
+Ideas que vale la pena hacer eventualmente, deliberadamente sin empezar
+todavía:
+
+- **Un instalador nativo empaquetado** (`.exe` en Windows, `.dmg` en
+  macOS, `.AppImage`/`.deb` en Linux) para que un usuario no necesite tener
+  Python ni ffmpeg preinstalados - empaquetar el runtime de Python
+  (incluida la librería nativa CTranslate2 de `faster-whisper`) y un
+  binario estático de ffmpeg en un solo ejecutable, con algo como
+  PyInstaller, al estilo de cómo Ollama distribuye un único binario. El
+  costo real no es el empaquetado en sí, sino la detección de GPU/CUDA por
+  sistema operativo y la firma de código (para evitar los avisos de
+  Windows SmartScreen / macOS Gatekeeper) - un esfuerzo comparable al de
+  construir la app misma, por eso queda fuera de v1 a propósito.
+- **Una versión hosteada** - CaptionForge necesita CPU (o GPU) real para
+  Whisper/ffmpeg, así que un plan gratuito no alcanza para uso serio; un
+  host de pago es el siguiente paso realista si algún día hay demanda de
+  una opción "sin instalar nada". Ver "Apoya este proyecto" abajo.
+
+## Apoya este proyecto
+
+CaptionForge es gratis y local por diseño, y va a seguir siéndolo. Una
+propina no desbloquea nada - va destinada a eventualmente pagar un host
+real, para que quien no quiera instalar nada también tenga esa opción:
+
+- **Ko-fi:** [ko-fi.com/bryandero98](https://ko-fi.com/bryandero98)
+- **USDT (TRC20):** `TEG4Kk2qXYMQ4mHNd7dPhSPRyT14CGr2or` - verifica que la
+  red esté configurada en **TRC20** antes de enviar; una transferencia en
+  la red equivocada no se puede recuperar.
+
+## Ideas y contribuciones
+
+Las sugerencias sobre qué debería hacer CaptionForge a futuro son
+bienvenidas, no solo los reportes de bugs - abre un issue con lo que te
+gustaría ver, aunque sea una idea a medio pulir. Ver
+[CONTRIBUTING.md](./CONTRIBUTING.md) para cómo enviar un PR.

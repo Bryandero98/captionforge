@@ -140,3 +140,39 @@ speech) used by the live-pipeline tests - not a mock.
 - "Recent jobs" lives in `localStorage`, so it's private to one browser -
   it does not survive clearing site data and is never shared between
   devices.
+
+## Roadmap
+
+Ideas worth doing eventually, deliberately not started yet:
+
+- **A packaged native installer** (Windows `.exe`, macOS `.dmg`, Linux
+  `.AppImage`/`.deb`) so a user doesn't need Python or ffmpeg pre-installed
+  - bundle the Python runtime (including `faster-whisper`'s native
+  CTranslate2 library) and a static ffmpeg binary into one executable via
+  something like PyInstaller, the way Ollama ships a single binary. The
+  real cost isn't the bundling itself but per-OS GPU/CUDA detection and
+  code-signing (to avoid Windows SmartScreen / macOS Gatekeeper warnings) -
+  comparable in effort to building the app itself, which is why it's out
+  of v1 on purpose.
+- **A hosted version** - CaptionForge needs real CPU (or GPU) for
+  Whisper/ffmpeg, so a free-tier host isn't enough for serious use; a paid
+  host is the realistic next step if there's ever demand for a
+  "no-install-at-all" option. See "Support this project" below.
+
+## Support this project
+
+CaptionForge is free and local by design, and will stay that way. A tip
+doesn't unlock anything - it goes toward eventually paying for a real host,
+so people who don't want to install anything have a "no-install-at-all"
+option too:
+
+- **Ko-fi:** [ko-fi.com/bryandero98](https://ko-fi.com/bryandero98)
+- **USDT (TRC20):** `TEG4Kk2qXYMQ4mHNd7dPhSPRyT14CGr2or` - double-check the
+  network is set to **TRC20** before sending; a transfer on the wrong
+  network can't be recovered.
+
+## Ideas & contributions
+
+Suggestions for what CaptionForge should do next are welcome, not just bug
+reports - open an issue with what you'd want, even a rough one. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for how to send a PR.
