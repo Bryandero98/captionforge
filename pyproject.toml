@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "captionforge"
+version = "0.1.0"
+description = "Local, free automatic video-caption generator using faster-whisper and ffmpeg."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["faster-whisper", "argostranslate", "fastapi", "uvicorn", "python-multipart"]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx", "ruff", "mypy"]
+
+[project.scripts]
+captionforge = "captionforge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "SIM", "ASYNC", "BLE"]
+# B008: FastAPI's own Depends(...)-in-default pattern is the framework's
+# idiomatic dependency injection, not the footgun this rule exists for.
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

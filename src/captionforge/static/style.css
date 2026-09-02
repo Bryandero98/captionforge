@@ -1,0 +1,196 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --surface: #171a21;
+  --border: #2a2f3a;
+  --text: #e8eaf0;
+  --text-dim: #9aa1b0;
+  --accent: #ff8a34;
+  --accent-hover: #ff9d54;
+  --error-bg: #3a1a1a;
+  --error-border: #7a2d2d;
+  --error-text: #ff8f8f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* The [hidden] attribute's default display:none has low specificity and
+   loses to any later display rule on the same element (e.g. #download-video
+   below needing display:block once visible) - verified live: without this,
+   #download-video rendered even while [hidden] was still set. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+
+.page__header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.page__header h1 {
+  margin: 0 0 8px;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.card--error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.drop-zone:hover,
+.drop-zone.drop-zone--active {
+  border-color: var(--accent);
+  background: rgba(255, 138, 52, 0.06);
+}
+
+.drop-zone__label {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.drop-zone__hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.options label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.options select,
+.options input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+
+.selected-file {
+  margin: 16px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.button {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 10px 18px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1200;
+}
+
+.button--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.button--ghost {
+  background: transparent;
+  margin-top: 20px;
+}
+
+.stage-label {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+.progress-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.results {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.burn-progress {
+  margin: 12px 0;
+}
+
+#download-video {
+  display: block;
+  margin-bottom: 8px;
+}
