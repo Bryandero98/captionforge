@@ -108,6 +108,38 @@
     renderHistory();
   }
 
+  // ---- Resuming an in-progress job after an accidental reload - a live job
+  // keeps running server-side regardless of what the browser does, but
+  // without this the UI would just fall back to the empty upload screen,
+  // making it look like the work was lost. ----
+  const ACTIVE_JOB_KEY = "captionforge_active_job";
+
+  function saveActiveJob(jobId, filename) {
+    try {
+      localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId, filename }));
+    } catch {
+      // Non-fatal: an accidental reload just won't resume this session (private mode, full storage).
+    }
+  }
+
+  function clearActiveJob() {
+    try {
+      localStorage.removeItem(ACTIVE_JOB_KEY);
+    } catch {
+      // Non-fatal.
+    }
+  }
+
+  function loadActiveJob() {
+    try {
+      const raw = localStorage.getItem(ACTIVE_JOB_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed.jobId === "string" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
   function updateHistoryEntry(jobId, patch) {
     const entries = loadHistory().map((e) => (e.jobId === jobId ? { ...e, ...patch } : e));
     saveHistory(entries);
@@ -316,6 +348,11 @@
       onUpdate(job);
       if (job.status === "error") {
         source.close();
+        // A real terminal failure, not just a dropped connection - clear the
+        // resume pointer so an accidental reload lands back on a clean
+        // upload screen (the only recovery path today; the error card has
+        // no retry button of its own) instead of re-showing the same error.
+        clearActiveJob();
         if (job.error) showRawError(job.error);
         else showError("genericJobError");
       } else if (job.status === "done" || job.status === "burned") {
@@ -327,9 +364,37 @@
       consecutiveErrors += 1;
       if (consecutiveErrors < MAX_SSE_RECONNECT_ATTEMPTS) return; // let the browser's own retry keep trying
       source.close();
+      // Unlike a real job error above, this doesn't clear the resume
+      // pointer - the job may well still be running server-side, we've
+      // just lost the connection to it, and a reload should try again.
       showError("connectionLostError");
     };
     return source;
+  }
+
+  // Shared between the live upload flow and resuming an already-finished
+  // job after a reload (see resumeActiveJobIfAny below) - keeps both paths
+  // rendering the results section identically instead of drifting apart.
+  function showTranscriptionResults(jobId, karaokeAvailable, filename) {
+    progressSection.hidden = true;
+    resultsSection.hidden = false;
+    downloadSrtLink.href = `/api/jobs/${jobId}/srt`;
+    downloadVttLink.href = `/api/jobs/${jobId}/vtt`;
+    downloadAssLink.href = `/api/jobs/${jobId}/ass`;
+    setKaraokeAvailable(karaokeAvailable);
+    addHistoryEntry({
+      jobId,
+      filename: filename || jobId,
+      createdAt: new Date().toISOString(),
+      videoReady: false,
+    });
+  }
+
+  function showBurnResults(jobId) {
+    burnProgressSection.hidden = true;
+    downloadVideoLink.hidden = false;
+    downloadVideoLink.href = `/api/jobs/${jobId}/video`;
+    updateHistoryEntry(jobId, { videoReady: true });
   }
 
   uploadButton.addEventListener("click", async () => {
@@ -360,6 +425,8 @@
 
     const { job_id: jobId } = await response.json();
     currentJobId = jobId;
+    const filename = selectedFile.name;
+    saveActiveJob(jobId, filename);
     uploadSection.hidden = true;
     progressSection.hidden = false;
     editSection.hidden = true;
@@ -372,20 +439,7 @@
         stageLabel.textContent = stageLabelFor(job.status, job.progress);
         progressFill.style.width = `${Math.round(job.progress * 100)}%`;
       },
-      onDone: (job) => {
-        progressSection.hidden = true;
-        resultsSection.hidden = false;
-        downloadSrtLink.href = `/api/jobs/${jobId}/srt`;
-        downloadVttLink.href = `/api/jobs/${jobId}/vtt`;
-        downloadAssLink.href = `/api/jobs/${jobId}/ass`;
-        setKaraokeAvailable(job.karaoke_available);
-        addHistoryEntry({
-          jobId,
-          filename: selectedFile ? selectedFile.name : jobId,
-          createdAt: new Date().toISOString(),
-          videoReady: false,
-        });
-      },
+      onDone: (job) => showTranscriptionResults(jobId, job.karaoke_available, filename),
     });
   });
 
@@ -413,16 +467,74 @@
         burnStageLabel.textContent = stageLabelFor(job.status, job.progress);
         burnProgressFill.style.width = `${Math.round(job.progress * 100)}%`;
       },
-      onDone: (job) => {
-        burnProgressSection.hidden = true;
-        downloadVideoLink.hidden = false;
-        downloadVideoLink.href = `/api/jobs/${jobIdAtBurnTime}/video`;
-        updateHistoryEntry(jobIdAtBurnTime, { videoReady: true });
-      },
+      onDone: () => showBurnResults(jobIdAtBurnTime),
     });
   });
 
-  restartButton.addEventListener("click", () => location.reload());
+  restartButton.addEventListener("click", () => {
+    clearActiveJob();
+    location.reload();
+  });
+
+  // ---- On page load, pick back up wherever a still-tracked job was left -
+  // an accidental reload must not look like the work vanished. ----
+  async function resumeActiveJobIfAny() {
+    const active = loadActiveJob();
+    if (!active) return;
+
+    let response;
+    try {
+      response = await fetch(`/api/jobs/${active.jobId}`);
+    } catch {
+      return; // Can't reach the server right now - leave the pointer alone, try again on the next load.
+    }
+    if (!response.ok) {
+      clearActiveJob(); // Gone server-side (superseded by another job, or the server restarted) - nothing to resume.
+      return;
+    }
+    const job = await response.json();
+    currentJobId = active.jobId;
+    uploadSection.hidden = true;
+
+    if (["queued", "extracting_audio", "transcribing"].includes(job.status)) {
+      progressSection.hidden = false;
+      editSection.hidden = true;
+      downloadVideoLink.hidden = true;
+      setKaraokeAvailable(false);
+      stageLabel.textContent = stageLabelFor(job.status, job.progress);
+      progressFill.style.width = `${Math.round(job.progress * 100)}%`;
+      watchJobEvents(active.jobId, {
+        onUpdate: (j) => {
+          lastMainJob = j;
+          stageLabel.textContent = stageLabelFor(j.status, j.progress);
+          progressFill.style.width = `${Math.round(j.progress * 100)}%`;
+        },
+        onDone: (j) => showTranscriptionResults(active.jobId, j.karaoke_available, active.filename),
+      });
+    } else if (job.status === "burning_subtitles") {
+      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename);
+      burnProgressSection.hidden = false;
+      burnStageLabel.textContent = stageLabelFor(job.status, job.progress);
+      burnProgressFill.style.width = `${Math.round(job.progress * 100)}%`;
+      watchJobEvents(active.jobId, {
+        onUpdate: (j) => {
+          lastBurnJob = j;
+          burnStageLabel.textContent = stageLabelFor(j.status, j.progress);
+          burnProgressFill.style.width = `${Math.round(j.progress * 100)}%`;
+        },
+        onDone: () => showBurnResults(active.jobId),
+      });
+    } else if (job.status === "done") {
+      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename);
+    } else if (job.status === "burned") {
+      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename);
+      showBurnResults(active.jobId);
+    } else if (job.status === "error") {
+      clearActiveJob();
+      if (job.error) showRawError(job.error);
+      else showError("genericJobError");
+    }
+  }
 
   function changeLang(lang) {
     setLang(lang); // re-applies [data-i18n]/[data-i18n-placeholder]/[data-lang] elements, header buttons included
@@ -442,4 +554,5 @@
 
   applyToDom(); // also syncs the header ES/EN buttons' active state via i18n.js's [data-lang] handling
   renderHistory();
+  resumeActiveJobIfAny();
 })();
