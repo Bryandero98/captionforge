@@ -19,12 +19,28 @@
 
   const resultsSection = document.getElementById("results-section");
   const downloadSrtLink = document.getElementById("download-srt");
+  const downloadVttLink = document.getElementById("download-vtt");
+  const downloadAssLink = document.getElementById("download-ass");
   const burnButton = document.getElementById("burn-button");
   const burnProgressSection = document.getElementById("burn-progress");
   const burnStageLabel = document.getElementById("burn-stage-label");
   const burnProgressFill = document.getElementById("burn-progress-fill");
   const downloadVideoLink = document.getElementById("download-video");
   const restartButton = document.getElementById("restart-button");
+
+  const editToggleButton = document.getElementById("edit-toggle-button");
+  const editSection = document.getElementById("edit-section");
+  const editRows = document.getElementById("edit-rows");
+  const editSaveButton = document.getElementById("edit-save-button");
+  const editSavedLabel = document.getElementById("edit-saved-label");
+
+  const subtitleStyleSelect = document.getElementById("subtitle-style");
+  const karaokeOption = document.getElementById("karaoke-option");
+  const karaokeCheckbox = document.getElementById("karaoke-checkbox");
+
+  const historyEmpty = document.getElementById("history-empty");
+  const historyList = document.getElementById("history-list");
+  const historyClearButton = document.getElementById("history-clear-button");
 
   const langEsButton = document.getElementById("lang-es");
   const langEnButton = document.getElementById("lang-en");
@@ -59,6 +75,77 @@
         return t("stageBurning");
       default:
         return "";
+    }
+  }
+
+  // ---- Recent-jobs history (localStorage only - the backend forgets a job
+  // once a new one starts; see routes/results.py's historical-download
+  // fallback, which is what makes these links keep working after that). ----
+  const HISTORY_KEY = "captionforge_history";
+  const MAX_HISTORY_ENTRIES = 10;
+
+  function loadHistory() {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveHistory(entries) {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
+    } catch {
+      // Non-fatal: history just won't persist this session (private mode, full storage).
+    }
+  }
+
+  function addHistoryEntry(entry) {
+    const entries = [entry, ...loadHistory().filter((e) => e.jobId !== entry.jobId)].slice(0, MAX_HISTORY_ENTRIES);
+    saveHistory(entries);
+    renderHistory();
+  }
+
+  function updateHistoryEntry(jobId, patch) {
+    const entries = loadHistory().map((e) => (e.jobId === jobId ? { ...e, ...patch } : e));
+    saveHistory(entries);
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const entries = loadHistory();
+    historyList.innerHTML = "";
+    historyEmpty.hidden = entries.length > 0;
+    historyClearButton.hidden = entries.length === 0;
+    for (const entry of entries) {
+      const li = document.createElement("li");
+      li.className = "history-item";
+
+      const name = document.createElement("span");
+      name.className = "history-item__name";
+      name.textContent = entry.filename || entry.jobId;
+      name.title = entry.filename || entry.jobId;
+      li.appendChild(name);
+
+      const links = document.createElement("span");
+      links.className = "history-item__links";
+      const linkSpecs = [
+        ["historySrt", `/api/jobs/${entry.jobId}/srt`],
+        ["historyVtt", `/api/jobs/${entry.jobId}/vtt`],
+        ["historyAss", `/api/jobs/${entry.jobId}/ass`],
+      ];
+      if (entry.videoReady) linkSpecs.push(["historyVideo", `/api/jobs/${entry.jobId}/video`]);
+      for (const [labelKey, href] of linkSpecs) {
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = "";
+        a.textContent = t(labelKey);
+        links.appendChild(a);
+      }
+      li.appendChild(links);
+      historyList.appendChild(li);
     }
   }
 
@@ -122,6 +209,97 @@
     };
   }
 
+  function setKaraokeAvailable(available) {
+    karaokeOption.hidden = !available;
+    if (!available) karaokeCheckbox.checked = false;
+  }
+
+  // ---- Edit-before-burn: fetch the transcribed segments, let the user fix
+  // the text, PUT the edits back. Restricted server-side to the CURRENT job
+  // (see routes/results.py) - editing only makes sense in the window between
+  // transcription finishing and the first burn. ----
+  function renderEditRows(segments) {
+    editRows.innerHTML = "";
+    for (const segment of segments) {
+      const row = document.createElement("div");
+      row.className = "edit-row";
+
+      const totalSeconds = Math.floor(segment.start);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      const time = document.createElement("span");
+      time.className = "edit-row__time";
+      time.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`;
+      row.appendChild(time);
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "edit-row__text";
+      input.value = segment.text;
+      input.dataset.index = String(segment.index);
+      row.appendChild(input);
+
+      editRows.appendChild(row);
+    }
+  }
+
+  editToggleButton.addEventListener("click", async () => {
+    if (!editSection.hidden) {
+      editSection.hidden = true;
+      return;
+    }
+    if (!currentJobId) return;
+    const response = await fetch(`/api/jobs/${currentJobId}/segments`);
+    if (!response.ok) {
+      showError("editLoadErrorFallback");
+      return;
+    }
+    const { segments } = await response.json();
+    renderEditRows(segments);
+    editSection.hidden = false;
+  });
+
+  editSaveButton.addEventListener("click", async () => {
+    if (!currentJobId) return;
+    const edits = Array.from(editRows.querySelectorAll(".edit-row__text")).map((input) => ({
+      index: Number(input.dataset.index),
+      text: input.value,
+    }));
+
+    editSaveButton.disabled = true;
+    const response = await fetch(`/api/jobs/${currentJobId}/segments`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segments: edits }),
+    });
+    editSaveButton.disabled = false;
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      if (body.detail) showRawError(body.detail);
+      else showError("editErrorFallback", { status: response.status });
+      return;
+    }
+
+    // Editing may have dropped word timings on the changed lines (see
+    // routes/results.py) - refresh whether karaoke is still offered.
+    const jobResponse = await fetch(`/api/jobs/${currentJobId}`);
+    if (jobResponse.ok) {
+      const job = await jobResponse.json();
+      setKaraokeAvailable(job.karaoke_available);
+    }
+
+    editSavedLabel.hidden = false;
+    setTimeout(() => {
+      editSavedLabel.hidden = true;
+    }, 2000);
+  });
+
+  historyClearButton.addEventListener("click", () => {
+    saveHistory([]);
+    renderHistory();
+  });
+
   function watchJobEvents(jobId, { onUpdate, onDone }) {
     const source = new EventSource(`/api/jobs/${jobId}/events`);
     source.onmessage = (event) => {
@@ -175,6 +353,9 @@
     currentJobId = jobId;
     uploadSection.hidden = true;
     progressSection.hidden = false;
+    editSection.hidden = true;
+    downloadVideoLink.hidden = true;
+    setKaraokeAvailable(false);
 
     watchJobEvents(jobId, {
       onUpdate: (job) => {
@@ -186,6 +367,15 @@
         progressSection.hidden = true;
         resultsSection.hidden = false;
         downloadSrtLink.href = `/api/jobs/${jobId}/srt`;
+        downloadVttLink.href = `/api/jobs/${jobId}/vtt`;
+        downloadAssLink.href = `/api/jobs/${jobId}/ass`;
+        setKaraokeAvailable(job.karaoke_available);
+        addHistoryEntry({
+          jobId,
+          filename: selectedFile ? selectedFile.name : jobId,
+          createdAt: new Date().toISOString(),
+          videoReady: false,
+        });
       },
     });
   });
@@ -195,7 +385,11 @@
     burnButton.disabled = true;
     burnProgressSection.hidden = false;
 
-    const response = await fetch(`/api/jobs/${currentJobId}/burn`, { method: "POST" });
+    const formData = new FormData();
+    formData.append("style", subtitleStyleSelect.value);
+    formData.append("karaoke", karaokeCheckbox.checked ? "true" : "false");
+
+    const response = await fetch(`/api/jobs/${currentJobId}/burn`, { method: "POST", body: formData });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       if (body.detail) showRawError(body.detail);
@@ -203,6 +397,7 @@
       return;
     }
 
+    const jobIdAtBurnTime = currentJobId;
     watchJobEvents(currentJobId, {
       onUpdate: (job) => {
         lastBurnJob = job;
@@ -212,7 +407,8 @@
       onDone: (job) => {
         burnProgressSection.hidden = true;
         downloadVideoLink.hidden = false;
-        downloadVideoLink.href = `/api/jobs/${currentJobId}/video`;
+        downloadVideoLink.href = `/api/jobs/${jobIdAtBurnTime}/video`;
+        updateHistoryEntry(jobIdAtBurnTime, { videoReady: true });
       },
     });
   });
@@ -237,6 +433,7 @@
     if (lastMainJob) stageLabel.textContent = stageLabelFor(lastMainJob.status, lastMainJob.progress);
     if (lastBurnJob) burnStageLabel.textContent = stageLabelFor(lastBurnJob.status, lastBurnJob.progress);
     if (lastErrorRender) lastErrorRender();
+    renderHistory(); // history links carry a translated label (".srt", "video", ...)
   }
 
   langEsButton.addEventListener("click", () => changeLang("es"));
@@ -244,4 +441,5 @@
 
   applyToDom();
   syncLangButtons();
+  renderHistory();
 })();

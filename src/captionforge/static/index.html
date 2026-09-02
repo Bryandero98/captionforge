@@ -62,6 +62,37 @@
         <h2 data-i18n="resultsHeading">Listo</h2>
         <div class="results">
           <a id="download-srt" class="button" download data-i18n="downloadSrt">Descargar .srt</a>
+          <a id="download-vtt" class="button" download data-i18n="downloadVtt">Descargar .vtt</a>
+          <a id="download-ass" class="button" download data-i18n="downloadAss">Descargar .ass</a>
+          <button type="button" id="edit-toggle-button" class="button" data-i18n="editToggleButton">Editar subtítulos</button>
+        </div>
+
+        <div id="edit-section" class="edit-section" hidden>
+          <p class="edit-section__hint" data-i18n="editHint">Corrige el texto si algo salió mal. Los tiempos no cambian.</p>
+          <div id="edit-rows" class="edit-rows"></div>
+          <div class="edit-section__actions">
+            <button type="button" id="edit-save-button" class="button button--primary" data-i18n="editSaveButton">Guardar cambios</button>
+            <span id="edit-saved-label" class="edit-saved-label" hidden data-i18n="editSavedLabel">Guardado</span>
+          </div>
+        </div>
+
+        <div class="burn-options">
+          <label for="subtitle-style">
+            <span data-i18n="subtitleStyleLabel">Estilo de subtítulo</span>
+            <select id="subtitle-style">
+              <option value="modern" selected data-i18n="styleModern">Moderno</option>
+              <option value="tiktok" data-i18n="styleTiktok">TikTok bold</option>
+              <option value="youtube" data-i18n="styleYoutube">Clásico YouTube</option>
+              <option value="minimal" data-i18n="styleMinimal">Minimalista</option>
+            </select>
+          </label>
+          <label id="karaoke-option" class="checkbox-option" hidden>
+            <input type="checkbox" id="karaoke-checkbox" />
+            <span data-i18n="karaokeLabel">Resaltar palabra por palabra (karaoke)</span>
+          </label>
+        </div>
+
+        <div class="results">
           <button type="button" id="burn-button" class="button button--primary" data-i18n="burnButton">Quemar en el video</button>
         </div>
 
@@ -75,6 +106,13 @@
         <a id="download-video" class="button button--primary" download hidden data-i18n="downloadVideo">Descargar video con subtítulos</a>
 
         <button type="button" id="restart-button" class="button button--ghost" data-i18n="restartButton">Procesar otro video</button>
+      </section>
+
+      <section id="history-section" class="card">
+        <h2 data-i18n="historyHeading">Trabajos recientes</h2>
+        <p id="history-empty" class="history-empty" data-i18n="historyEmpty">Todavía no hay trabajos en este navegador.</p>
+        <ul id="history-list" class="history-list"></ul>
+        <button type="button" id="history-clear-button" class="history-clear" hidden data-i18n="historyClear">Borrar historial</button>
       </section>
     </main>
 

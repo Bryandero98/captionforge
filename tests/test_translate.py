@@ -23,7 +23,7 @@ class TestTranslateSegments:
         assert result == segments
         ensure_mock.assert_not_called()
 
-    def test_translates_text_but_preserves_start_end_and_words(self):
+    def test_translates_text_and_preserves_start_end_but_drops_words(self):
         words = [WordTiming(start=0.0, end=0.5, text="hola")]
         segments = [Segment(start=0.0, end=1.0, text="hola", words=words)]
 
@@ -41,7 +41,10 @@ class TestTranslateSegments:
         assert translated.text == "hello"
         assert translated.start == 0.0
         assert translated.end == 1.0
-        assert translated.words == words
+        # The original-language per-word timing no longer lines up with the
+        # translated text (different words/order/count) - keeping it would
+        # feed a karaoke renderer a mismatched word/timing pair.
+        assert translated.words is None
         fake_translation.translate.assert_called_once_with("hola")
 
     def test_raises_a_clear_error_if_the_pair_still_cant_load_after_install_attempt(self):

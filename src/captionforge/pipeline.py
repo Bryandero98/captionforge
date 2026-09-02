@@ -9,13 +9,31 @@ that also has to keep serving the SSE progress stream while they run.
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 from pathlib import Path
 
-from .ffmpeg_utils import build_burn_subtitles_cmd, build_extract_audio_cmd
+from .ffmpeg_utils import build_burn_subtitles_cmd, build_extract_audio_cmd, resolve_style
 from .jobs import JobStatus, JobStore
-from .srt import Segment, WordTiming, segments_to_srt
+from .srt import Segment, WordTiming, segments_from_dicts, segments_to_ass, segments_to_dicts, segments_to_srt
 from .translate import translate_segments
+
+# Fixed filenames within a job's directory - shared by pipeline.py (writer)
+# and routes/results.py (reader, including the historical-job fallback that
+# reads them straight off disk without going through JobStore).
+SEGMENTS_FILENAME = "segments.json"
+KARAOKE_ASS_FILENAME = "karaoke.ass"
+
+
+def write_segments_json(segments_dir: Path, segments: list[Segment]) -> None:
+    (segments_dir / SEGMENTS_FILENAME).write_text(
+        json.dumps(segments_to_dicts(segments)), encoding="utf-8"
+    )
+
+
+def read_segments_json(segments_dir: Path) -> list[Segment]:
+    raw = (segments_dir / SEGMENTS_FILENAME).read_text(encoding="utf-8")
+    return segments_from_dicts(json.loads(raw))
 
 
 def select_device(model_size: str) -> tuple[object, str]:
@@ -116,6 +134,11 @@ async def run_transcription_job(
             )
 
         await asyncio.to_thread(srt_path.write_text, segments_to_srt(segments), encoding="utf-8")
+        # Persisted alongside the .srt so /vtt, /ass, /segments (edit), and a
+        # completed job's entry in the frontend's "recent jobs" history can
+        # all read the full Segment list (word timings included) straight off
+        # disk - independent of JobStore, which only ever remembers ONE job.
+        await asyncio.to_thread(write_segments_json, srt_path.parent, segments)
         store.update(job_id, srt_ready=True, stage_label="Listo")
         store.transition(job_id, JobStatus.DONE)
     except Exception as exc:
@@ -130,15 +153,37 @@ async def run_burn_job(
     video_path: Path,
     srt_path: Path,
     output_path: Path,
+    style_name: str = "modern",
+    karaoke: bool = False,
 ) -> None:
-    """Burns srt_path into video_path, writing output_path.
+    """Burns subtitles into video_path, writing output_path.
+
+    Two render paths:
+    - `karaoke=True` AND at least one segment still carries word timings
+      (untouched by translation or a manual text edit - see translate.py and
+      the segment-edit route) -> builds a per-word `\\k`-tagged .ass file
+      (segments without words still render, just without the effect) and
+      burns that, with `style_name` baked into its own Style: line.
+    - Otherwise -> the original plain-SRT path, styled via `force_style`.
 
     Updates the job through BURNING_SUBTITLES -> BURNED, or ERROR on failure.
     """
     try:
         store.transition(job_id, JobStatus.BURNING_SUBTITLES)
         store.update(job_id, stage_label="Quemando subtitulos")
-        await _run_ffmpeg(build_burn_subtitles_cmd(str(video_path), str(srt_path), str(output_path)))
+
+        segments = await asyncio.to_thread(read_segments_json, srt_path.parent)
+        use_karaoke = karaoke and any(segment.words for segment in segments)
+
+        if use_karaoke:
+            ass_path = srt_path.parent / KARAOKE_ASS_FILENAME
+            ass_content = segments_to_ass(segments, resolve_style(style_name))
+            await asyncio.to_thread(ass_path.write_text, ass_content, encoding="utf-8")
+            cmd = build_burn_subtitles_cmd(str(video_path), str(ass_path), str(output_path), is_ass=True)
+        else:
+            cmd = build_burn_subtitles_cmd(str(video_path), str(srt_path), str(output_path), style_name)
+
+        await _run_ffmpeg(cmd)
         store.update(job_id, video_ready=True, stage_label="Listo")
         store.transition(job_id, JobStatus.BURNED)
     except Exception as exc:

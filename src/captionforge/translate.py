@@ -72,4 +72,11 @@ def translate_segments(segments: list[Segment], from_code: str, to_code: str) ->
             f"No se pudo cargar el modelo de traducción {from_code}→{to_code} tras instalarlo."
         )
 
-    return [replace(segment, text=translation.translate(segment.text)) for segment in segments]
+    # `words` drops on translation: it holds the ORIGINAL-language word text
+    # and per-word timing, which no longer lines up with the translated text
+    # (different words, different count, often different order). Keeping it
+    # would silently feed a future karaoke renderer mismatched word/timing
+    # pairs under translated text - `None` is the honest "not available" answer.
+    return [
+        replace(segment, text=translation.translate(segment.text), words=None) for segment in segments
+    ]

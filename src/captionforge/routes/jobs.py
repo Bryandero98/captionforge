@@ -10,11 +10,22 @@ from fastapi.responses import StreamingResponse
 
 from ..deps import get_job_store
 from ..jobs import Job, JobStore, UnknownJobError
+from ..pipeline import read_segments_json
 
 router = APIRouter()
 
 _TERMINAL_STATUSES = {"done", "burned", "error"}
 _POLL_INTERVAL_SECONDS = 0.25
+
+
+def _karaoke_available(job: Job) -> bool:
+    """Whether at least one segment still carries word-level timing (untouched by translation/an edit)."""
+    if not job.srt_ready or job.srt_path is None:
+        return False
+    try:
+        return any(segment.words for segment in read_segments_json(job.srt_path.parent))
+    except (FileNotFoundError, ValueError):
+        return False
 
 
 def _job_to_dict(job: Job) -> dict:
@@ -26,6 +37,7 @@ def _job_to_dict(job: Job) -> dict:
         "error": job.error,
         "srt_ready": job.srt_ready,
         "video_ready": job.video_ready,
+        "karaoke_available": _karaoke_available(job),
     }
 
 
