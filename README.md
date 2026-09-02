@@ -1,5 +1,7 @@
 # CaptionForge
 
+**English** | [Español](README.es.md)
+
 Local, free automatic video captions - the CapCut/Kapwing auto-caption
 experience, but 100% on your own machine. No watermark, no monthly limit,
 no account.
@@ -25,11 +27,13 @@ captionforge serve
 ```
 
 This starts a local server (default `http://127.0.0.1:8420/`) and opens it
-in your browser. Drag in a video, choose a Whisper model size and
-optionally a source language / translation target, and click **Generar
-subtítulos**. Once transcription finishes you can download the `.srt`
-directly, or click **Quemar en el video** to burn the captions into the
-video itself (a separate, on-demand step - you're never forced to
+in your browser. The **ES / EN** switch in the top-right corner sets the
+UI language (remembered for next time via `localStorage`; it defaults to
+your browser's own language). Drag in a video, choose a Whisper model size
+and optionally a source language / translation target, and click
+**Generate captions**. Once transcription finishes you can download the
+`.srt` directly, or click **Burn into video** to burn the captions into
+the video itself (a separate, on-demand step - you're never forced to
 re-encode the whole video just to get the text).
 
 CaptionForge processes one video at a time by design - a second upload
@@ -57,7 +61,11 @@ queued.
 - `src/captionforge/app.py` + `routes/` - the FastAPI layer: upload,
   Server-Sent Events for live progress, and the `.srt`/video downloads.
 - `src/captionforge/static/` - the frontend: one plain HTML/CSS/JS page,
-  no build step, no framework.
+  no build step, no framework. `i18n.js` is a small flat-dictionary
+  translator (Spanish/English, `localStorage`-backed) that drives every
+  `data-i18n`-tagged element in `index.html`; job stage labels are derived
+  client-side from the language-neutral `status` field the API already
+  returns, not from the backend's own (Spanish-only) `stage_label` text.
 
 `scripts/smoke_test_pipeline.py` exercises the whole transcribe ->
 translate -> burn pipeline directly against a real video, no server
@@ -76,11 +84,16 @@ pytest
 `tests/fixtures/tiny_test_clip.mp4` is a real ~10s clip (synthesized
 speech) used by the live-pipeline tests - not a mock.
 
-## Known limitation
+## Known limitations
 
-`argos-translate`'s default `compute_type="auto"` resolves to a quantized
-kernel that silently produces garbage (repetition-loop) output for at
-least one language pair on at least one real CPU - verified live during
-development. `captionforge` forces `float32` (see `translate.py`) to avoid
-this; if you use `argos-translate` directly elsewhere, verify your own
-language pair isn't affected before trusting quantized output.
+- `argos-translate`'s default `compute_type="auto"` resolves to a quantized
+  kernel that silently produces garbage (repetition-loop) output for at
+  least one language pair on at least one real CPU - verified live during
+  development. `captionforge` forces `float32` (see `translate.py`) to
+  avoid this; if you use `argos-translate` directly elsewhere, verify your
+  own language pair isn't affected before trusting quantized output.
+- The UI language switch is frontend-only. Everyday status text (stage
+  labels, generic error framing) is fully bilingual, but the rare
+  server-generated error message - an unsupported file format, a job
+  conflict, an ffmpeg failure - is still written in Spanish by the backend
+  and shown as-is regardless of the selected UI language.

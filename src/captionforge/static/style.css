@@ -39,8 +39,35 @@ body {
 }
 
 .page__header {
+  position: relative;
   text-align: center;
   margin-bottom: 32px;
+}
+
+.lang-switch {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.lang-switch__button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-dim);
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.lang-switch__button--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1200;
 }
 
 .page__header h1 {

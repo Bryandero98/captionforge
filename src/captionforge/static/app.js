@@ -1,4 +1,6 @@
 (() => {
+  const { t, applyToDom, setLang, getLang } = window.CaptionForgeI18n;
+
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
   const selectedFileLabel = document.getElementById("selected-file");
@@ -24,19 +26,56 @@
   const downloadVideoLink = document.getElementById("download-video");
   const restartButton = document.getElementById("restart-button");
 
+  const langEsButton = document.getElementById("lang-es");
+  const langEnButton = document.getElementById("lang-en");
+
   let selectedFile = null;
   let currentJobId = null;
+  // The last job payload received for each progress stream, kept around
+  // purely so a language switch mid-run can re-derive the stage label
+  // instead of leaving it frozen in the old language until the next event.
+  let lastMainJob = null;
+  let lastBurnJob = null;
+  // Re-invoked on a language switch to refresh whatever error is on screen.
+  // `null` when no error is showing.
+  let lastErrorRender = null;
 
-  function setSelectedFile(file) {
-    selectedFile = file;
-    if (file) {
-      selectedFileLabel.textContent = `Archivo: ${file.name}`;
+  // Every status the backend's job state machine can report (see jobs.py) -
+  // deliberately language-neutral, so the label shown for it is derived here
+  // instead of trusting stage_label, which the backend only ever writes in
+  // Spanish.
+  function stageLabelFor(status, progress) {
+    switch (status) {
+      case "queued":
+        return t("stageQueued");
+      case "extracting_audio":
+        return t("stageExtracting");
+      case "transcribing":
+        return t("stageTranscribing", { percent: Math.round((progress || 0) * 100) });
+      case "done":
+      case "burned":
+        return t("stageReady");
+      case "burning_subtitles":
+        return t("stageBurning");
+      default:
+        return "";
+    }
+  }
+
+  function renderSelectedFile() {
+    if (selectedFile) {
+      selectedFileLabel.textContent = t("selectedFile", { name: selectedFile.name });
       selectedFileLabel.hidden = false;
       uploadButton.disabled = false;
     } else {
       selectedFileLabel.hidden = true;
       uploadButton.disabled = true;
     }
+  }
+
+  function setSelectedFile(file) {
+    selectedFile = file;
+    renderSelectedFile();
   }
 
   dropZone.addEventListener("click", () => fileInput.click());
@@ -59,10 +98,28 @@
     if (file) setSelectedFile(file);
   });
 
-  function showError(message) {
-    errorMessage.textContent = message;
+  // `text` is shown verbatim and NOT re-translated on a language switch -
+  // used for backend-provided detail strings (HTTPException bodies, job.error),
+  // which the server only ever writes in Spanish today (see the README's
+  // "known limitation" note).
+  function showRawError(text) {
+    errorMessage.textContent = text;
     errorSection.hidden = false;
     progressSection.hidden = true;
+    lastErrorRender = () => {
+      errorMessage.textContent = text;
+    };
+  }
+
+  // `key`/`params` ARE re-translated on a language switch - used for every
+  // error message this frontend generates itself.
+  function showError(key, params) {
+    errorMessage.textContent = t(key, params);
+    errorSection.hidden = false;
+    progressSection.hidden = true;
+    lastErrorRender = () => {
+      errorMessage.textContent = t(key, params);
+    };
   }
 
   function watchJobEvents(jobId, { onUpdate, onDone }) {
@@ -72,7 +129,8 @@
       onUpdate(job);
       if (job.status === "error") {
         source.close();
-        showError(job.error || "Ocurrió un error inesperado.");
+        if (job.error) showRawError(job.error);
+        else showError("genericJobError");
       } else if (job.status === "done" || job.status === "burned") {
         source.close();
         onDone(job);
@@ -101,13 +159,14 @@
     try {
       response = await fetch("/api/jobs", { method: "POST", body: formData });
     } catch (err) {
-      showError("No se pudo conectar con el servidor.");
+      showError("connectionError");
       return;
     }
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      showError(body.detail || `Error ${response.status} al subir el video.`);
+      if (body.detail) showRawError(body.detail);
+      else showError("uploadErrorFallback", { status: response.status });
       uploadButton.disabled = false;
       return;
     }
@@ -119,7 +178,8 @@
 
     watchJobEvents(jobId, {
       onUpdate: (job) => {
-        stageLabel.textContent = job.stage_label;
+        lastMainJob = job;
+        stageLabel.textContent = stageLabelFor(job.status, job.progress);
         progressFill.style.width = `${Math.round(job.progress * 100)}%`;
       },
       onDone: (job) => {
@@ -138,13 +198,15 @@
     const response = await fetch(`/api/jobs/${currentJobId}/burn`, { method: "POST" });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      showError(body.detail || `Error ${response.status} al quemar los subtítulos.`);
+      if (body.detail) showRawError(body.detail);
+      else showError("burnErrorFallback", { status: response.status });
       return;
     }
 
     watchJobEvents(currentJobId, {
       onUpdate: (job) => {
-        burnStageLabel.textContent = job.stage_label;
+        lastBurnJob = job;
+        burnStageLabel.textContent = stageLabelFor(job.status, job.progress);
         burnProgressFill.style.width = `${Math.round(job.progress * 100)}%`;
       },
       onDone: (job) => {
@@ -156,4 +218,30 @@
   });
 
   restartButton.addEventListener("click", () => location.reload());
+
+  function syncLangButtons() {
+    const lang = getLang();
+    langEsButton.classList.toggle("lang-switch__button--active", lang === "es");
+    langEnButton.classList.toggle("lang-switch__button--active", lang === "en");
+    langEsButton.setAttribute("aria-pressed", String(lang === "es"));
+    langEnButton.setAttribute("aria-pressed", String(lang === "en"));
+  }
+
+  function changeLang(lang) {
+    setLang(lang); // re-applies every [data-i18n] / [data-i18n-placeholder] element
+    syncLangButtons();
+    // [data-i18n] only covers static markup - text this script wrote itself
+    // (the selected-file label, the live stage label, a shown error) needs
+    // its own refresh, or it stays frozen in the old language.
+    renderSelectedFile();
+    if (lastMainJob) stageLabel.textContent = stageLabelFor(lastMainJob.status, lastMainJob.progress);
+    if (lastBurnJob) burnStageLabel.textContent = stageLabelFor(lastBurnJob.status, lastBurnJob.progress);
+    if (lastErrorRender) lastErrorRender();
+  }
+
+  langEsButton.addEventListener("click", () => changeLang("es"));
+  langEnButton.addEventListener("click", () => changeLang("en"));
+
+  applyToDom();
+  syncLangButtons();
 })();

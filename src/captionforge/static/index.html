@@ -9,42 +9,46 @@
   <body>
     <main class="page">
       <header class="page__header">
+        <div class="lang-switch" role="group" aria-label="Language / Idioma">
+          <button type="button" id="lang-es" class="lang-switch__button" data-lang="es">ES</button>
+          <button type="button" id="lang-en" class="lang-switch__button" data-lang="en">EN</button>
+        </div>
         <h1>CaptionForge</h1>
-        <p class="tagline">Subtítulos automáticos, 100% locales. Sin suscripción, sin límite, sin nube.</p>
+        <p class="tagline" data-i18n="tagline">Subtítulos automáticos, 100% locales. Sin suscripción, sin límite, sin nube.</p>
       </header>
 
       <section id="upload-section" class="card">
         <div id="drop-zone" class="drop-zone">
-          <p class="drop-zone__label">Arrastra un video aquí, o haz clic para elegir uno</p>
+          <p class="drop-zone__label" data-i18n="dropZoneLabel">Arrastra un video aquí, o haz clic para elegir uno</p>
           <p class="drop-zone__hint">.mp4, .mov, .mkv, .webm, .avi</p>
           <input id="file-input" type="file" accept=".mp4,.mov,.mkv,.webm,.avi" hidden />
         </div>
 
         <div class="options">
-          <label>
-            Modelo
+          <label for="model-size">
+            <span data-i18n="modelLabel">Modelo</span>
             <select id="model-size">
-              <option value="base">base (más rápido)</option>
-              <option value="small" selected>small (equilibrado)</option>
-              <option value="medium">medium (más preciso)</option>
+              <option value="base" data-i18n="modelBase">base (más rápido)</option>
+              <option value="small" selected data-i18n="modelSmall">small (equilibrado)</option>
+              <option value="medium" data-i18n="modelMedium">medium (más preciso)</option>
             </select>
           </label>
-          <label>
-            Idioma de origen
+          <label for="language">
+            <span data-i18n="languageLabel">Idioma de origen</span>
             <input id="language" type="text" placeholder="auto" maxlength="5" />
           </label>
-          <label>
-            Traducir a
-            <input id="translate-to" type="text" placeholder="ninguno (p. ej. en, es)" maxlength="5" />
+          <label for="translate-to">
+            <span data-i18n="translateLabel">Traducir a</span>
+            <input id="translate-to" type="text" data-i18n-placeholder="translatePlaceholder" placeholder="ninguno (p. ej. en, es)" maxlength="5" />
           </label>
         </div>
 
         <p id="selected-file" class="selected-file" hidden></p>
-        <button id="upload-button" class="button button--primary" disabled>Generar subtítulos</button>
+        <button type="button" id="upload-button" class="button button--primary" disabled data-i18n="uploadButton">Generar subtítulos</button>
       </section>
 
       <section id="progress-section" class="card" hidden>
-        <p id="stage-label" class="stage-label">En cola</p>
+        <p id="stage-label" class="stage-label" data-i18n="stageQueued">En cola</p>
         <div class="progress-bar">
           <div id="progress-fill" class="progress-bar__fill"></div>
         </div>
@@ -55,25 +59,26 @@
       </section>
 
       <section id="results-section" class="card" hidden>
-        <h2>Listo</h2>
+        <h2 data-i18n="resultsHeading">Listo</h2>
         <div class="results">
-          <a id="download-srt" class="button" download>Descargar .srt</a>
-          <button id="burn-button" class="button button--primary">Quemar en el video</button>
+          <a id="download-srt" class="button" download data-i18n="downloadSrt">Descargar .srt</a>
+          <button type="button" id="burn-button" class="button button--primary" data-i18n="burnButton">Quemar en el video</button>
         </div>
 
         <div id="burn-progress" class="burn-progress" hidden>
-          <p id="burn-stage-label" class="stage-label">Quemando subtítulos</p>
+          <p id="burn-stage-label" class="stage-label" data-i18n="stageBurning">Quemando subtítulos</p>
           <div class="progress-bar">
             <div id="burn-progress-fill" class="progress-bar__fill"></div>
           </div>
         </div>
 
-        <a id="download-video" class="button button--primary" download hidden>Descargar video con subtítulos</a>
+        <a id="download-video" class="button button--primary" download hidden data-i18n="downloadVideo">Descargar video con subtítulos</a>
 
-        <button id="restart-button" class="button button--ghost">Procesar otro video</button>
+        <button type="button" id="restart-button" class="button button--ghost" data-i18n="restartButton">Procesar otro video</button>
       </section>
     </main>
 
+    <script src="/i18n.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
