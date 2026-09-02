@@ -7,6 +7,49 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
+    <div id="onboarding-overlay" class="onboarding-overlay" hidden>
+      <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-step-0-heading">
+        <button type="button" id="onboarding-close" class="onboarding-close" aria-label="Cerrar / Close">&times;</button>
+
+        <div id="onboarding-step-0" class="onboarding-step">
+          <h2 id="onboarding-step-0-heading" data-i18n="onboardingLangTitle">Elige tu idioma</h2>
+          <p data-i18n="onboardingLangBody">Puedes cambiarlo cuando quieras con los botones ES / EN de arriba.</p>
+          <div class="onboarding-lang-buttons">
+            <button type="button" id="onboarding-lang-es" class="button button--primary">Español</button>
+            <button type="button" id="onboarding-lang-en" class="button button--primary">English</button>
+          </div>
+        </div>
+
+        <div id="onboarding-step-1" class="onboarding-step" hidden>
+          <h2 data-i18n="onboardingUploadTitle">Sube tu video</h2>
+          <p data-i18n="onboardingUploadBody">Arrástralo a la zona de subida, o haz clic para elegirlo. Aceptamos .mp4, .mov, .mkv, .webm y .avi - todo se procesa en tu propia máquina, nada sale de ella.</p>
+        </div>
+
+        <div id="onboarding-step-2" class="onboarding-step" hidden>
+          <h2 data-i18n="onboardingEditTitle">Edita y personaliza</h2>
+          <p data-i18n="onboardingEditBody">Corrige el texto si algo salió mal, elige entre 4 estilos de subtítulo, y activa el resaltado karaoke palabra por palabra si quieres.</p>
+        </div>
+
+        <div id="onboarding-step-3" class="onboarding-step" hidden>
+          <h2 data-i18n="onboardingDownloadTitle">Descarga o quema los subtítulos</h2>
+          <p data-i18n="onboardingDownloadBody">Descarga el .srt, .vtt o .ass directamente, o quema los subtítulos en el video con un clic. Tus últimos 10 trabajos quedan en "Trabajos recientes" para volver a descargarlos.</p>
+        </div>
+
+        <div id="onboarding-dots" class="onboarding-dots" hidden>
+          <span class="onboarding-dot" data-step="1"></span>
+          <span class="onboarding-dot" data-step="2"></span>
+          <span class="onboarding-dot" data-step="3"></span>
+        </div>
+
+        <div class="onboarding-actions" hidden>
+          <button type="button" id="onboarding-back" class="button" data-i18n="onboardingBack">Atrás</button>
+          <button type="button" id="onboarding-next" class="button button--primary" data-i18n="onboardingNext">Siguiente</button>
+        </div>
+
+        <button type="button" id="onboarding-dont-show" class="onboarding-dont-show" data-i18n="onboardingDontShow">No volver a mostrar</button>
+      </div>
+    </div>
+
     <main class="page">
       <header class="page__header">
         <div class="lang-switch" role="group" aria-label="Language / Idioma">
@@ -117,6 +160,7 @@
     </main>
 
     <script src="/i18n.js"></script>
+    <script src="/onboarding.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

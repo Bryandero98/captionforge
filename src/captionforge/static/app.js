@@ -1,5 +1,5 @@
 (() => {
-  const { t, applyToDom, setLang, getLang } = window.CaptionForgeI18n;
+  const { t, applyToDom, setLang } = window.CaptionForgeI18n;
 
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
@@ -424,17 +424,8 @@
 
   restartButton.addEventListener("click", () => location.reload());
 
-  function syncLangButtons() {
-    const lang = getLang();
-    langEsButton.classList.toggle("lang-switch__button--active", lang === "es");
-    langEnButton.classList.toggle("lang-switch__button--active", lang === "en");
-    langEsButton.setAttribute("aria-pressed", String(lang === "es"));
-    langEnButton.setAttribute("aria-pressed", String(lang === "en"));
-  }
-
   function changeLang(lang) {
-    setLang(lang); // re-applies every [data-i18n] / [data-i18n-placeholder] element
-    syncLangButtons();
+    setLang(lang); // re-applies [data-i18n]/[data-i18n-placeholder]/[data-lang] elements, header buttons included
     // [data-i18n] only covers static markup - text this script wrote itself
     // (the selected-file label, the live stage label, a shown error) needs
     // its own refresh, or it stays frozen in the old language.
@@ -443,12 +434,12 @@
     if (lastBurnJob) burnStageLabel.textContent = stageLabelFor(lastBurnJob.status, lastBurnJob.progress);
     if (lastErrorRender) lastErrorRender();
     renderHistory(); // history links carry a translated label (".srt", "video", ...)
+    window.CaptionForgeOnboarding?.refresh?.(); // its Next/Get-started button text is derived, not [data-i18n]
   }
 
   langEsButton.addEventListener("click", () => changeLang("es"));
   langEnButton.addEventListener("click", () => changeLang("en"));
 
-  applyToDom();
-  syncLangButtons();
+  applyToDom(); // also syncs the header ES/EN buttons' active state via i18n.js's [data-lang] handling
   renderHistory();
 })();

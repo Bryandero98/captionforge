@@ -54,6 +54,18 @@ window.CaptionForgeI18n = (() => {
       historyAss: ".ass",
       historyVideo: "video",
       historyClear: "Borrar historial",
+      onboardingLangTitle: "Elige tu idioma",
+      onboardingLangBody: "Puedes cambiarlo cuando quieras con los botones ES / EN de arriba.",
+      onboardingUploadTitle: "Sube tu video",
+      onboardingUploadBody: "Arrástralo a la zona de subida, o haz clic para elegirlo. Aceptamos .mp4, .mov, .mkv, .webm y .avi - todo se procesa en tu propia máquina, nada sale de ella.",
+      onboardingEditTitle: "Edita y personaliza",
+      onboardingEditBody: "Corrige el texto si algo salió mal, elige entre 4 estilos de subtítulo, y activa el resaltado karaoke palabra por palabra si quieres.",
+      onboardingDownloadTitle: "Descarga o quema los subtítulos",
+      onboardingDownloadBody: "Descarga el .srt, .vtt o .ass directamente, o quema los subtítulos en el video con un clic. Tus últimos 10 trabajos quedan en \"Trabajos recientes\" para volver a descargarlos.",
+      onboardingBack: "Atrás",
+      onboardingNext: "Siguiente",
+      onboardingGetStarted: "Empezar",
+      onboardingDontShow: "No volver a mostrar",
     },
     en: {
       tagline: "Automatic captions, 100% local. No subscription, no limit, no cloud.",
@@ -103,6 +115,18 @@ window.CaptionForgeI18n = (() => {
       historyAss: ".ass",
       historyVideo: "video",
       historyClear: "Clear history",
+      onboardingLangTitle: "Choose your language",
+      onboardingLangBody: "You can change it anytime with the ES / EN buttons up top.",
+      onboardingUploadTitle: "Upload your video",
+      onboardingUploadBody: "Drag it into the upload area, or click to choose one. We accept .mp4, .mov, .mkv, .webm, and .avi - everything runs on your own machine, nothing leaves it.",
+      onboardingEditTitle: "Edit and personalize",
+      onboardingEditBody: "Fix the text if something came out wrong, pick from 4 caption styles, and turn on word-by-word karaoke highlighting if you want it.",
+      onboardingDownloadTitle: "Download or burn the captions",
+      onboardingDownloadBody: "Download the .srt, .vtt, or .ass directly, or burn the captions into the video with one click. Your last 10 jobs stay in \"Recent jobs\" so you can re-download them.",
+      onboardingBack: "Back",
+      onboardingNext: "Next",
+      onboardingGetStarted: "Get started",
+      onboardingDontShow: "Don't show this again",
     },
   };
 
@@ -134,6 +158,15 @@ window.CaptionForgeI18n = (() => {
     });
     root.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
       el.placeholder = t(el.getAttribute("data-i18n-placeholder"));
+    });
+    // Any [data-lang] toggle button (the header ES/EN switch) reflects
+    // currentLang here, generically - so every caller of setLang() (app.js's
+    // header switch AND onboarding.js's language-pick step) keeps it in
+    // sync for free, instead of each one having to remember its own copy.
+    root.querySelectorAll("[data-lang]").forEach((el) => {
+      const isActive = el.getAttribute("data-lang") === currentLang;
+      el.classList.toggle("lang-switch__button--active", isActive);
+      el.setAttribute("aria-pressed", String(isActive));
     });
     document.documentElement.lang = currentLang;
   }
