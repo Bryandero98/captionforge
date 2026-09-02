@@ -29,5 +29,5 @@ jobs:
       - name: Type check
         run: mypy src
 
-      - name: Test (fast suite only)
-        run: pytest -m "not slow"
+      - name: Test
+        run: pytest

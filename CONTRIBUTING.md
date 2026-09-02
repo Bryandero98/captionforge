@@ -19,10 +19,18 @@ pytest
 
 ## What's actually tested, and what isn't
 
-- **Automated (pytest)**: `.srt` timestamp/format edge cases, ffmpeg `argv`
-  construction (including Windows path escaping for the `subtitles=`
-  filter), the job state machine (including the concurrent-job guard),
-  and the API layer with Whisper/ffmpeg mocked out.
+- **Automated (pytest)**: `.srt`/`.vtt`/`.ass` timestamp/format edge cases
+  (including karaoke `\k` tags and ASS override-block escaping), ffmpeg
+  `argv` construction (including Windows path escaping for the
+  `subtitles=` filter), the job state machine (including the
+  concurrent-job guard), the API layer with Whisper mocked out, and -
+  `tests/test_pipeline.py` - `pipeline.py` itself against a REAL ffmpeg
+  (audio extraction, plain and karaoke burns) and a real fixture video,
+  with only Whisper stubbed. That last file exists because a real bug (a
+  dropped import causing a `NameError`) once reached a live browser check
+  without pytest ever running the actual code path - don't mock
+  `run_transcription_job`/`run_burn_job` themselves without also keeping
+  at least one test that executes them for real.
 - **Deliberately manual**: actual transcription accuracy, actual burned-in
   caption visual/timing quality, and cross-platform ffmpeg quirks beyond
   what the `argv` tests already cover. Run
