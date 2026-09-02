@@ -2,7 +2,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 from captionforge.srt import Segment, WordTiming
-from captionforge.translate import translate_segments
+from captionforge.translate import _ensure_language_pair_installed, translate_segments
 
 
 class TestComputeTypeOverride:
@@ -59,3 +59,29 @@ class TestTranslateSegments:
             except RuntimeError:
                 raised = True
         assert raised
+
+
+class TestPackageDownloadMessageIsConsoleSafe:
+    def test_the_download_progress_message_encodes_as_cp1252_without_raising(self, capsys):
+        # Regression test: a literal U+2192 arrow in this message once
+        # crashed the FIRST download of a new language pair with
+        # UnicodeEncodeError - verified live requesting a genuinely new pair
+        # (en->es) against the real server on Windows, whose console/redirected
+        # stdout defaults to cp1252, not UTF-8. es->en didn't reproduce it
+        # because that pair's package was already installed from earlier
+        # testing, so the download branch (and its print()) never ran.
+        # cp1252 is the strictest realistic target here; anything that
+        # survives it survives every other Windows console codepage too.
+        fake_package = MagicMock(from_code="en", to_code="es")
+        fake_package.download.return_value = "/fake/path.argosmodel"
+        with (
+            patch("captionforge.translate._get_translation", return_value=None),
+            patch("argostranslate.package.update_package_index"),
+            patch("argostranslate.package.get_available_packages", return_value=[fake_package]),
+            patch("argostranslate.package.install_from_path"),
+        ):
+            _ensure_language_pair_installed("en", "es")
+
+        printed = capsys.readouterr().out
+        assert printed  # sanity: the message actually printed something
+        printed.encode("cp1252")  # must not raise UnicodeEncodeError

@@ -48,7 +48,7 @@ def _ensure_language_pair_installed(from_code: str, to_code: str) -> None:
     # The first request for a given language pair downloads its model and
     # blocks the calling thread for a while - logged explicitly so this
     # doesn't read as a hang to whoever's watching the console.
-    print(f"Descargando modelo de traducción {from_code}→{to_code}...")
+    print(f"Descargando modelo de traducción {from_code}->{to_code}...")
     argostranslate.package.update_package_index()
     available_packages = argostranslate.package.get_available_packages()
     package = next(
@@ -56,7 +56,7 @@ def _ensure_language_pair_installed(from_code: str, to_code: str) -> None:
         None,
     )
     if package is None:
-        raise ValueError(f"No hay un paquete de traducción disponible para {from_code}→{to_code}.")
+        raise ValueError(f"No hay un paquete de traducción disponible para {from_code}->{to_code}.")
     argostranslate.package.install_from_path(package.download())
 
 
@@ -69,7 +69,7 @@ def translate_segments(segments: list[Segment], from_code: str, to_code: str) ->
     translation = _get_translation(from_code, to_code)
     if translation is None:
         raise RuntimeError(
-            f"No se pudo cargar el modelo de traducción {from_code}→{to_code} tras instalarlo."
+            f"No se pudo cargar el modelo de traducción {from_code}->{to_code} tras instalarlo."
         )
 
     # `words` drops on translation: it holds the ORIGINAL-language word text
