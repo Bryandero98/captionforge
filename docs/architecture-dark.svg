@@ -116,11 +116,11 @@
           <g stroke="currentColor" fill="none" color="#f1ead9">
             <path d="M 790 350 L 790 512 L 1400 512 L 1400 452" stroke-width="1.6" marker-end="url(#cf-arrow)"></path>
           </g>
-          <text x="1095" y="500" text-anchor="middle" class="mono" font-size="11.5">writes .srt + segments.json, later captioned.mp4</text>
+          <text x="1095" y="496" text-anchor="middle" class="mono" font-size="11.5">writes .srt + segments.json, later captioned.mp4</text>
 
           <!-- fastapi <-> job directory, dashed download/fallback path, routed below the previous one -->
           <g stroke="currentColor" fill="none" color="#a89a80" stroke-dasharray="3 4">
             <path d="M 450 350 L 450 562 L 1440 562 L 1440 452" stroke-width="1.3" marker-end="url(#cf-arrow)"></path>
           </g>
-          <text x="945" y="550" text-anchor="middle" class="mono" font-size="11.5" fill="#a89a80">GET srt/vtt/ass/video — current job, or disk for a finished one</text>
+          <text x="945" y="546" text-anchor="middle" class="mono" font-size="11.5" fill="#a89a80">GET srt/vtt/ass/video — current job, or disk for a finished one</text>
         </svg>
