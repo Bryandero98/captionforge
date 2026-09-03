@@ -93,8 +93,8 @@
             <line x1="562" y1="280" x2="678" y2="280" stroke-width="1.6" marker-end="url(#cf-arrow)"></line>
           </g>
           <text x="620" y="264" text-anchor="middle" class="mono" font-size="11">add_task(...)</text>
-          <text x="620" y="300" text-anchor="middle" class="mono" font-size="10">upload → transcribe</text>
-          <text x="620" y="313" text-anchor="middle" class="mono" font-size="10">click → burn</text>
+          <text x="620" y="300" text-anchor="middle" class="mono" font-size="9.5">upload→transcribe</text>
+          <text x="620" y="313" text-anchor="middle" class="mono" font-size="9.5">click→burn</text>
 
           <!-- pipeline -> the three engines, fanned from three points on its right edge -->
           <g stroke="currentColor" fill="none" color="#e2913f">
