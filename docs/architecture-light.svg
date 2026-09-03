@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 640" role="img" aria-label="Diagram: the browser uploads a video to FastAPI, which hands it to a background pipeline that calls ffmpeg, faster-whisper and argos-translate in turn, writing results to a job directory on disk, while the browser watches progress over a separate SSE stream relayed from JobStore.">
+          <style>
+    text { font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif; fill: #211d17; }
+    .mono { font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; }
+    .title { font-weight: 600; }
+    .label { fill: #6b6355; }
+  </style>
+          <defs>
+            <marker id="cf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+            </marker>
+          </defs>
+
+          <!-- nodes -->
+          <g>
+            <rect x="40" y="210" width="200" height="140" rx="5" fill="#fffdf8" stroke="#211d17" stroke-width="1.5"></rect>
+            <text x="140" y="258" text-anchor="middle" class="title" font-size="17">Browser</text>
+            <text x="140" y="284" text-anchor="middle" class="label mono" font-size="12">static UI</text>
+            <text x="140" y="302" text-anchor="middle" class="label mono" font-size="12">localStorage</text>
+          </g>
+
+          <g>
+            <rect x="340" y="210" width="220" height="140" rx="5" fill="#d9e8e5" stroke="#276661" stroke-width="1.5"></rect>
+            <text x="450" y="258" text-anchor="middle" class="title" font-size="17">FastAPI routes</text>
+            <text x="450" y="284" text-anchor="middle" class="label mono" font-size="12">upload · jobs</text>
+            <text x="450" y="302" text-anchor="middle" class="label mono" font-size="12">results</text>
+          </g>
+
+          <g>
+            <rect x="500" y="40" width="240" height="100" rx="5" fill="#d9e8e5" stroke="#276661" stroke-width="1.5"></rect>
+            <text x="620" y="76" text-anchor="middle" class="title" font-size="16">JobStore</text>
+            <text x="620" y="100" text-anchor="middle" class="label mono" font-size="11.5">one job, thread-locked</text>
+            <text x="620" y="118" text-anchor="middle" class="label mono" font-size="11.5">queued → … → done → …</text>
+          </g>
+
+          <g>
+            <rect x="680" y="210" width="220" height="140" rx="5" fill="#f0d9bf" stroke="#a8571c" stroke-width="1.5"></rect>
+            <text x="790" y="258" text-anchor="middle" class="title" font-size="17">pipeline.py</text>
+            <text x="790" y="284" text-anchor="middle" class="label mono" font-size="12">background task</text>
+            <text x="790" y="302" text-anchor="middle" class="label mono" font-size="12">async, non-blocking</text>
+          </g>
+
+          <g>
+            <rect x="1010" y="80" width="220" height="110" rx="5" fill="#f0d9bf" stroke="#a8571c" stroke-width="1.5"></rect>
+            <text x="1120" y="126" text-anchor="middle" class="title" font-size="15">ffmpeg</text>
+            <text x="1120" y="150" text-anchor="middle" class="label mono" font-size="11.5">extract audio · burn</text>
+          </g>
+          <g>
+            <rect x="1010" y="225" width="220" height="110" rx="5" fill="#f0d9bf" stroke="#a8571c" stroke-width="1.5"></rect>
+            <text x="1120" y="271" text-anchor="middle" class="title" font-size="15">faster-whisper</text>
+            <text x="1120" y="295" text-anchor="middle" class="label mono" font-size="11.5">cuda → cpu fallback</text>
+          </g>
+          <g>
+            <rect x="1010" y="370" width="220" height="110" rx="5" fill="#f0d9bf" stroke="#a8571c" stroke-width="1.5"></rect>
+            <text x="1120" y="416" text-anchor="middle" class="title" font-size="15">argos-translate</text>
+            <text x="1120" y="440" text-anchor="middle" class="label mono" font-size="11.5">optional, local</text>
+          </g>
+
+          <g>
+            <rect x="1310" y="110" width="210" height="340" rx="5" fill="#fffdf8" stroke="#211d17" stroke-width="1.5"></rect>
+            <text x="1415" y="150" text-anchor="middle" class="title" font-size="15">job directory</text>
+            <text x="1415" y="188" text-anchor="middle" class="label mono" font-size="12">input.*</text>
+            <text x="1415" y="212" text-anchor="middle" class="label mono" font-size="12">output.srt</text>
+            <text x="1415" y="236" text-anchor="middle" class="label mono" font-size="12">segments.json</text>
+            <text x="1415" y="260" text-anchor="middle" class="label mono" font-size="12">karaoke.ass</text>
+            <text x="1415" y="284" text-anchor="middle" class="label mono" font-size="12">captioned.mp4</text>
+          </g>
+
+          <!-- arrows: browser <-> fastapi, two parallel straight lines with generous separation -->
+          <g stroke="currentColor" fill="none" color="#211d17">
+            <line x1="242" y1="255" x2="336" y2="255" stroke-width="1.6" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="289" y="240" text-anchor="middle" class="mono" font-size="11.5">POST /api/jobs — video</text>
+
+          <g stroke="currentColor" fill="none" color="#6b6355" stroke-dasharray="3 4">
+            <line x1="336" y1="308" x2="242" y2="308" stroke-width="1.4" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="289" y="330" text-anchor="middle" class="mono" font-size="11.5" fill="#6b6355">SSE /events — pushes on change, ≤250ms</text>
+
+          <!-- fastapi <-> jobstore, and pipeline <-> jobstore: a gentle, symmetric V -->
+          <g stroke="currentColor" fill="none" color="#276661">
+            <line x1="450" y1="206" x2="558" y2="144" stroke-width="1.5" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="384" y="182" text-anchor="end" class="mono" font-size="11" fill="#276661">creates job · 409 if active</text>
+
+          <g stroke="currentColor" fill="none" color="#a8571c">
+            <line x1="790" y1="206" x2="682" y2="144" stroke-width="1.5" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="756" y="160" text-anchor="start" class="mono" font-size="11" fill="#a8571c">writes progress + status</text>
+
+          <!-- fastapi -> pipeline, straight, with room to breathe -->
+          <g stroke="currentColor" fill="none" color="#211d17">
+            <line x1="562" y1="280" x2="678" y2="280" stroke-width="1.6" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="620" y="264" text-anchor="middle" class="mono" font-size="11">add_task(...)</text>
+          <text x="620" y="300" text-anchor="middle" class="mono" font-size="10">upload → transcribe</text>
+          <text x="620" y="313" text-anchor="middle" class="mono" font-size="10">click → burn</text>
+
+          <!-- pipeline -> the three engines, fanned from three points on its right edge -->
+          <g stroke="currentColor" fill="none" color="#a8571c">
+            <line x1="902" y1="240" x2="1006" y2="150" stroke-width="1.4" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="972" y="158" text-anchor="middle" class="mono" font-size="11" fill="#a8571c">subprocess</text>
+
+          <g stroke="currentColor" fill="none" color="#a8571c">
+            <line x1="902" y1="280" x2="1006" y2="280" stroke-width="1.4" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="955" y="266" text-anchor="middle" class="mono" font-size="11" fill="#a8571c">worker thread</text>
+
+          <g stroke="currentColor" fill="none" color="#a8571c">
+            <line x1="902" y1="320" x2="1006" y2="410" stroke-width="1.4" marker-end="url(#cf-arrow)"></line>
+          </g>
+          <text x="955" y="342" text-anchor="middle" class="mono" font-size="11" fill="#a8571c">if requested</text>
+
+          <!-- pipeline -> job directory, orthogonal path clear of the engines column -->
+          <g stroke="currentColor" fill="none" color="#211d17">
+            <path d="M 790 350 L 790 512 L 1400 512 L 1400 452" stroke-width="1.6" marker-end="url(#cf-arrow)"></path>
+          </g>
+          <text x="1095" y="500" text-anchor="middle" class="mono" font-size="11.5">writes .srt + segments.json, later captioned.mp4</text>
+
+          <!-- fastapi <-> job directory, dashed download/fallback path, routed below the previous one -->
+          <g stroke="currentColor" fill="none" color="#6b6355" stroke-dasharray="3 4">
+            <path d="M 450 350 L 450 562 L 1440 562 L 1440 452" stroke-width="1.3" marker-end="url(#cf-arrow)"></path>
+          </g>
+          <text x="945" y="550" text-anchor="middle" class="mono" font-size="11.5" fill="#6b6355">GET srt/vtt/ass/video — current job, or disk for a finished one</text>
+        </svg>

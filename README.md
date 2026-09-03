@@ -56,6 +56,17 @@ while one is running is rejected with a clear error rather than silently
 queued. Editing and re-burning are only offered for that current job;
 older jobs in history are downloads only (see "Known limitations").
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
+  <img src="docs/architecture-light.svg" alt="Diagram: the browser uploads a video to FastAPI, which hands it to a background pipeline that calls ffmpeg, faster-whisper and argos-translate in turn, writing results to a job directory on disk, while the browser watches progress over a separate SSE stream relayed from JobStore.">
+</picture>
+
+The upload request returns in milliseconds - the real work runs as a
+background task while the browser watches it happen over a live SSE
+stream, not by polling.
+
 ## How it's built
 
 - `src/captionforge/srt.py` - pure formatting/assembly for `.srt`, `.vtt`,

@@ -60,6 +60,17 @@ encolarse o sobrescribirse en silencio. Editar y volver a quemar solo
 están disponibles para ese trabajo actual; los trabajos anteriores en el
 historial son solo de descarga (ver "Limitaciones conocidas").
 
+## Arquitectura
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
+  <img src="docs/architecture-light.svg" alt="Diagrama: el navegador sube un video a FastAPI, que lo entrega a un pipeline en segundo plano que llama a ffmpeg, faster-whisper y argos-translate en orden, escribiendo los resultados en un directorio del trabajo en disco, mientras el navegador observa el progreso por un stream SSE separado, retransmitido desde JobStore.">
+</picture>
+
+La subida responde en milisegundos - el trabajo real corre como una tarea
+en segundo plano mientras el navegador lo observa en vivo por un stream
+SSE, no preguntando una y otra vez.
+
 ## Cómo está construido
 
 - `src/captionforge/srt.py` - formato y ensamblado puro para `.srt`,
