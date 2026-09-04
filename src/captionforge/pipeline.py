@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from .ffmpeg_utils import build_burn_subtitles_cmd, build_extract_audio_cmd, resolve_style
 from .jobs import JobStatus, JobStore
+from .models import assert_model_fits, is_model_cached
 from .srt import Segment, WordTiming, segments_from_dicts, segments_to_ass, segments_to_dicts, segments_to_srt
 from .translate import translate_segments
 
@@ -44,15 +47,55 @@ def select_device(model_size: str) -> tuple[object, str]:
         return WhisperModel(model_size, device="cpu", compute_type="int8"), "cpu"
 
 
-async def _run_ffmpeg(cmd: list[str]) -> None:
+# ffmpeg reports encode position on stderr as repeated `time=H:MM:SS.cc` (or
+# `.cc` truncated to fewer digits) updates on the SAME line via '\r', not '\n'
+# - asyncio's readline() waits for a real newline, so it would sit blocked
+# until the whole run finishes instead of yielding each update. Reading raw
+# chunks and regex-searching a short rolling tail (below) sidesteps that.
+_FFMPEG_TIME_RE = re.compile(rb"time=(\d+):(\d\d):(\d\d)\.(\d+)")
+
+
+async def _run_ffmpeg(
+    cmd: list[str],
+    *,
+    on_progress: Callable[[float], None] | None = None,
+    total_duration: float | None = None,
+) -> None:
+    """Runs an ffmpeg command, optionally reporting fractional progress as it encodes.
+
+    `on_progress`/`total_duration` are both required together to get live
+    updates - without them this just waits for completion, same as before
+    this parameter existed (the audio-extraction call in
+    run_transcription_job doesn't pass them: that step is fast enough not to
+    need it, and has no natural "total duration" of its own to compare against).
+    """
     process = await asyncio.create_subprocess_exec(
         *cmd,
-        stdout=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await process.communicate()
-    if process.returncode != 0:
-        raise RuntimeError(f"ffmpeg fallo (codigo {process.returncode}): {stderr.decode(errors='replace')}")
+    assert process.stderr is not None  # guaranteed by stderr=PIPE above; narrows the type for mypy
+
+    stderr_chunks: list[bytes] = []
+    tail = b""
+    while True:
+        chunk = await process.stderr.read(4096)
+        if not chunk:
+            break
+        stderr_chunks.append(chunk)
+        if on_progress and total_duration:
+            tail += chunk
+            matches = _FFMPEG_TIME_RE.findall(tail)
+            if matches:
+                hours, minutes, secs, frac = matches[-1]
+                elapsed = int(hours) * 3600 + int(minutes) * 60 + int(secs) + int(frac) / 10 ** len(frac)
+                on_progress(min(elapsed / total_duration, 1.0))
+            tail = tail[-64:]  # a time= update is short and always recent; bounds tail's growth
+
+    returncode = await process.wait()
+    if returncode != 0:
+        stderr = b"".join(stderr_chunks).decode(errors="replace")
+        raise RuntimeError(f"ffmpeg fallo (codigo {returncode}): {stderr}")
 
 
 def _transcribe_sync(
@@ -115,8 +158,26 @@ async def run_transcription_job(
             audio_path = Path(tmp_dir) / "audio.wav"
             await _run_ffmpeg(build_extract_audio_cmd(str(video_path), str(audio_path)))
 
-            store.transition(job_id, JobStatus.TRANSCRIBING)
+            # A first-time model size means select_device() below is about to
+            # block for as long as a multi-hundred-megabyte download takes -
+            # a distinct status so the frontend can say so instead of sitting
+            # on "Transcribiendo" at 0% with no explanation. A cached model
+            # skips straight to TRANSCRIBING, same as before this existed.
+            model_cached = is_model_cached(model_size)
+            if model_cached:
+                store.transition(job_id, JobStatus.TRANSCRIBING)
+            else:
+                store.transition(job_id, JobStatus.DOWNLOADING_MODEL)
+                store.update(job_id, stage_label=f"Descargando modelo Whisper ({model_size})")
+                # Re-checked here, not just wherever the frontend's own
+                # preflight call happened to run - free disk can have
+                # dropped since, and this is what actually stops the
+                # transfer rather than letting it fail mid-write.
+                await asyncio.to_thread(assert_model_fits, model_size)
+
             model, device = await asyncio.to_thread(select_device, model_size)
+            if not model_cached:
+                store.transition(job_id, JobStatus.TRANSCRIBING)
             store.update(job_id, stage_label=f"Modelo cargado en {device}")
 
             segments, detected_language = await asyncio.to_thread(
@@ -168,7 +229,7 @@ async def run_burn_job(
     """
     try:
         store.transition(job_id, JobStatus.BURNING_SUBTITLES)
-        store.update(job_id, stage_label="Quemando subtitulos")
+        store.update(job_id, progress=0.0, stage_label="Quemando subtitulos")
 
         segments = await asyncio.to_thread(read_segments_json, srt_path.parent)
         use_karaoke = karaoke and any(segment.words for segment in segments)
@@ -181,8 +242,20 @@ async def run_burn_job(
         else:
             cmd = build_burn_subtitles_cmd(str(video_path), str(srt_path), str(output_path), style_name)
 
-        await _run_ffmpeg(cmd)
-        store.update(job_id, video_ready=True, stage_label="Listo")
+        # No explicit "video duration" is stored anywhere - the last
+        # segment's end time is used as a stand-in (same approximation the
+        # frontend's edit-timeline uses), good enough to drive a progress
+        # bar even though trailing silence past the last spoken word means
+        # 100% here can land a moment before ffmpeg actually exits.
+        total_duration = max((segment.end for segment in segments), default=0.0) or None
+
+        def _on_burn_progress(progress: float) -> None:
+            store.update(
+                job_id, progress=progress, stage_label=f"Quemando subtitulos ({progress * 100:.0f}%)"
+            )
+
+        await _run_ffmpeg(cmd, on_progress=_on_burn_progress, total_duration=total_duration)
+        store.update(job_id, progress=1.0, video_ready=True, stage_label="Listo")
         store.transition(job_id, JobStatus.BURNED)
     except Exception as exc:
         store.update(job_id, error=str(exc))

@@ -17,6 +17,10 @@ from pathlib import Path
 class JobStatus(str, Enum):
     QUEUED = "queued"
     EXTRACTING_AUDIO = "extracting_audio"
+    # Only entered when the requested Whisper model isn't in the local
+    # Hugging Face cache yet (see models.py) - a job whose model is already
+    # cached skips straight from EXTRACTING_AUDIO to TRANSCRIBING.
+    DOWNLOADING_MODEL = "downloading_model"
     TRANSCRIBING = "transcribing"
     DONE = "done"
     BURNING_SUBTITLES = "burning_subtitles"
@@ -29,7 +33,8 @@ class JobStatus(str, Enum):
 # every entry.
 _TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
     JobStatus.QUEUED: {JobStatus.EXTRACTING_AUDIO},
-    JobStatus.EXTRACTING_AUDIO: {JobStatus.TRANSCRIBING},
+    JobStatus.EXTRACTING_AUDIO: {JobStatus.DOWNLOADING_MODEL, JobStatus.TRANSCRIBING},
+    JobStatus.DOWNLOADING_MODEL: {JobStatus.TRANSCRIBING},
     JobStatus.TRANSCRIBING: {JobStatus.DONE},
     JobStatus.DONE: {JobStatus.BURNING_SUBTITLES},
     JobStatus.BURNING_SUBTITLES: {JobStatus.BURNED},
@@ -40,6 +45,7 @@ _TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
 _ACTIVE_STATUSES = {
     JobStatus.QUEUED,
     JobStatus.EXTRACTING_AUDIO,
+    JobStatus.DOWNLOADING_MODEL,
     JobStatus.TRANSCRIBING,
     JobStatus.BURNING_SUBTITLES,
 }

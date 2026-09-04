@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings
 from .jobs import JobStore
 from .routes import jobs as jobs_routes
+from .routes import models as models_routes
 from .routes import results as results_routes
 from .routes import upload as upload_routes
 
@@ -29,6 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(upload_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(models_routes.router)
     app.include_router(results_routes.router)
 
     @app.get("/api/health")

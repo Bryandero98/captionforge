@@ -4,6 +4,7 @@
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
   const selectedFileLabel = document.getElementById("selected-file");
+  const videoThumbnail = document.getElementById("video-thumbnail");
   const uploadButton = document.getElementById("upload-button");
   const modelSizeSelect = document.getElementById("model-size");
   const languageInput = document.getElementById("language");
@@ -11,6 +12,7 @@
 
   const uploadSection = document.getElementById("upload-section");
   const progressSection = document.getElementById("progress-section");
+  const stageSteps = Array.from(document.querySelectorAll("#stage-steps .stage-step"));
   const stageLabel = document.getElementById("stage-label");
   const progressFill = document.getElementById("progress-fill");
 
@@ -30,11 +32,13 @@
 
   const editToggleButton = document.getElementById("edit-toggle-button");
   const editSection = document.getElementById("edit-section");
+  const editTimeline = document.getElementById("edit-timeline");
   const editRows = document.getElementById("edit-rows");
   const editSaveButton = document.getElementById("edit-save-button");
   const editSavedLabel = document.getElementById("edit-saved-label");
 
-  const subtitleStyleSelect = document.getElementById("subtitle-style");
+  const styleCards = Array.from(document.querySelectorAll(".style-card"));
+  let selectedStyle = "modern";
   const karaokeOption = document.getElementById("karaoke-option");
   const karaokeCheckbox = document.getElementById("karaoke-checkbox");
 
@@ -45,6 +49,13 @@
   const langEsButton = document.getElementById("lang-es");
   const langEnButton = document.getElementById("lang-en");
 
+  const modelDownloadOverlay = document.getElementById("model-download-overlay");
+  const modelDownloadBody = document.getElementById("model-download-body");
+  const modelDownloadDisk = document.getElementById("model-download-disk");
+  const modelDownloadRefused = document.getElementById("model-download-refused");
+  const modelDownloadCancelButton = document.getElementById("model-download-cancel");
+  const modelDownloadConfirmButton = document.getElementById("model-download-confirm");
+
   let selectedFile = null;
   let currentJobId = null;
   // The last job payload received for each progress stream, kept around
@@ -52,6 +63,11 @@
   // instead of leaving it frozen in the old language until the next event.
   let lastMainJob = null;
   let lastBurnJob = null;
+  // stageLabelFor's 3rd arg for the main job - not part of the job payload
+  // itself (the backend doesn't echo it back), so it's tracked separately
+  // here purely so changeLang() below can re-derive a "downloading_model"
+  // label (which needs the size) without losing it on a language switch.
+  let currentModelSize = null;
   // Re-invoked on a language switch to refresh whatever error is on screen.
   // `null` when no error is showing.
   let lastErrorRender = null;
@@ -60,22 +76,45 @@
   // deliberately language-neutral, so the label shown for it is derived here
   // instead of trusting stage_label, which the backend only ever writes in
   // Spanish.
-  function stageLabelFor(status, progress) {
+  function stageLabelFor(status, progress, modelSize) {
     switch (status) {
       case "queued":
         return t("stageQueued");
       case "extracting_audio":
         return t("stageExtracting");
+      case "downloading_model":
+        return t("stageDownloadingModel", { size: modelSize || "" });
       case "transcribing":
         return t("stageTranscribing", { percent: Math.round((progress || 0) * 100) });
       case "done":
       case "burned":
         return t("stageReady");
       case "burning_subtitles":
-        return t("stageBurning");
+        return t("stageBurning", { percent: Math.round((progress || 0) * 100) });
       default:
         return "";
     }
+  }
+
+  // Ordinal position of a main-job status along the 4 visible steps (extract
+  // -> download model -> transcribe -> done). A job whose model was already
+  // cached never visits "downloading_model" - its ordinal (1) just falls
+  // below whatever the job actually reached, so that step renders as
+  // already-done retroactively instead of needing a separate "skipped" state.
+  const STAGE_STEP_ORDER = ["extracting_audio", "downloading_model", "transcribing", "done"];
+  function stageStepOrdinal(status) {
+    if (status === "queued") return 0;
+    if (status === "burning_subtitles" || status === "burned") return 3;
+    const index = STAGE_STEP_ORDER.indexOf(status);
+    return index === -1 ? 0 : index;
+  }
+
+  function updateStageSteps(status) {
+    const current = stageStepOrdinal(status);
+    stageSteps.forEach((el, index) => {
+      el.classList.toggle("stage-step--done", index < current);
+      el.classList.toggle("stage-step--active", index === current);
+    });
   }
 
   // ---- Recent-jobs history (localStorage only - the backend forgets a job
@@ -114,9 +153,9 @@
   // making it look like the work was lost. ----
   const ACTIVE_JOB_KEY = "captionforge_active_job";
 
-  function saveActiveJob(jobId, filename) {
+  function saveActiveJob(jobId, filename, modelSize, thumbnail) {
     try {
-      localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId, filename }));
+      localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId, filename, modelSize, thumbnail }));
     } catch {
       // Non-fatal: an accidental reload just won't resume this session (private mode, full storage).
     }
@@ -155,11 +194,27 @@
       const li = document.createElement("li");
       li.className = "history-item";
 
+      const thumbWrap = document.createElement("span");
+      thumbWrap.className = "history-item__thumb-wrap";
+      if (entry.thumbnail) {
+        const img = document.createElement("img");
+        img.className = "history-item__thumb";
+        img.src = entry.thumbnail;
+        img.alt = "";
+        thumbWrap.appendChild(img);
+      } else {
+        thumbWrap.classList.add("history-item__thumb-wrap--empty");
+      }
+      li.appendChild(thumbWrap);
+
+      const body = document.createElement("span");
+      body.className = "history-item__body";
+
       const name = document.createElement("span");
       name.className = "history-item__name";
       name.textContent = entry.filename || entry.jobId;
       name.title = entry.filename || entry.jobId;
-      li.appendChild(name);
+      body.appendChild(name);
 
       const links = document.createElement("span");
       links.className = "history-item__links";
@@ -176,7 +231,8 @@
         a.textContent = t(labelKey);
         links.appendChild(a);
       }
-      li.appendChild(links);
+      body.appendChild(links);
+      li.appendChild(body);
       historyList.appendChild(li);
     }
   }
@@ -192,9 +248,78 @@
     }
   }
 
+  // Grabs one frame of the locally-picked video as a small JPEG data URL,
+  // entirely client-side (an off-DOM <video>+<canvas>, no upload involved) -
+  // used both for the immediate preview next to the drop zone and, later,
+  // as the thumbnail saved into this job's "Trabajos recientes" entry.
+  // Some formats this app otherwise accepts (.mkv, .avi) aren't decodable by
+  // <video> in most browsers, so failures here are silent and non-fatal: the
+  // preview/thumbnail is just skipped, never blocks the actual upload.
+  function generateVideoThumbnail(file) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        URL.revokeObjectURL(url);
+        resolve(result);
+      };
+      const timeout = setTimeout(() => finish(null), 4000);
+      video.addEventListener("loadeddata", () => {
+        video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
+      });
+      video.addEventListener("seeked", () => {
+        try {
+          const targetWidth = 160;
+          const scale = targetWidth / (video.videoWidth || targetWidth);
+          const canvas = document.createElement("canvas");
+          canvas.width = targetWidth;
+          canvas.height = Math.round((video.videoHeight || 90) * scale) || 90;
+          canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+          finish(canvas.toDataURL("image/jpeg", 0.6));
+        } catch {
+          finish(null);
+        }
+      });
+      video.addEventListener("error", () => finish(null));
+      video.src = url;
+    });
+  }
+
+  // The thumbnail for whichever file is currently selected - set once
+  // generateVideoThumbnail resolves, consumed at upload time (saveActiveJob)
+  // and job completion (showTranscriptionResults' history entry).
+  let selectedFileThumbnail = null;
+
   function setSelectedFile(file) {
     selectedFile = file;
+    selectedFileThumbnail = null;
+    videoThumbnail.hidden = true;
     renderSelectedFile();
+    if (!file) return;
+    generateVideoThumbnail(file).then((dataUrl) => {
+      if (file !== selectedFile || !dataUrl) return; // superseded by a later pick, or generation failed
+      selectedFileThumbnail = dataUrl;
+      videoThumbnail.src = dataUrl;
+      videoThumbnail.hidden = false;
+      // Generation can still be in flight when the user clicks "Generar
+      // subtítulos" (saveActiveJob then persists a null thumbnail) - patch
+      // it in now that it's ready, rather than leaving this job's history
+      // entry thumbnail-less forever over a sub-second timing race.
+      if (currentJobId) {
+        const active = loadActiveJob();
+        if (active && active.jobId === currentJobId && !active.thumbnail) {
+          saveActiveJob(currentJobId, active.filename, active.modelSize, dataUrl);
+        }
+        updateHistoryEntry(currentJobId, { thumbnail: dataUrl });
+      }
+    });
   }
 
   dropZone.addEventListener("click", () => fileInput.click());
@@ -250,11 +375,43 @@
   // the text, PUT the edits back. Restricted server-side to the CURRENT job
   // (see routes/results.py) - editing only makes sense in the window between
   // transcription finishing and the first burn. ----
+  // Positions one tick per segment along a horizontal strip proportional to
+  // its start/end within the transcript's total span - there's no explicit
+  // "video duration" field on the job, so the last segment's end time is
+  // used as a stand-in (segments already fetched for the row list; no extra
+  // request). Clicking a tick scrolls the matching row into view instead of
+  // editing anything itself - purely a navigation aid over a long transcript.
+  function renderEditTimeline(segments) {
+    editTimeline.innerHTML = "";
+    if (!segments.length) {
+      editTimeline.hidden = true;
+      return;
+    }
+    const totalDuration = Math.max(...segments.map((s) => s.end), 0.001);
+    for (const segment of segments) {
+      const tick = document.createElement("div");
+      tick.className = "edit-timeline__tick";
+      tick.style.left = `${(segment.start / totalDuration) * 100}%`;
+      tick.style.width = `${Math.max(((segment.end - segment.start) / totalDuration) * 100, 0.6)}%`;
+      tick.title = segment.text.slice(0, 80);
+      tick.addEventListener("click", () => {
+        const row = editRows.querySelector(`[data-row-index="${segment.index}"]`);
+        if (!row) return;
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        row.classList.add("edit-row--flash");
+        setTimeout(() => row.classList.remove("edit-row--flash"), 900);
+      });
+      editTimeline.appendChild(tick);
+    }
+    editTimeline.hidden = false;
+  }
+
   function renderEditRows(segments) {
     editRows.innerHTML = "";
     for (const segment of segments) {
       const row = document.createElement("div");
       row.className = "edit-row";
+      row.dataset.rowIndex = String(segment.index);
 
       const totalSeconds = Math.floor(segment.start);
       const minutes = Math.floor(totalSeconds / 60);
@@ -288,6 +445,7 @@
     }
     const { segments } = await response.json();
     renderEditRows(segments);
+    renderEditTimeline(segments);
     editSection.hidden = false;
   });
 
@@ -325,6 +483,34 @@
     setTimeout(() => {
       editSavedLabel.hidden = true;
     }, 2000);
+  });
+
+  function selectStyleCard(card) {
+    selectedStyle = card.dataset.style;
+    styleCards.forEach((c) => {
+      const active = c === card;
+      c.classList.toggle("style-card--active", active);
+      c.setAttribute("aria-checked", String(active));
+      // Roving tabindex (standard ARIA radiogroup pattern): only the
+      // selected card is a Tab stop, so Tab moves past the whole group in
+      // one step and the arrow-key handler below moves within it - matching
+      // how the native <select> this replaced behaved for keyboard users.
+      c.tabIndex = active ? 0 : -1;
+    });
+  }
+
+  styleCards.forEach((card) => {
+    card.addEventListener("click", () => selectStyleCard(card));
+  });
+
+  document.getElementById("subtitle-style-group").addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = styleCards.findIndex((c) => c.classList.contains("style-card--active"));
+    const direction = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    const next = styleCards[(currentIndex + direction + styleCards.length) % styleCards.length];
+    selectStyleCard(next);
+    next.focus();
   });
 
   historyClearButton.addEventListener("click", () => {
@@ -375,7 +561,7 @@
   // Shared between the live upload flow and resuming an already-finished
   // job after a reload (see resumeActiveJobIfAny below) - keeps both paths
   // rendering the results section identically instead of drifting apart.
-  function showTranscriptionResults(jobId, karaokeAvailable, filename) {
+  function showTranscriptionResults(jobId, karaokeAvailable, filename, thumbnail) {
     progressSection.hidden = true;
     resultsSection.hidden = false;
     downloadSrtLink.href = `/api/jobs/${jobId}/srt`;
@@ -387,6 +573,7 @@
       filename: filename || jobId,
       createdAt: new Date().toISOString(),
       videoReady: false,
+      thumbnail: thumbnail || null,
     });
   }
 
@@ -397,21 +584,78 @@
     updateHistoryEntry(jobId, { videoReady: true });
   }
 
+  // Consent BEFORE the first byte: a not-yet-cached model states its size and
+  // the machine's free disk, and the user has to explicitly confirm - the
+  // same posture as any first-time multi-hundred-megabyte pull, just applied
+  // to CaptionForge's own model download instead of leaving it to happen
+  // silently inside the first transcription job. Resolves `true` (no modal
+  // shown at all) for an already-cached model, so repeat use of the same
+  // size never adds a click.
+  async function confirmModelDownload(modelSize) {
+    let preflight;
+    try {
+      const response = await fetch(`/api/models/${modelSize}/preflight`);
+      if (!response.ok) throw new Error(`preflight ${response.status}`);
+      preflight = await response.json();
+    } catch {
+      // Advisory check only - if it can't be reached, don't block the whole
+      // upload on it. The server re-checks disk space for real right before
+      // it actually downloads anything (see models.assert_model_fits), so
+      // failing open here can't lead to a silently-filled disk.
+      return true;
+    }
+
+    if (preflight.cached) return true;
+
+    const sizeMb = Math.round(preflight.approx_bytes / 1024 / 1024);
+    const freeGb = (preflight.free_bytes / 1024 / 1024 / 1024).toFixed(1);
+    modelDownloadBody.textContent = t("modelDownloadBodyFirstTime", { size: modelSize, sizeMb });
+    modelDownloadDisk.textContent = t("modelDownloadFreeDisk", { freeGb });
+    modelDownloadRefused.hidden = preflight.fits;
+    modelDownloadConfirmButton.hidden = !preflight.fits;
+    modelDownloadOverlay.hidden = false;
+
+    return new Promise((resolve) => {
+      const cleanup = (result) => {
+        modelDownloadOverlay.hidden = true;
+        modelDownloadCancelButton.removeEventListener("click", onCancel);
+        modelDownloadConfirmButton.removeEventListener("click", onConfirm);
+        document.removeEventListener("keydown", onKeydown);
+        resolve(result);
+      };
+      const onCancel = () => cleanup(false);
+      const onConfirm = () => cleanup(true);
+      const onKeydown = (event) => {
+        if (event.key === "Escape") cleanup(false);
+      };
+      modelDownloadCancelButton.addEventListener("click", onCancel);
+      modelDownloadConfirmButton.addEventListener("click", onConfirm);
+      document.addEventListener("keydown", onKeydown);
+    });
+  }
+
   uploadButton.addEventListener("click", async () => {
     if (!selectedFile) return;
 
+    const modelSize = modelSizeSelect.value;
+    uploadButton.disabled = true;
+    if (!(await confirmModelDownload(modelSize))) {
+      uploadButton.disabled = false;
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", selectedFile);
-    formData.append("model_size", modelSizeSelect.value);
+    formData.append("model_size", modelSize);
     if (languageInput.value.trim()) formData.append("language", languageInput.value.trim());
     if (translateToInput.value.trim()) formData.append("translate_to", translateToInput.value.trim());
 
-    uploadButton.disabled = true;
     let response;
     try {
       response = await fetch("/api/jobs", { method: "POST", body: formData });
     } catch (err) {
       showError("connectionError");
+      uploadButton.disabled = false;
       return;
     }
 
@@ -425,21 +669,24 @@
 
     const { job_id: jobId } = await response.json();
     currentJobId = jobId;
+    currentModelSize = modelSize;
     const filename = selectedFile.name;
-    saveActiveJob(jobId, filename);
+    saveActiveJob(jobId, filename, modelSize, selectedFileThumbnail);
     uploadSection.hidden = true;
     progressSection.hidden = false;
     editSection.hidden = true;
     downloadVideoLink.hidden = true;
     setKaraokeAvailable(false);
+    updateStageSteps("extracting_audio");
 
     watchJobEvents(jobId, {
       onUpdate: (job) => {
         lastMainJob = job;
-        stageLabel.textContent = stageLabelFor(job.status, job.progress);
+        stageLabel.textContent = stageLabelFor(job.status, job.progress, modelSize);
         progressFill.style.width = `${Math.round(job.progress * 100)}%`;
+        updateStageSteps(job.status);
       },
-      onDone: (job) => showTranscriptionResults(jobId, job.karaoke_available, filename),
+      onDone: (job) => showTranscriptionResults(jobId, job.karaoke_available, filename, selectedFileThumbnail),
     });
   });
 
@@ -449,7 +696,7 @@
     burnProgressSection.hidden = false;
 
     const formData = new FormData();
-    formData.append("style", subtitleStyleSelect.value);
+    formData.append("style", selectedStyle);
     formData.append("karaoke", karaokeCheckbox.checked ? "true" : "false");
 
     const response = await fetch(`/api/jobs/${currentJobId}/burn`, { method: "POST", body: formData });
@@ -494,25 +741,28 @@
     }
     const job = await response.json();
     currentJobId = active.jobId;
+    currentModelSize = active.modelSize;
     uploadSection.hidden = true;
 
-    if (["queued", "extracting_audio", "transcribing"].includes(job.status)) {
+    if (["queued", "extracting_audio", "downloading_model", "transcribing"].includes(job.status)) {
       progressSection.hidden = false;
       editSection.hidden = true;
       downloadVideoLink.hidden = true;
       setKaraokeAvailable(false);
-      stageLabel.textContent = stageLabelFor(job.status, job.progress);
+      stageLabel.textContent = stageLabelFor(job.status, job.progress, active.modelSize);
       progressFill.style.width = `${Math.round(job.progress * 100)}%`;
+      updateStageSteps(job.status);
       watchJobEvents(active.jobId, {
         onUpdate: (j) => {
           lastMainJob = j;
-          stageLabel.textContent = stageLabelFor(j.status, j.progress);
+          stageLabel.textContent = stageLabelFor(j.status, j.progress, active.modelSize);
           progressFill.style.width = `${Math.round(j.progress * 100)}%`;
+          updateStageSteps(j.status);
         },
-        onDone: (j) => showTranscriptionResults(active.jobId, j.karaoke_available, active.filename),
+        onDone: (j) => showTranscriptionResults(active.jobId, j.karaoke_available, active.filename, active.thumbnail),
       });
     } else if (job.status === "burning_subtitles") {
-      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename);
+      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename, active.thumbnail);
       burnProgressSection.hidden = false;
       burnStageLabel.textContent = stageLabelFor(job.status, job.progress);
       burnProgressFill.style.width = `${Math.round(job.progress * 100)}%`;
@@ -525,9 +775,9 @@
         onDone: () => showBurnResults(active.jobId),
       });
     } else if (job.status === "done") {
-      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename);
+      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename, active.thumbnail);
     } else if (job.status === "burned") {
-      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename);
+      showTranscriptionResults(active.jobId, job.karaoke_available, active.filename, active.thumbnail);
       showBurnResults(active.jobId);
     } else if (job.status === "error") {
       clearActiveJob();
@@ -542,7 +792,7 @@
     // (the selected-file label, the live stage label, a shown error) needs
     // its own refresh, or it stays frozen in the old language.
     renderSelectedFile();
-    if (lastMainJob) stageLabel.textContent = stageLabelFor(lastMainJob.status, lastMainJob.progress);
+    if (lastMainJob) stageLabel.textContent = stageLabelFor(lastMainJob.status, lastMainJob.progress, currentModelSize);
     if (lastBurnJob) burnStageLabel.textContent = stageLabelFor(lastBurnJob.status, lastBurnJob.progress);
     if (lastErrorRender) lastErrorRender();
     renderHistory(); // history links carry a translated label (".srt", "video", ...)

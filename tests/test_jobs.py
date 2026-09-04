@@ -70,6 +70,29 @@ class TestJobStoreTransitions:
         with pytest.raises(InvalidTransitionError):
             store.transition(job.id, JobStatus.TRANSCRIBING)
 
+    def test_a_not_yet_cached_model_can_route_through_downloading_model(self):
+        store = JobStore()
+        job = store.create()
+        store.transition(job.id, JobStatus.EXTRACTING_AUDIO)
+        store.transition(job.id, JobStatus.DOWNLOADING_MODEL)
+        result = store.transition(job.id, JobStatus.TRANSCRIBING)
+        assert result.status == JobStatus.TRANSCRIBING
+
+    def test_a_cached_model_can_skip_downloading_model_entirely(self):
+        # EXTRACTING_AUDIO -> TRANSCRIBING directly must keep working - most
+        # jobs reuse an already-cached model and never touch the new status.
+        store = JobStore()
+        job = store.create()
+        store.transition(job.id, JobStatus.EXTRACTING_AUDIO)
+        result = store.transition(job.id, JobStatus.TRANSCRIBING)
+        assert result.status == JobStatus.TRANSCRIBING
+
+    def test_downloading_model_is_unreachable_directly_from_queued(self):
+        store = JobStore()
+        job = store.create()
+        with pytest.raises(InvalidTransitionError):
+            store.transition(job.id, JobStatus.DOWNLOADING_MODEL)
+
     def test_transitioning_a_terminal_status_forward_is_rejected(self):
         store = JobStore()
         job = store.create()

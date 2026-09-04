@@ -50,6 +50,19 @@
       </div>
     </div>
 
+    <div id="model-download-overlay" class="onboarding-overlay" hidden>
+      <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="model-download-heading">
+        <h2 id="model-download-heading" data-i18n="modelDownloadTitle">Descarga del modelo Whisper</h2>
+        <p id="model-download-body"></p>
+        <p id="model-download-disk" class="model-download-disk"></p>
+        <p id="model-download-refused" class="model-download-refused" hidden data-i18n="modelDownloadRefused">No hay espacio suficiente para descargar este modelo. Libera espacio en disco e inténtalo de nuevo.</p>
+        <div class="model-download-actions">
+          <button type="button" id="model-download-cancel" class="button" data-i18n="modelDownloadCancel">Cancelar</button>
+          <button type="button" id="model-download-confirm" class="button button--primary" data-i18n="modelDownloadConfirm">Descargar y continuar</button>
+        </div>
+      </div>
+    </div>
+
     <main class="page">
       <header class="page__header">
         <div class="lang-switch" role="group" aria-label="Language / Idioma">
@@ -86,11 +99,32 @@
           </label>
         </div>
 
-        <p id="selected-file" class="selected-file" hidden></p>
+        <div class="selected-file-row">
+          <img id="video-thumbnail" class="video-thumbnail" hidden alt="" />
+          <p id="selected-file" class="selected-file" hidden></p>
+        </div>
         <button type="button" id="upload-button" class="button button--primary" disabled data-i18n="uploadButton">Generar subtítulos</button>
       </section>
 
       <section id="progress-section" class="card" hidden>
+        <div id="stage-steps" class="stage-steps">
+          <div class="stage-step" data-step="extracting_audio">
+            <span class="stage-step__dot"></span>
+            <span class="stage-step__label" data-i18n="stepExtracting">Extraer audio</span>
+          </div>
+          <div class="stage-step" data-step="downloading_model">
+            <span class="stage-step__dot"></span>
+            <span class="stage-step__label" data-i18n="stepDownloading">Descargar modelo</span>
+          </div>
+          <div class="stage-step" data-step="transcribing">
+            <span class="stage-step__dot"></span>
+            <span class="stage-step__label" data-i18n="stepTranscribing">Transcribir</span>
+          </div>
+          <div class="stage-step" data-step="done">
+            <span class="stage-step__dot"></span>
+            <span class="stage-step__label" data-i18n="stepDone">Listo</span>
+          </div>
+        </div>
         <p id="stage-label" class="stage-label" data-i18n="stageQueued">En cola</p>
         <div class="progress-bar">
           <div id="progress-fill" class="progress-bar__fill"></div>
@@ -112,6 +146,7 @@
 
         <div id="edit-section" class="edit-section" hidden>
           <p class="edit-section__hint" data-i18n="editHint">Corrige el texto si algo salió mal. Los tiempos no cambian.</p>
+          <div id="edit-timeline" class="edit-timeline" hidden></div>
           <div id="edit-rows" class="edit-rows"></div>
           <div class="edit-section__actions">
             <button type="button" id="edit-save-button" class="button button--primary" data-i18n="editSaveButton">Guardar cambios</button>
@@ -119,16 +154,29 @@
           </div>
         </div>
 
+        <div class="style-picker">
+          <span class="style-picker__label" data-i18n="subtitleStyleLabel">Estilo de subtítulo</span>
+          <div id="subtitle-style-group" class="style-cards" role="radiogroup" aria-label="Estilo de subtítulo / Caption style">
+            <button type="button" class="style-card style-card--active" data-style="modern" role="radio" aria-checked="true" tabindex="0">
+              <span class="style-card__preview style-card__preview--modern"><span>Hola</span></span>
+              <span class="style-card__name" data-i18n="styleModern">Moderno</span>
+            </button>
+            <button type="button" class="style-card" data-style="tiktok" role="radio" aria-checked="false" tabindex="-1">
+              <span class="style-card__preview style-card__preview--tiktok"><span>Hola</span></span>
+              <span class="style-card__name" data-i18n="styleTiktok">TikTok bold</span>
+            </button>
+            <button type="button" class="style-card" data-style="youtube" role="radio" aria-checked="false" tabindex="-1">
+              <span class="style-card__preview style-card__preview--youtube"><span>Hola</span></span>
+              <span class="style-card__name" data-i18n="styleYoutube">Clásico YouTube</span>
+            </button>
+            <button type="button" class="style-card" data-style="minimal" role="radio" aria-checked="false" tabindex="-1">
+              <span class="style-card__preview style-card__preview--minimal"><span>Hola</span></span>
+              <span class="style-card__name" data-i18n="styleMinimal">Minimalista</span>
+            </button>
+          </div>
+        </div>
+
         <div class="burn-options">
-          <label for="subtitle-style">
-            <span data-i18n="subtitleStyleLabel">Estilo de subtítulo</span>
-            <select id="subtitle-style">
-              <option value="modern" selected data-i18n="styleModern">Moderno</option>
-              <option value="tiktok" data-i18n="styleTiktok">TikTok bold</option>
-              <option value="youtube" data-i18n="styleYoutube">Clásico YouTube</option>
-              <option value="minimal" data-i18n="styleMinimal">Minimalista</option>
-            </select>
-          </label>
           <label id="karaoke-option" class="checkbox-option" hidden>
             <input type="checkbox" id="karaoke-checkbox" />
             <span data-i18n="karaokeLabel">Resaltar palabra por palabra (karaoke)</span>
@@ -140,7 +188,7 @@
         </div>
 
         <div id="burn-progress" class="burn-progress" hidden>
-          <p id="burn-stage-label" class="stage-label" data-i18n="stageBurning">Quemando subtítulos</p>
+          <p id="burn-stage-label" class="stage-label">Quemando subtítulos</p>
           <div class="progress-bar">
             <div id="burn-progress-fill" class="progress-bar__fill"></div>
           </div>
