@@ -84,6 +84,34 @@ class TestCreateJob:
         assert "job_id" in body
         assert body["status"] == "queued"
 
+    def test_rejects_a_language_name_typed_instead_of_its_iso_code(self, app_client):
+        # Regression: "espanol" (a language NAME) used to sail through as
+        # `language`, truncate at the frontend's old maxlength, and crash deep
+        # inside faster-whisper's Tokenizer after a slow model download - not a
+        # 400 at upload time. This must reject before the file save even runs.
+        response = app_client.post(
+            "/api/jobs",
+            files={"file": ("clip.mp4", io.BytesIO(_fake_video_bytes()), "video/mp4")},
+            data={"language": "espanol"},
+        )
+        assert response.status_code == 400
+        assert "espanol" in response.json()["detail"]
+
+    def test_accepts_a_valid_iso_language_code(self, app_client):
+        response = app_client.post(
+            "/api/jobs",
+            files={"file": ("clip.mp4", io.BytesIO(_fake_video_bytes()), "video/mp4")},
+            data={"language": "es"},
+        )
+        assert response.status_code == 201
+
+    def test_accepts_no_language_for_auto_detection(self, app_client):
+        response = app_client.post(
+            "/api/jobs",
+            files={"file": ("clip.mp4", io.BytesIO(_fake_video_bytes()), "video/mp4")},
+        )
+        assert response.status_code == 201
+
     def test_second_upload_while_a_job_is_active_returns_409(self, app_client):
         first = app_client.post(
             "/api/jobs",
@@ -96,6 +124,30 @@ class TestCreateJob:
             files={"file": ("clip2.mp4", io.BytesIO(_fake_video_bytes()), "video/mp4")},
         )
         assert second.status_code == 409
+
+    def test_cancel_frees_the_slot_for_a_new_upload(self, app_client):
+        job_id = _create_job(app_client)
+
+        cancel_response = app_client.delete(f"/api/jobs/{job_id}")
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["status"] == "error"
+
+        second = app_client.post(
+            "/api/jobs",
+            files={"file": ("clip2.mp4", io.BytesIO(_fake_video_bytes()), "video/mp4")},
+        )
+        assert second.status_code == 201
+
+    def test_cancel_an_unknown_job_returns_404(self, app_client):
+        response = app_client.delete("/api/jobs/does-not-exist")
+        assert response.status_code == 404
+
+    def test_cancel_an_already_done_job_returns_409(self, app_client):
+        job_id = _create_job(app_client)
+        _finish_transcription(app_client, job_id, [])
+
+        response = app_client.delete(f"/api/jobs/{job_id}")
+        assert response.status_code == 409
 
     def test_saves_the_uploaded_file_to_the_configured_jobs_dir(self, app_client, tmp_path):
         response = app_client.post(
@@ -173,6 +225,15 @@ class TestHealth:
         body = response.json()
         assert body["status"] == "ok"
         assert isinstance(body["ffmpeg_available"], bool)
+
+    def test_languages_endpoint_lists_every_code_the_upload_route_accepts(self, app_client):
+        from captionforge.languages import WHISPER_LANGUAGE_CODES
+
+        response = app_client.get("/api/languages")
+        assert response.status_code == 200
+        languages = response.json()["languages"]
+        assert {entry["code"] for entry in languages} == set(WHISPER_LANGUAGE_CODES)
+        assert all(entry["name"] for entry in languages)
 
 
 class TestSegmentsAndExports:

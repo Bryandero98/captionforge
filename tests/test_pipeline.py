@@ -17,9 +17,17 @@ import contextlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from captionforge.ffmpeg_utils import build_burn_subtitles_cmd
 from captionforge.jobs import JobStatus, JobStore
-from captionforge.pipeline import _run_ffmpeg, run_burn_job, run_transcription_job, write_segments_json
+from captionforge.pipeline import (
+    _ffmpeg_error_detail,
+    _run_ffmpeg,
+    run_burn_job,
+    run_transcription_job,
+    write_segments_json,
+)
 from captionforge.srt import Segment, WordTiming, segments_to_srt
 
 # The fixture's real, ffprobe-measured duration - used to drive _run_ffmpeg's
@@ -94,11 +102,45 @@ class TestRunTranscriptionJobReal:
             patch("captionforge.pipeline.select_device", side_effect=_capture_status_and_return),
             patch("captionforge.pipeline.is_model_cached", return_value=False),
             patch("captionforge.pipeline.assert_model_fits") as mock_assert_fits,
+            patch("captionforge.pipeline.download_model_with_progress") as mock_download,
         ):
             asyncio.run(run_transcription_job(store, job.id, FIXTURE, srt_path, model_size="medium"))
 
         mock_assert_fits.assert_called_once_with("medium")
+        mock_download.assert_called_once()
+        assert mock_download.call_args.args[0] == "medium"
         assert status_during_load == [JobStatus.DOWNLOADING_MODEL]
+        assert store.get(job.id).status == JobStatus.DONE
+
+    def test_download_progress_callback_updates_job_progress_and_stage_label(self, tmp_path):
+        """The on_progress closure passed to download_model_with_progress is real wiring,
+        not just a call that happens to occur - verified by invoking it directly (as
+        snapshot_download's tqdm hook would) and checking the job it actually mutates.
+        """
+        store = JobStore()
+        job = store.create()
+        srt_path = tmp_path / "output.srt"
+
+        fake_model = MagicMock()
+        fake_model.transcribe.return_value = _fake_whisper_result()
+        progress_after_callback = {}
+
+        def _capture_callback(model_size, on_progress):
+            on_progress(50, 200)
+            job_now = store.get(job.id)
+            progress_after_callback["progress"] = job_now.progress
+            progress_after_callback["stage_label"] = job_now.stage_label
+
+        with (
+            patch("captionforge.pipeline.select_device", return_value=(fake_model, "cpu")),
+            patch("captionforge.pipeline.is_model_cached", return_value=False),
+            patch("captionforge.pipeline.assert_model_fits"),
+            patch("captionforge.pipeline.download_model_with_progress", side_effect=_capture_callback),
+        ):
+            asyncio.run(run_transcription_job(store, job.id, FIXTURE, srt_path, model_size="base"))
+
+        assert progress_after_callback["progress"] == 0.25
+        assert "25%" in progress_after_callback["stage_label"]
         assert store.get(job.id).status == JobStatus.DONE
 
     def test_an_undersized_disk_stops_the_job_before_select_device_runs(self, tmp_path):
@@ -122,6 +164,64 @@ class TestRunTranscriptionJobReal:
         mock_select_device.assert_not_called()
         assert store.get(job.id).status == JobStatus.ERROR
         assert store.get(job.id).error == "no cabe"
+
+    def test_a_cancel_mid_flight_does_not_clobber_the_cancellation_message(self, tmp_path):
+        """Regression: cancel() moving the job to ERROR used to surface as an
+        InvalidTransitionError from the NEXT store.transition() call this
+        background task makes - caught by the generic `except Exception`,
+        which overwrote "Cancelado por el usuario." with that confusing
+        technical message and then re-raised it as an unhandled exception
+        (a scary traceback dump for an outcome the user already triggered).
+        """
+        store = JobStore()
+        job = store.create()
+        srt_path = tmp_path / "output.srt"
+
+        fake_model = MagicMock()
+        fake_model.transcribe.return_value = _fake_whisper_result()
+
+        def _cancel_then_return(*_args, **_kwargs):
+            store.cancel(job.id)
+            return fake_model, "cpu"
+
+        with (
+            patch("captionforge.pipeline.select_device", side_effect=_cancel_then_return),
+            patch("captionforge.pipeline.is_model_cached", return_value=True),
+        ):
+            # Must not raise - InvalidTransitionError is swallowed, not re-thrown.
+            asyncio.run(run_transcription_job(store, job.id, FIXTURE, srt_path))
+
+        assert store.get(job.id).status == JobStatus.ERROR
+        assert store.get(job.id).error == "Cancelado por el usuario."
+
+    def test_a_supersede_mid_flight_does_not_touch_the_new_job(self, tmp_path):
+        """Same race, but the slot was reused for a brand new upload (rather
+        than left cancelled) before this orphaned background task's next
+        store call - which must then raise UnknownJobError (job_id no
+        longer matches self._job) rather than corrupting the new job.
+        """
+        store = JobStore()
+        job = store.create()
+        srt_path = tmp_path / "output.srt"
+
+        fake_model = MagicMock()
+        fake_model.transcribe.return_value = _fake_whisper_result()
+        new_job_holder = {}
+
+        def _supersede_then_return(*_args, **_kwargs):
+            store.cancel(job.id)
+            new_job_holder["job"] = store.create()
+            return fake_model, "cpu"
+
+        with (
+            patch("captionforge.pipeline.select_device", side_effect=_supersede_then_return),
+            patch("captionforge.pipeline.is_model_cached", return_value=True),
+        ):
+            asyncio.run(run_transcription_job(store, job.id, FIXTURE, srt_path))
+
+        new_job = new_job_holder["job"]
+        assert store.get(new_job.id).status == JobStatus.QUEUED
+        assert store.get(new_job.id).error is None
 
 
 class TestRunFfmpegProgressReal:
@@ -149,7 +249,47 @@ class TestRunFfmpegProgressReal:
 
         asyncio.run(_run_ffmpeg(cmd))  # must not raise despite no progress callback wired up
 
-        assert output_path.exists()
+    def test_a_real_ffmpeg_failure_raises_a_short_readable_message(self, tmp_path):
+        """Regression: job.error used to be ffmpeg's ENTIRE stderr - unreadable, and long
+        enough on a real encode to bury the one line that actually explains the failure.
+        Points ffmpeg at a nonexistent input to force a real, non-mocked failure.
+        """
+        missing_input = tmp_path / "does_not_exist.mp4"
+        cmd = ["ffmpeg", "-y", "-i", str(missing_input), str(tmp_path / "out.wav")]
+
+        with pytest.raises(RuntimeError) as excinfo:
+            asyncio.run(_run_ffmpeg(cmd))
+
+        message = str(excinfo.value)
+        assert message.startswith("ffmpeg fallo (codigo")
+        assert len(message) < 500
+        assert "No such file" in message or "system cannot find" in message.lower()
+
+
+class TestFfmpegErrorDetail:
+    def test_strips_repeated_frame_progress_spam(self):
+        lines = [f"frame={i} fps=25 time=00:00:0{i}.00 bitrate=419kbits/s speed=1x" for i in range(20)]
+        stderr = "\r".join(lines)
+        assert _ffmpeg_error_detail(stderr) == ""
+
+    def test_keeps_the_real_diagnostic_lines_at_the_end(self):
+        stderr = (
+            "frame=1 fps=25 time=00:00:01.00 bitrate=419kbits/s speed=1x\r"
+            "frame=2 fps=25 time=00:00:02.00 bitrate=419kbits/s speed=1x\n"
+            "[mp4 @ 0x1234] moov atom not found\n"
+            "does_not_exist.mp4: Invalid data found when processing input\n"
+        )
+        detail = _ffmpeg_error_detail(stderr)
+        assert "Invalid data found when processing input" in detail
+        assert "frame=" not in detail
+
+    def test_bounded_length_even_with_many_real_lines(self):
+        stderr = "\n".join(f"a real diagnostic line number {i} with some words in it" for i in range(50))
+        detail = _ffmpeg_error_detail(stderr, max_chars=100)
+        assert len(detail) <= 100
+
+    def test_empty_stderr_yields_empty_detail(self):
+        assert _ffmpeg_error_detail("") == ""
 
 
 class TestRunBurnJobReal:

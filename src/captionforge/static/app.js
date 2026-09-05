@@ -4,6 +4,7 @@
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
   const selectedFileLabel = document.getElementById("selected-file");
+  const selectedFileMeta = document.getElementById("selected-file-meta");
   const videoThumbnail = document.getElementById("video-thumbnail");
   const uploadButton = document.getElementById("upload-button");
   const modelSizeSelect = document.getElementById("model-size");
@@ -15,6 +16,7 @@
   const stageSteps = Array.from(document.querySelectorAll("#stage-steps .stage-step"));
   const stageLabel = document.getElementById("stage-label");
   const progressFill = document.getElementById("progress-fill");
+  const cancelJobButton = document.getElementById("cancel-job-button");
 
   const errorSection = document.getElementById("error-section");
   const errorMessage = document.getElementById("error-message");
@@ -83,7 +85,7 @@
       case "extracting_audio":
         return t("stageExtracting");
       case "downloading_model":
-        return t("stageDownloadingModel", { size: modelSize || "" });
+        return t("stageDownloadingModel", { size: modelSize || "", percent: Math.round((progress || 0) * 100) });
       case "transcribing":
         return t("stageTranscribing", { percent: Math.round((progress || 0) * 100) });
       case "done":
@@ -244,8 +246,58 @@
       uploadButton.disabled = false;
     } else {
       selectedFileLabel.hidden = true;
+      selectedFileMeta.hidden = true;
       uploadButton.disabled = true;
     }
+  }
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function formatDuration(seconds) {
+    const total = Math.round(seconds);
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${mins}:${String(secs).padStart(2, "0")}`;
+  }
+
+  // Size is known synchronously; duration needs a real (if metadata-only)
+  // video decode, so this renders twice per file - once with just the size,
+  // patched with the duration once/if that resolves (some formats this app
+  // otherwise accepts, like .mkv/.avi, aren't decodable by <video> in most
+  // browsers - duration silently stays absent for those, same posture as
+  // generateVideoThumbnail below).
+  function renderSelectedFileMeta(file, duration) {
+    const parts = [formatFileSize(file.size)];
+    if (Number.isFinite(duration)) parts.push(formatDuration(duration));
+    selectedFileMeta.textContent = parts.join(" · ");
+    selectedFileMeta.hidden = false;
+  }
+
+  // A metadata-only <video> load (preload="metadata") just to read .duration
+  // before the user commits to uploading - separate from
+  // generateVideoThumbnail's own <video> below since that one needs a full
+  // frame decode (a real seek), not just the header.
+  function readVideoDuration(file) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      let settled = false;
+      const finish = (duration) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        URL.revokeObjectURL(url);
+        resolve(duration);
+      };
+      const timeout = setTimeout(() => finish(null), 4000);
+      video.addEventListener("loadedmetadata", () => finish(video.duration));
+      video.addEventListener("error", () => finish(null));
+      video.src = url;
+    });
   }
 
   // Grabs one frame of the locally-picked video as a small JPEG data URL,
@@ -303,6 +355,11 @@
     videoThumbnail.hidden = true;
     renderSelectedFile();
     if (!file) return;
+    renderSelectedFileMeta(file, null);
+    readVideoDuration(file).then((duration) => {
+      if (file !== selectedFile) return; // superseded by a later pick
+      renderSelectedFileMeta(file, duration);
+    });
     generateVideoThumbnail(file).then((dataUrl) => {
       if (file !== selectedFile || !dataUrl) return; // superseded by a later pick, or generation failed
       selectedFileThumbnail = dataUrl;
@@ -364,6 +421,10 @@
     lastErrorRender = () => {
       errorMessage.textContent = t(key, params);
     };
+  }
+
+  function setProgressFill(el, job) {
+    el.style.width = `${Math.round(job.progress * 100)}%`;
   }
 
   function setKaraokeAvailable(available) {
@@ -683,7 +744,7 @@
       onUpdate: (job) => {
         lastMainJob = job;
         stageLabel.textContent = stageLabelFor(job.status, job.progress, modelSize);
-        progressFill.style.width = `${Math.round(job.progress * 100)}%`;
+        setProgressFill(progressFill, job);
         updateStageSteps(job.status);
       },
       onDone: (job) => showTranscriptionResults(jobId, job.karaoke_available, filename, selectedFileThumbnail),
@@ -723,6 +784,25 @@
     location.reload();
   });
 
+  // Cancelling doesn't stop the model download/transcribe already running in
+  // the backend's worker thread (see JobStore.cancel()'s docstring for why
+  // that can't be done from here) - it only frees the "one job at a time"
+  // slot immediately instead of leaving the user stuck watching a job they
+  // no longer want. Reloading, same as restartButton, is what actually gets
+  // them back to a usable upload screen - nothing today clears the error
+  // card's view back to it otherwise.
+  cancelJobButton.addEventListener("click", async () => {
+    if (!currentJobId) return;
+    cancelJobButton.disabled = true;
+    try {
+      await fetch(`/api/jobs/${currentJobId}`, { method: "DELETE" });
+    } catch {
+      // Best-effort - reloading below still frees the user either way.
+    }
+    clearActiveJob();
+    location.reload();
+  });
+
   // ---- On page load, pick back up wherever a still-tracked job was left -
   // an accidental reload must not look like the work vanished. ----
   async function resumeActiveJobIfAny() {
@@ -750,13 +830,13 @@
       downloadVideoLink.hidden = true;
       setKaraokeAvailable(false);
       stageLabel.textContent = stageLabelFor(job.status, job.progress, active.modelSize);
-      progressFill.style.width = `${Math.round(job.progress * 100)}%`;
+      setProgressFill(progressFill, job);
       updateStageSteps(job.status);
       watchJobEvents(active.jobId, {
         onUpdate: (j) => {
           lastMainJob = j;
           stageLabel.textContent = stageLabelFor(j.status, j.progress, active.modelSize);
-          progressFill.style.width = `${Math.round(j.progress * 100)}%`;
+          setProgressFill(progressFill, j);
           updateStageSteps(j.status);
         },
         onDone: (j) => showTranscriptionResults(active.jobId, j.karaoke_available, active.filename, active.thumbnail),
@@ -802,7 +882,31 @@
   langEsButton.addEventListener("click", () => changeLang("es"));
   langEnButton.addEventListener("click", () => changeLang("en"));
 
+  // Served from the backend rather than hand-written here so the dropdowns can
+  // never drift from the codes routes/upload.py actually accepts (both read
+  // captionforge.languages). Appended after the static "auto"/"none" <option>
+  // already in index.html for each select - left in place so a slow/offline
+  // fetch still leaves both fields usable at their defaults.
+  async function loadLanguageOptions() {
+    try {
+      const response = await fetch("/api/languages");
+      if (!response.ok) return;
+      const { languages } = await response.json();
+      for (const select of [languageInput, translateToInput]) {
+        for (const { code, name } of languages) {
+          const option = document.createElement("option");
+          option.value = code;
+          option.textContent = `${name} (${code})`;
+          select.appendChild(option);
+        }
+      }
+    } catch {
+      // Offline/unreachable - both fields still work at their defaults.
+    }
+  }
+
   applyToDom(); // also syncs the header ES/EN buttons' active state via i18n.js's [data-lang] handling
   renderHistory();
   resumeActiveJobIfAny();
+  loadLanguageOptions();
 })();

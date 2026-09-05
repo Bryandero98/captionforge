@@ -91,17 +91,24 @@
           </label>
           <label for="language">
             <span data-i18n="languageLabel">Idioma de origen</span>
-            <input id="language" type="text" placeholder="auto" maxlength="5" />
+            <select id="language">
+              <option value="" data-i18n="languageAuto">Detección automática</option>
+            </select>
           </label>
           <label for="translate-to">
             <span data-i18n="translateLabel">Traducir a</span>
-            <input id="translate-to" type="text" data-i18n-placeholder="translatePlaceholder" placeholder="ninguno (p. ej. en, es)" maxlength="5" />
+            <select id="translate-to">
+              <option value="" data-i18n="translateNone">Ninguno</option>
+            </select>
           </label>
         </div>
 
         <div class="selected-file-row">
           <img id="video-thumbnail" class="video-thumbnail" hidden alt="" />
-          <p id="selected-file" class="selected-file" hidden></p>
+          <div>
+            <p id="selected-file" class="selected-file" hidden></p>
+            <p id="selected-file-meta" class="selected-file-meta" hidden></p>
+          </div>
         </div>
         <button type="button" id="upload-button" class="button button--primary" disabled data-i18n="uploadButton">Generar subtítulos</button>
       </section>
@@ -129,6 +136,7 @@
         <div class="progress-bar">
           <div id="progress-fill" class="progress-bar__fill"></div>
         </div>
+        <button type="button" id="cancel-job-button" class="button button--ghost" data-i18n="cancelJobButton">Cancelar</button>
       </section>
 
       <section id="error-section" class="card card--error" hidden>

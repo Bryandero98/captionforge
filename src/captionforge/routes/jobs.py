@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ..deps import get_job_store
-from ..jobs import Job, JobStore, UnknownJobError
+from ..jobs import InvalidTransitionError, Job, JobStore, UnknownJobError
 from ..pipeline import read_segments_json
 
 router = APIRouter()
@@ -47,6 +47,23 @@ async def get_job(job_id: str, store: JobStore = Depends(get_job_store)):
         job = store.get(job_id)
     except UnknownJobError as exc:
         raise HTTPException(404, "Job no encontrado.") from exc
+    return _job_to_dict(job)
+
+
+@router.delete("/api/jobs/{job_id}")
+async def cancel_job(job_id: str, store: JobStore = Depends(get_job_store)):
+    """Cancels the active job so a new upload can start right away.
+
+    Does not stop whatever background work is already running for job_id -
+    see JobStore.cancel()'s docstring for why that's not possible here, and
+    why it's still safe to leave running.
+    """
+    try:
+        job = store.cancel(job_id)
+    except UnknownJobError as exc:
+        raise HTTPException(404, "Job no encontrado.") from exc
+    except InvalidTransitionError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return _job_to_dict(job)
 
 

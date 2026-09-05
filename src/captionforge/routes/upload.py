@@ -13,6 +13,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Up
 from ..config import Settings
 from ..deps import get_job_store, get_settings
 from ..jobs import JobConflictError, JobStore
+
+# The same set routes/languages.py serves to the frontend's picker - checked
+# here too because a caller can still hit this endpoint directly without
+# going through the dropdown. Rejecting an unknown code before the upload is
+# even saved is what stops something like "espanol" (a language NAME, not the
+# ISO code the field wants) from silently truncating to garbage and crashing
+# deep inside _transcribe_sync after a slow model download.
+from ..languages import WHISPER_LANGUAGE_CODES
 from ..pipeline import run_transcription_job
 
 router = APIRouter()
@@ -67,6 +75,16 @@ async def create_job(
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Formato de video no soportado: {suffix or '(sin extension)'}")
+
+    # Checked before the (potentially multi-GB, slow) upload is saved, not
+    # after - the whole point is failing fast instead of after a model
+    # download that would otherwise crash deep in _transcribe_sync.
+    if language and language not in WHISPER_LANGUAGE_CODES:
+        raise HTTPException(
+            400,
+            f"Codigo de idioma de origen invalido: '{language}'. "
+            f"Usa un codigo ISO 639-1 (es, en, fr...) o deja vacio para autodetectar.",
+        )
 
     try:
         job = store.create()

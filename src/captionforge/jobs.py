@@ -123,3 +123,31 @@ class JobStore:
                 raise InvalidTransitionError(f"No se puede pasar de {current.value} a {new_status.value}.")
             self._job.status = new_status
             return self._job
+
+    def cancel(self, job_id: str) -> Job:
+        """Marks the active job ERROR with a cancel message, so create() accepts a new upload right away.
+
+        Does NOT stop whatever background work is still running for job_id -
+        a model download or a transcribe call already inside its worker
+        thread can't be interrupted mid-flight from here. All this does is
+        stop the job from blocking the user: create() only refuses a new
+        upload while the current job's status is in _ACTIVE_STATUSES, and
+        ERROR isn't one of those. Any update()/transition() call the orphaned
+        work makes afterward targets a job_id that no longer matches
+        self._job once a new job has been created, so it correctly raises
+        UnknownJobError instead of corrupting the new job's state.
+
+        A single `with self._lock` block, not update() + transition() calls -
+        threading.Lock is not reentrant, so calling either from here would
+        deadlock against the lock this method already holds.
+        """
+        with self._lock:
+            if self._job is None or self._job.id != job_id:
+                raise UnknownJobError(job_id)
+            if self._job.status not in _ACTIVE_STATUSES:
+                raise InvalidTransitionError(
+                    f"No se puede cancelar un trabajo en estado {self._job.status.value}."
+                )
+            self._job.status = JobStatus.ERROR
+            self._job.error = "Cancelado por el usuario."
+            return self._job

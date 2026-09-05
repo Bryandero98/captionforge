@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Callable
 
 from .ffmpeg_utils import build_burn_subtitles_cmd, build_extract_audio_cmd, resolve_style
-from .jobs import JobStatus, JobStore
-from .models import assert_model_fits, is_model_cached
+from .jobs import InvalidTransitionError, JobStatus, JobStore, UnknownJobError
+from .models import assert_model_fits, download_model_with_progress, is_model_cached
 from .srt import Segment, WordTiming, segments_from_dicts, segments_to_ass, segments_to_dicts, segments_to_srt
 from .translate import translate_segments
 
@@ -53,6 +53,22 @@ def select_device(model_size: str) -> tuple[object, str]:
 # until the whole run finishes instead of yielding each update. Reading raw
 # chunks and regex-searching a short rolling tail (below) sidesteps that.
 _FFMPEG_TIME_RE = re.compile(rb"time=(\d+):(\d\d):(\d\d)\.(\d+)")
+
+
+def _ffmpeg_error_detail(stderr: str, max_lines: int = 4, max_chars: int = 400) -> str:
+    """Boils a failed ffmpeg run's stderr down to its last few real lines.
+
+    The same per-frame progress spam _FFMPEG_TIME_RE reads from ("frame=...
+    time=... bitrate=... speed=...", repeated on '\\r' the whole encode) can
+    add up to many KB even for a short job - drowning out the one or two
+    lines that actually say why it failed (e.g. "Invalid data found when
+    processing input"). Filtering those out and keeping only a short tail of
+    what's left is what turns job.error from an unreadable dump into
+    something a non-technical user has a chance of understanding.
+    """
+    lines = [line.strip() for line in re.split(r"[\r\n]+", stderr) if line.strip()]
+    real_lines = [line for line in lines if not line.startswith("frame=")]
+    return " / ".join(real_lines[-max_lines:])[:max_chars]
 
 
 async def _run_ffmpeg(
@@ -95,7 +111,11 @@ async def _run_ffmpeg(
     returncode = await process.wait()
     if returncode != 0:
         stderr = b"".join(stderr_chunks).decode(errors="replace")
-        raise RuntimeError(f"ffmpeg fallo (codigo {returncode}): {stderr}")
+        detail = _ffmpeg_error_detail(stderr)
+        message = f"ffmpeg fallo (codigo {returncode})"
+        if detail:
+            message += f": {detail}"
+        raise RuntimeError(message)
 
 
 def _transcribe_sync(
@@ -168,17 +188,27 @@ async def run_transcription_job(
                 store.transition(job_id, JobStatus.TRANSCRIBING)
             else:
                 store.transition(job_id, JobStatus.DOWNLOADING_MODEL)
-                store.update(job_id, stage_label=f"Descargando modelo Whisper ({model_size})")
+                store.update(job_id, progress=0.0, stage_label=f"Descargando modelo Whisper ({model_size})")
                 # Re-checked here, not just wherever the frontend's own
                 # preflight call happened to run - free disk can have
                 # dropped since, and this is what actually stops the
                 # transfer rather than letting it fail mid-write.
                 await asyncio.to_thread(assert_model_fits, model_size)
 
+                def _on_download_progress(downloaded: int, total: int) -> None:
+                    progress = downloaded / total
+                    store.update(
+                        job_id,
+                        progress=progress,
+                        stage_label=f"Descargando modelo Whisper ({model_size}, {progress * 100:.0f}%)",
+                    )
+
+                await asyncio.to_thread(download_model_with_progress, model_size, _on_download_progress)
+
             model, device = await asyncio.to_thread(select_device, model_size)
             if not model_cached:
                 store.transition(job_id, JobStatus.TRANSCRIBING)
-            store.update(job_id, stage_label=f"Modelo cargado en {device}")
+            store.update(job_id, progress=0.0, stage_label=f"Modelo cargado en {device}")
 
             segments, detected_language = await asyncio.to_thread(
                 _transcribe_sync, model, audio_path, language, store, job_id
@@ -200,6 +230,16 @@ async def run_transcription_job(
         await asyncio.to_thread(write_segments_json, srt_path.parent, segments)
         store.update(job_id, srt_ready=True, stage_label="Listo")
         store.transition(job_id, JobStatus.DONE)
+    except (InvalidTransitionError, UnknownJobError):
+        # The job was already cancelled (JobStore.cancel() moved it to ERROR
+        # - the next write here finds a status no longer able to reach the
+        # one it's trying to reach) or superseded by a new upload entirely
+        # (job_id no longer matches self._job) while this background task
+        # was mid-flight. Either way there's nothing useful left to report:
+        # updating job.error would clobber the real cancellation message (or
+        # corrupt an unrelated newer job), and re-raising would just dump a
+        # confusing traceback for an outcome the user already knows about.
+        return
     except Exception as exc:
         store.update(job_id, error=str(exc))
         store.transition(job_id, JobStatus.ERROR)

@@ -18,12 +18,15 @@ first byte moves, and refusing outright when the disk can't hold it.
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import LocalEntryNotFoundError
+from tqdm.auto import tqdm as _tqdm
 
 # Only the files faster_whisper.utils.download_model actually fetches -
 # checking for anything else would report "not cached" for a model that's
@@ -92,6 +95,53 @@ def is_model_cached(model_size: str) -> bool:
         return True
     except LocalEntryNotFoundError:
         return False
+
+
+# tqdm's own render target for the progress bars below - discarded, since the
+# callback (not the console) is what carries progress into the job. Opened
+# once at import time rather than per download: cheap, and outlives every
+# download this process ever runs.
+_TQDM_SINK = open(os.devnull, "w")  # noqa: SIM115 - intentionally long-lived, not a leak
+
+
+def _progress_tqdm_class(on_progress: Callable[[int, int], None]) -> type:
+    """Builds a tqdm subclass that also reports (downloaded_bytes, total_bytes) to on_progress.
+
+    Passed as snapshot_download's own public `tqdm_class` hook (documented to
+    accept anything that mimics tqdm.auto.tqdm), this is what turns the
+    frontend's download stage from a fixed animation into the real transfer -
+    confirmed live against an actual model re-download before wiring it in.
+
+    snapshot_download instantiates this class for more than one bar (an
+    overall byte counter plus a per-file-count bar) - only the byte counter's
+    updates are useful here, hence the `desc` filter below, matching the
+    literal string huggingface_hub's own snapshot_download gives that bar.
+    """
+
+    class _ProgressTqdm(_tqdm):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            kwargs.setdefault("file", _TQDM_SINK)
+            super().__init__(*args, **kwargs)
+
+        def update(self, n: float = 1) -> bool | None:
+            result = super().update(n)
+            if self.desc == "Downloading bytes" and self.total:
+                on_progress(int(self.n), int(self.total))
+            return result
+
+    return _ProgressTqdm
+
+
+def download_model_with_progress(model_size: str, on_progress: Callable[[int, int], None]) -> None:
+    """Downloads model_size's files, calling on_progress(downloaded_bytes, total_bytes) as real
+    network bytes land - not a fixed-interval guess. Raises whatever snapshot_download raises
+    on a real network/disk failure; a caller running this in a background job under a JobStore
+    is expected to let InvalidTransitionError/UnknownJobError from a cancelled-mid-flight
+    on_progress call propagate, same as every other JobStore write in that job's pipeline.
+    """
+    snapshot_download(
+        _repo_id(model_size), allow_patterns=_MODEL_FILES, tqdm_class=_progress_tqdm_class(on_progress)
+    )
 
 
 def model_preflight(model_size: str, *, destination: Path | None = None) -> ModelPreflight:

@@ -15,6 +15,7 @@ from captionforge.models import (
     InsufficientDiskSpaceError,
     UnknownModelSizeError,
     assert_model_fits,
+    download_model_with_progress,
     is_model_cached,
     model_preflight,
 )
@@ -83,6 +84,53 @@ class TestModelPreflight:
             small = model_preflight("small", destination=tmp_path)
             medium = model_preflight("medium", destination=tmp_path)
         assert base.approx_bytes < small.approx_bytes < medium.approx_bytes
+
+
+class TestDownloadModelWithProgress:
+    def test_passes_repo_id_allow_patterns_and_a_tqdm_class_through(self):
+        with patch("captionforge.models.snapshot_download") as mock_dl:
+            download_model_with_progress("small", lambda n, total: None)
+        args, kwargs = mock_dl.call_args
+        assert args[0] == "Systran/faster-whisper-small"
+        expected_patterns = [
+            "config.json",
+            "preprocessor_config.json",
+            "model.bin",
+            "tokenizer.json",
+            "vocabulary.*",
+        ]
+        assert kwargs["allow_patterns"] == expected_patterns
+        assert isinstance(kwargs["tqdm_class"], type)
+
+    def test_on_progress_only_fires_for_the_byte_counter_bar(self):
+        """snapshot_download's own tqdm_class hook is instantiated for more than one bar
+        (see huggingface_hub._snapshot_download - a byte counter plus a file-count bar) -
+        this simulates both, the way huggingface_hub's real _AggregatedTqdm does (setting
+        .total post-construction, then calling .update()), to prove the callback only
+        reacts to the one whose numbers are actually bytes.
+        """
+        samples: list[tuple[int, int]] = []
+
+        def fake_snapshot_download(repo_id, allow_patterns=None, tqdm_class=None):
+            byte_bar = tqdm_class(desc="Downloading bytes", total=0, initial=0, unit="B", unit_scale=True)
+            byte_bar.total = 100
+            byte_bar.update(40)
+            byte_bar.update(60)
+
+            file_bar = tqdm_class(desc="Fetching 4 files", total=4, initial=0)
+            file_bar.update(4)
+
+        with patch("captionforge.models.snapshot_download", side_effect=fake_snapshot_download):
+            download_model_with_progress("base", lambda n, total: samples.append((n, total)))
+
+        assert samples == [(40, 100), (100, 100)]
+
+    def test_propagates_a_real_snapshot_download_failure(self):
+        with (
+            patch("captionforge.models.snapshot_download", side_effect=OSError("disco lleno")),
+            pytest.raises(OSError, match="disco lleno"),
+        ):
+            download_model_with_progress("base", lambda n, total: None)
 
 
 class TestAssertModelFits:

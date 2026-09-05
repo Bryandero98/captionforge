@@ -139,6 +139,57 @@ class TestJobStoreUpdateAndGet:
             store.get("nope")
 
 
+class TestJobStoreCancel:
+    def test_cancel_marks_an_active_job_error_with_a_cancellation_message(self):
+        store = JobStore()
+        job = store.create()
+        store.transition(job.id, JobStatus.EXTRACTING_AUDIO)
+
+        cancelled = store.cancel(job.id)
+        assert cancelled.status == JobStatus.ERROR
+        assert cancelled.error == "Cancelado por el usuario."
+
+    def test_cancel_unblocks_create_for_a_new_upload(self):
+        store = JobStore()
+        first = store.create()
+        store.transition(first.id, JobStatus.EXTRACTING_AUDIO)
+        store.transition(first.id, JobStatus.DOWNLOADING_MODEL)
+        store.cancel(first.id)
+
+        second = store.create()
+        assert second.id != first.id
+
+    def test_cancel_an_unknown_job_id_raises(self):
+        store = JobStore()
+        store.create()
+        with pytest.raises(UnknownJobError):
+            store.cancel("does-not-exist")
+
+    def test_cancel_a_finished_job_is_rejected(self):
+        store = JobStore()
+        job = store.create()
+        store.transition(job.id, JobStatus.EXTRACTING_AUDIO)
+        store.transition(job.id, JobStatus.TRANSCRIBING)
+        store.transition(job.id, JobStatus.DONE)
+
+        with pytest.raises(InvalidTransitionError):
+            store.cancel(job.id)
+
+    def test_a_late_update_from_orphaned_work_after_cancel_and_a_new_job_raises(self):
+        # Simulates the real race: cancel() frees create() immediately, but
+        # the orphaned background task for the cancelled job is still running
+        # and eventually calls update()/transition() with the OLD job_id -
+        # by then self._job is the new job, so it must raise, never touch it.
+        store = JobStore()
+        first = store.create()
+        store.cancel(first.id)
+        second = store.create()
+
+        with pytest.raises(UnknownJobError):
+            store.update(first.id, stage_label="late update from the cancelled job")
+        assert store.get(second.id).stage_label != "late update from the cancelled job"
+
+
 class TestJobStoreThreadSafety:
     def test_concurrent_create_attempts_only_one_wins(self):
         # Fires many threads at create() simultaneously - the lock must
