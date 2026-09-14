@@ -31,20 +31,24 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           # Real CI failure (macos-latest only, ubuntu/windows pass): every
-          # burn-subtitles test errors with "No such filter: 'subtitles'",
-          # meaning whatever ffmpeg ends up on PATH after `brew install
-          # ffmpeg` lacks libass - most likely a non-Homebrew ffmpeg already
-          # on this image's PATH ahead of Homebrew's own bin dir (`brew
-          # install` no-ops with a warning if it thinks ffmpeg is already
-          # present, and even a real install only manages Cellar symlinks,
-          # not PATH ordering against a binary it doesn't own). Homebrew's
-          # own ffmpeg formula depends on libass and does carry the filter -
-          # prepending its bin dir to $GITHUB_PATH forces every later step in
-          # this job to resolve `ffmpeg` there first. The "Diagnose" step
-          # right after this one is what actually confirms which binary is
-          # in play - read its output before trusting this fixed anything.
-          brew install ffmpeg
-          echo "$(brew --prefix ffmpeg)/bin" >> "$GITHUB_PATH"
+          # burn-subtitles test errors with "No such filter: 'subtitles'".
+          # First fix attempt here was prepending Homebrew's own ffmpeg bin
+          # dir to PATH (in case some other, non-Homebrew ffmpeg was resolving
+          # first) - the next CI run's "Diagnose" step below proved that
+          # WRONG: Homebrew's `ffmpeg` formula was already the one resolving,
+          # its `-version` configure line simply never passes
+          # `--enable-libass` at all (confirmed straight from
+          # homebrew-core's own Formula/f/ffmpeg.rb: the regular `ffmpeg`
+          # formula deliberately ships a minimal codec set - "Add other
+          # dependencies to ffmpeg-full formula" is literally a comment in
+          # its source). homebrew-core ships a SEPARATE `ffmpeg-full` formula
+          # for exactly this - it depends on libass/fontconfig/freetype and
+          # has its own prebuilt bottle (no slow from-source compile), so
+          # switching to it is a one-line change rather than a patched build.
+          # It's `keg_only`, so its bin dir needs the same explicit
+          # $GITHUB_PATH treatment as before.
+          brew install ffmpeg-full
+          echo "$(brew --prefix ffmpeg-full)/bin" >> "$GITHUB_PATH"
 
       - name: Diagnose ffmpeg build (macOS)
         if: runner.os == 'macOS'
