@@ -131,6 +131,45 @@ pytest
 `tests/fixtures/tiny_test_clip.mp4` is a real ~10s clip (synthesized
 speech) used by the live-pipeline tests - not a mock.
 
+## Packaged build (first step)
+
+A deliberately narrow first step toward issue #2's packaged installer -
+**not** the full multi-platform, signed, GPU-aware installer described in
+"Roadmap" below.
+
+```sh
+pip install -e ".[build]"
+python scripts/build_installer.py
+```
+
+This produces a single `dist/captionforge` executable (`.exe` on Windows)
+via PyInstaller, driven by `scripts/captionforge.spec` (the commented,
+reproducible build config) from the `scripts/pyinstaller_entrypoint.py`
+entry point - the same thing `captionforge serve` does (open the browser,
+serve on the default port with the default model), minus argparse, since
+a packaged executable has no terminal to pass flags to.
+
+What this covers:
+
+- **One platform at a time** - whichever OS you run the build script on.
+  PyInstaller doesn't cross-compile; a Windows machine only ever produces
+  a Windows executable, same for Linux/macOS.
+- **CPU-only** - bundles whatever faster-whisper/ctranslate2 backend is
+  already installed in the build venv, no CUDA/cuDNN.
+
+What this deliberately does **not** cover yet (see issue #2's own
+discussion for why each of these is a separate, non-trivial piece of
+work):
+
+- **Multiple platforms from one place** - building/distributing
+  Windows + macOS + Linux together.
+- **Code signing** - the built executable will trigger Windows
+  SmartScreen / macOS Gatekeeper warnings on first run.
+- **GPU/CUDA build selection** - no per-OS GPU detection or a
+  GPU-enabled build variant.
+- **Bundling ffmpeg** - the built executable still expects `ffmpeg` on
+  `PATH`, exactly like running from source.
+
 ## Known limitations
 
 - `argos-translate`'s default `compute_type="auto"` resolves to a quantized
@@ -171,14 +210,14 @@ speech) used by the live-pipeline tests - not a mock.
 Ideas worth doing eventually, deliberately not started yet:
 
 - **A packaged native installer** (Windows `.exe`, macOS `.dmg`, Linux
-  `.AppImage`/`.deb`) so a user doesn't need Python or ffmpeg pre-installed
-  - bundle the Python runtime (including `faster-whisper`'s native
-  CTranslate2 library) and a static ffmpeg binary into one executable via
-  something like PyInstaller, the way Ollama ships a single binary. The
-  real cost isn't the bundling itself but per-OS GPU/CUDA detection and
-  code-signing (to avoid Windows SmartScreen / macOS Gatekeeper warnings) -
-  comparable in effort to building the app itself, which is why it's out
-  of v1 on purpose.
+  `.AppImage`/`.deb`) so a user doesn't need Python or ffmpeg pre-installed.
+  A first, narrow step exists today (see "Packaged build (first step)"
+  above: one platform, CPU-only, unsigned, ffmpeg not bundled). What's
+  still missing - multi-platform distribution from one place, a bundled
+  static ffmpeg per OS, per-OS GPU/CUDA detection, and code-signing (to
+  avoid Windows SmartScreen / macOS Gatekeeper warnings) - is comparable
+  in effort to building the app itself, which is why it's out of v1 on
+  purpose.
 - **A hosted version** - CaptionForge needs real CPU (or GPU) for
   Whisper/ffmpeg, so a free-tier host isn't enough for serious use; a paid
   host is the realistic next step if there's ever demand for a

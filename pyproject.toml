@@ -18,6 +18,9 @@ Issues = "https://github.com/Bryandero98/captionforge/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx", "ruff", "mypy"]
+# Only needed for scripts/build_installer.py (see the README's "Packaged
+# build" section) - not a runtime or dev-loop dependency.
+build = ["pyinstaller"]
 
 [project.scripts]
 captionforge = "captionforge.cli:main"

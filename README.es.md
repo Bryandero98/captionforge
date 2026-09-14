@@ -141,6 +141,45 @@ pytest
 `tests/fixtures/tiny_test_clip.mp4` es un clip real de ~10s (voz
 sintetizada) usado por las pruebas del pipeline en vivo - no es un mock.
 
+## Build empaquetado (primer paso)
+
+Un primer paso deliberadamente acotado hacia el instalador empaquetado del
+issue #2 - **no** el instalador completo multiplataforma, firmado y
+consciente de GPU que describe la "Hoja de ruta" más abajo.
+
+```sh
+pip install -e ".[build]"
+python scripts/build_installer.py
+```
+
+Esto produce un único ejecutable `dist/captionforge` (`.exe` en Windows)
+vía PyInstaller, manejado por `scripts/captionforge.spec` (la
+configuración de build comentada y reproducible) a partir del entry point
+`scripts/pyinstaller_entrypoint.py` - lo mismo que hace `captionforge
+serve` (abrir el navegador, servir en el puerto por defecto con el modelo
+por defecto), sin argparse, ya que un ejecutable empaquetado no tiene una
+terminal a la que pasarle flags.
+
+Qué cubre:
+
+- **Una sola plataforma a la vez** - la que sea que corras el script de
+  build. PyInstaller no compila de forma cruzada; una máquina Windows
+  solo produce un ejecutable de Windows, igual para Linux/macOS.
+- **Solo CPU** - empaqueta el backend de faster-whisper/ctranslate2 que
+  ya esté instalado en el venv de build, sin CUDA/cuDNN.
+
+Qué deliberadamente NO cubre todavía (ver la discusión del propio issue #2
+sobre por qué cada uno de estos es un trabajo separado y no trivial):
+
+- **Varias plataformas desde un solo lugar** - construir/distribuir
+  Windows + macOS + Linux juntos.
+- **Firma de código** - el ejecutable generado dispara los avisos de
+  Windows SmartScreen / macOS Gatekeeper en el primer uso.
+- **Selección de build GPU/CUDA** - sin detección de GPU por SO ni una
+  variante con GPU.
+- **Empaquetar ffmpeg** - el ejecutable generado sigue esperando
+  `ffmpeg` en el `PATH`, igual que corriendo desde el código fuente.
+
 ## Limitaciones conocidas
 
 - El `compute_type="auto"` por defecto de `argos-translate` resuelve a un
@@ -189,14 +228,14 @@ todavía:
 
 - **Un instalador nativo empaquetado** (`.exe` en Windows, `.dmg` en
   macOS, `.AppImage`/`.deb` en Linux) para que un usuario no necesite tener
-  Python ni ffmpeg preinstalados - empaquetar el runtime de Python
-  (incluida la librería nativa CTranslate2 de `faster-whisper`) y un
-  binario estático de ffmpeg en un solo ejecutable, con algo como
-  PyInstaller, al estilo de cómo Ollama distribuye un único binario. El
-  costo real no es el empaquetado en sí, sino la detección de GPU/CUDA por
-  sistema operativo y la firma de código (para evitar los avisos de
-  Windows SmartScreen / macOS Gatekeeper) - un esfuerzo comparable al de
-  construir la app misma, por eso queda fuera de v1 a propósito.
+  Python ni ffmpeg preinstalados. Ya existe un primer paso acotado (ver
+  "Build empaquetado (primer paso)" más arriba: una sola plataforma,
+  solo CPU, sin firmar, sin ffmpeg incluido). Lo que falta - distribuir
+  varias plataformas desde un solo lugar, empaquetar un ffmpeg estático
+  por sistema operativo, detección de GPU/CUDA por SO, y la firma de
+  código (para evitar los avisos de Windows SmartScreen / macOS
+  Gatekeeper) - es un esfuerzo comparable al de construir la app misma,
+  por eso queda fuera de v1 a propósito.
 - **Una versión hosteada** - CaptionForge necesita CPU (o GPU) real para
   Whisper/ffmpeg, así que un plan gratuito no alcanza para uso serio; un
   host de pago es el siguiente paso realista si algún día hay demanda de
