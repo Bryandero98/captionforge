@@ -606,6 +606,66 @@ body {
   padding: 0;
 }
 
+.queue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.queue-item--running {
+  border-color: var(--accent);
+}
+
+.queue-item__name {
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.queue-item__status {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.queue-item__status--running {
+  color: #1a1200;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.queue-item__status--done {
+  color: #8fe3a3;
+  background: rgba(143, 227, 163, 0.1);
+  border-color: #2d5a3a;
+}
+
+.queue-item__status--error {
+  color: var(--error-text);
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
 .onboarding-overlay {
   position: fixed;
   inset: 0;

@@ -51,10 +51,15 @@ this browser (`localStorage`) with direct re-download links for all four
 formats - handy after you've moved on to a new video and the "current
 job" indicator above has moved with you.
 
-CaptionForge processes one video at a time by design - a second upload
-while one is running is rejected with a clear error rather than silently
-queued. Editing and re-burning are only offered for that current job;
-older jobs in history are downloads only (see "Known limitations").
+CaptionForge processes one video at a time by design on the backend - a
+second upload while one is running is rejected with a clear error rather
+than silently overwritten. The frontend builds on that: **select or drop
+several videos at once** and they're queued client-side (name + status:
+waiting/running/done/error), uploaded one at a time, automatically moving
+to the next file as soon as the current one reaches done or error - so one
+bad file in a batch doesn't block the rest. Editing and re-burning are
+only offered for the current job (the last one in a queued batch); older
+jobs in history are downloads only (see "Known limitations").
 
 ## Architecture
 
@@ -151,6 +156,10 @@ speech) used by the live-pipeline tests - not a mock.
 - "Recent jobs" lives in `localStorage`, so it's private to one browser -
   it does not survive clearing site data and is never shared between
   devices.
+- The upload queue lives only in the page's memory - reloading mid-batch
+  resumes the single file that was actively uploading (same as any single
+  job), but any files still queued behind it are lost; re-select them to
+  keep going.
 - A job's files (video, `.srt`/`.vtt`/`.ass`, `segments.json`) are deleted
   automatically 7 days after they were last written - each new upload
   prunes anything past that age. An entry can outlive its files in "recent

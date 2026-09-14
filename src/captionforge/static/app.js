@@ -12,6 +12,8 @@
   const translateToInput = document.getElementById("translate-to");
 
   const uploadSection = document.getElementById("upload-section");
+  const queueSection = document.getElementById("queue-section");
+  const queueList = document.getElementById("queue-list");
   const progressSection = document.getElementById("progress-section");
   const stageSteps = Array.from(document.querySelectorAll("#stage-steps .stage-step"));
   const stageLabel = document.getElementById("stage-label");
@@ -59,6 +61,12 @@
   const modelDownloadConfirmButton = document.getElementById("model-download-confirm");
 
   let selectedFile = null;
+  // Populated instead of `selectedFile` when 2+ files are picked/dropped at
+  // once (see setSelectedFiles) - each entry tracks one queued upload
+  // through waiting -> running -> done/error. Left empty for the ordinary
+  // single-file flow below, which is untouched.
+  let queue = [];
+  let queueRunning = false;
   let currentJobId = null;
   // The last job payload received for each progress stream, kept around
   // purely so a language switch mid-run can re-derive the stage label
@@ -379,8 +387,50 @@
     });
   }
 
+  // ---- Upload queue (2+ files picked/dropped at once) - see the module
+  // comment on `queue` above. A single file keeps going through
+  // setSelectedFile/uploadButton exactly as before; this only kicks in once
+  // there's more than one, so the well-tested single-file path is untouched. ----
+  function renderQueue() {
+    queueList.innerHTML = "";
+    for (const item of queue) {
+      const li = document.createElement("li");
+      li.className = `queue-item${item.status === "running" ? " queue-item--running" : ""}`;
+
+      const name = document.createElement("span");
+      name.className = "queue-item__name";
+      name.textContent = item.file.name;
+      name.title = item.file.name;
+      li.appendChild(name);
+
+      const status = document.createElement("span");
+      status.className = `queue-item__status queue-item__status--${item.status}`;
+      status.textContent = t(`queueStatus${item.status.charAt(0).toUpperCase()}${item.status.slice(1)}`);
+      li.appendChild(status);
+
+      queueList.appendChild(li);
+    }
+  }
+
+  function setSelectedFiles(files) {
+    if (queueRunning) return; // a batch is already in flight - ignore a new pick until it finishes
+    const list = Array.from(files || []);
+    if (list.length <= 1) {
+      queue = [];
+      queueSection.hidden = true;
+      setSelectedFile(list[0] || null);
+      return;
+    }
+    setSelectedFile(null); // clears the single-file preview/thumbnail area
+    queue = list.map((file) => ({ file, status: "waiting" }));
+    queueSection.hidden = false;
+    renderQueue();
+    uploadButton.disabled = false;
+    uploadButton.textContent = t("uploadButtonQueue", { count: list.length });
+  }
+
   dropZone.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", () => setSelectedFile(fileInput.files[0] || null));
+  fileInput.addEventListener("change", () => setSelectedFiles(fileInput.files));
 
   ["dragenter", "dragover"].forEach((eventName) => {
     dropZone.addEventListener(eventName, (event) => {
@@ -395,8 +445,7 @@
     });
   });
   dropZone.addEventListener("drop", (event) => {
-    const file = event.dataTransfer.files[0];
-    if (file) setSelectedFile(file);
+    if (event.dataTransfer.files.length) setSelectedFiles(event.dataTransfer.files);
   });
 
   // `text` is shown verbatim and NOT re-translated on a language switch -
@@ -586,7 +635,12 @@
   // forever with the progress bar frozen and no explanation.
   const MAX_SSE_RECONNECT_ATTEMPTS = 4;
 
-  function watchJobEvents(jobId, { onUpdate, onDone }) {
+  // `onError`, when given, replaces the default "show a blocking error card"
+  // behavior below for both a real job failure and a dropped SSE connection -
+  // used by the upload queue (see processQueueItem) so one bad file in a
+  // batch reports itself on its own queue row instead of taking over the
+  // whole page and stalling the rest of the batch.
+  function watchJobEvents(jobId, { onUpdate, onDone, onError }) {
     const source = new EventSource(`/api/jobs/${jobId}/events`);
     let consecutiveErrors = 0;
     source.onmessage = (event) => {
@@ -600,7 +654,8 @@
         // upload screen (the only recovery path today; the error card has
         // no retry button of its own) instead of re-showing the same error.
         clearActiveJob();
-        if (job.error) showRawError(job.error);
+        if (onError) onError(job);
+        else if (job.error) showRawError(job.error);
         else showError("genericJobError");
       } else if (job.status === "done" || job.status === "burned") {
         source.close();
@@ -614,21 +669,34 @@
       // Unlike a real job error above, this doesn't clear the resume
       // pointer - the job may well still be running server-side, we've
       // just lost the connection to it, and a reload should try again.
-      showError("connectionLostError");
+      if (onError) onError(null);
+      else showError("connectionLostError");
     };
     return source;
+  }
+
+  // Resolves once `jobId` reaches a terminal state - `{ ok: true, job }` for
+  // done/burned, `{ ok: false, job }` for a real error or a dropped
+  // connection (`job` is null in the latter case). Used only by the queue
+  // (processQueueItem): it needs to await one job before starting the next,
+  // whereas the single-file flow below reacts to events as they arrive
+  // instead of awaiting a single outcome.
+  function watchJobEventsAsync(jobId) {
+    return new Promise((resolve) => {
+      watchJobEvents(jobId, {
+        onUpdate: (job) => {
+          lastMainJob = job;
+        },
+        onDone: (job) => resolve({ ok: true, job }),
+        onError: (job) => resolve({ ok: false, job }),
+      });
+    });
   }
 
   // Shared between the live upload flow and resuming an already-finished
   // job after a reload (see resumeActiveJobIfAny below) - keeps both paths
   // rendering the results section identically instead of drifting apart.
-  function showTranscriptionResults(jobId, karaokeAvailable, filename, thumbnail) {
-    progressSection.hidden = true;
-    resultsSection.hidden = false;
-    downloadSrtLink.href = `/api/jobs/${jobId}/srt`;
-    downloadVttLink.href = `/api/jobs/${jobId}/vtt`;
-    downloadAssLink.href = `/api/jobs/${jobId}/ass`;
-    setKaraokeAvailable(karaokeAvailable);
+  function addTranscriptionHistoryEntry(jobId, filename, thumbnail) {
     addHistoryEntry({
       jobId,
       filename: filename || jobId,
@@ -636,6 +704,16 @@
       videoReady: false,
       thumbnail: thumbnail || null,
     });
+  }
+
+  function showTranscriptionResults(jobId, karaokeAvailable, filename, thumbnail) {
+    progressSection.hidden = true;
+    resultsSection.hidden = false;
+    downloadSrtLink.href = `/api/jobs/${jobId}/srt`;
+    downloadVttLink.href = `/api/jobs/${jobId}/vtt`;
+    downloadAssLink.href = `/api/jobs/${jobId}/ass`;
+    setKaraokeAvailable(karaokeAvailable);
+    addTranscriptionHistoryEntry(jobId, filename, thumbnail);
   }
 
   function showBurnResults(jobId) {
@@ -695,7 +773,80 @@
     });
   }
 
+  // Runs one queued file through the same upload+watch steps as the
+  // single-file flow below, without ever showing the progress/results
+  // sections mid-batch - only the queue row for this file changes. The
+  // LAST file is the exception: once it's done, the normal results screen
+  // (downloads, edit, burn) opens for it, same as any single upload, since
+  // it really is the one job JobStore is still tracking once the batch ends.
+  async function processQueueItem(item, isLast) {
+    item.status = "running";
+    renderQueue();
+
+    const modelSize = modelSizeSelect.value;
+    if (!(await confirmModelDownload(modelSize))) {
+      item.status = "error";
+      renderQueue();
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", item.file);
+    formData.append("model_size", modelSize);
+    if (languageInput.value.trim()) formData.append("language", languageInput.value.trim());
+    if (translateToInput.value.trim()) formData.append("translate_to", translateToInput.value.trim());
+
+    let response;
+    try {
+      response = await fetch("/api/jobs", { method: "POST", body: formData });
+    } catch {
+      item.status = "error";
+      renderQueue();
+      return;
+    }
+    if (!response.ok) {
+      item.status = "error";
+      renderQueue();
+      return;
+    }
+
+    const { job_id: jobId } = await response.json();
+    currentJobId = jobId;
+    currentModelSize = modelSize;
+    saveActiveJob(jobId, item.file.name, modelSize, null);
+
+    const result = await watchJobEventsAsync(jobId);
+    if (!result.ok) {
+      item.status = "error";
+      renderQueue();
+      return;
+    }
+
+    item.status = "done";
+    renderQueue();
+    if (isLast) showTranscriptionResults(jobId, result.job.karaoke_available, item.file.name, null);
+    else addTranscriptionHistoryEntry(jobId, item.file.name, null);
+  }
+
+  async function processQueue() {
+    queueRunning = true;
+    uploadButton.disabled = true;
+    uploadSection.hidden = true;
+    for (let i = 0; i < queue.length; i++) {
+      await processQueueItem(queue[i], i === queue.length - 1);
+    }
+    // The active-job pointer (see saveActiveJob above) is deliberately left
+    // as-is here, same as the single-file flow: it now points at the last
+    // queued job, so an accidental reload resumes into ITS results/progress
+    // screen - consistent with how a lone upload behaves today.
+    queueRunning = false;
+  }
+
   uploadButton.addEventListener("click", async () => {
+    if (queue.length > 1) {
+      processQueue();
+      return;
+    }
     if (!selectedFile) return;
 
     const modelSize = modelSizeSelect.value;
@@ -876,6 +1027,8 @@
     if (lastBurnJob) burnStageLabel.textContent = stageLabelFor(lastBurnJob.status, lastBurnJob.progress);
     if (lastErrorRender) lastErrorRender();
     renderHistory(); // history links carry a translated label (".srt", "video", ...)
+    if (queue.length > 1) uploadButton.textContent = t("uploadButtonQueue", { count: queue.length });
+    renderQueue(); // queue row statuses ("Waiting"/"Esperando", ...) are translated too
     window.CaptionForgeOnboarding?.refresh?.(); // its Next/Get-started button text is derived, not [data-i18n]
   }
 

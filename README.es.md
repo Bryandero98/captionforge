@@ -54,11 +54,16 @@ Cuando termine la transcripción:
 redescarga directa para los cuatro formatos - útil cuando ya pasaste a un
 video nuevo y el indicador de "trabajo actual" de arriba se movió contigo.
 
-CaptionForge procesa un video a la vez por diseño - una segunda subida
-mientras hay un trabajo en curso se rechaza con un error claro en vez de
-encolarse o sobrescribirse en silencio. Editar y volver a quemar solo
-están disponibles para ese trabajo actual; los trabajos anteriores en el
-historial son solo de descarga (ver "Limitaciones conocidas").
+CaptionForge procesa un video a la vez por diseño en el backend - una
+segunda subida mientras hay un trabajo en curso se rechaza con un error
+claro en vez de sobrescribirse en silencio. El frontend se apoya en eso:
+**selecciona o suelta varios videos a la vez** y quedan en una cola del
+lado del navegador (nombre + estado: esperando/corriendo/listo/error), se
+suben de a uno, avanzando automáticamente al siguiente archivo en cuanto
+el actual llega a listo o error - así un archivo malo no bloquea el resto
+del lote. Editar y volver a quemar solo están disponibles para el trabajo
+actual (el último de una cola); los trabajos anteriores en el historial
+son solo de descarga (ver "Limitaciones conocidas").
 
 ## Arquitectura
 
@@ -166,6 +171,10 @@ sintetizada) usado por las pruebas del pipeline en vivo - no es un mock.
 - "Trabajos recientes" vive en `localStorage`, así que es privado de un
   solo navegador - no sobrevive a borrar los datos del sitio y nunca se
   comparte entre dispositivos.
+- La cola de subida vive solo en la memoria de la página - recargar a
+  mitad de un lote retoma el archivo que se estaba subiendo (igual que
+  cualquier trabajo individual), pero los archivos que aún esperaban en
+  cola se pierden; vuelve a seleccionarlos para continuar.
 - Los archivos de un trabajo (video, `.srt`/`.vtt`/`.ass`, `segments.json`)
   se borran automáticamente 7 días después de la última escritura - cada
   subida nueva limpia lo que ya pasó ese tiempo. Una entrada puede
