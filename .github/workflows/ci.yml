@@ -29,7 +29,29 @@ jobs:
 
       - name: Install ffmpeg (macOS)
         if: runner.os == 'macOS'
-        run: brew install ffmpeg
+        run: |
+          # Real CI failure (macos-latest only, ubuntu/windows pass): every
+          # burn-subtitles test errors with "No such filter: 'subtitles'",
+          # meaning whatever ffmpeg ends up on PATH after `brew install
+          # ffmpeg` lacks libass - most likely a non-Homebrew ffmpeg already
+          # on this image's PATH ahead of Homebrew's own bin dir (`brew
+          # install` no-ops with a warning if it thinks ffmpeg is already
+          # present, and even a real install only manages Cellar symlinks,
+          # not PATH ordering against a binary it doesn't own). Homebrew's
+          # own ffmpeg formula depends on libass and does carry the filter -
+          # prepending its bin dir to $GITHUB_PATH forces every later step in
+          # this job to resolve `ffmpeg` there first. The "Diagnose" step
+          # right after this one is what actually confirms which binary is
+          # in play - read its output before trusting this fixed anything.
+          brew install ffmpeg
+          echo "$(brew --prefix ffmpeg)/bin" >> "$GITHUB_PATH"
+
+      - name: Diagnose ffmpeg build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          command -v ffmpeg
+          ffmpeg -version
+          ffmpeg -filters | grep -i subtitles || echo "no subtitles filter found"
 
       - name: Install package
         run: pip install -e ".[dev]"
