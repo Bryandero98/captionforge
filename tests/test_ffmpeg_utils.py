@@ -1,8 +1,10 @@
 from captionforge.ffmpeg_utils import (
     MODERN_SUBTITLE_STYLE,
     STYLE_PRESETS,
+    WAVEFORM_SAMPLE_RATE_HZ,
     build_burn_subtitles_cmd,
     build_extract_audio_cmd,
+    build_waveform_extract_cmd,
     resolve_style,
 )
 
@@ -89,6 +91,32 @@ class TestBuildBurnSubtitlesCmd:
         cmd = build_burn_subtitles_cmd("input.mp4", r"C:\Users\test\captions.ass", "output.mp4", is_ass=True)
         vf_value = cmd[cmd.index("-vf") + 1]
         assert "C\\:" in vf_value
+
+
+class TestBuildWaveformExtractCmd:
+    def test_exact_argv(self):
+        cmd = build_waveform_extract_cmd("input.mp4")
+        assert cmd == [
+            "ffmpeg",
+            "-y",
+            "-i",
+            "input.mp4",
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            str(WAVEFORM_SAMPLE_RATE_HZ),
+            "-f",
+            "u8",
+            "-acodec",
+            "pcm_u8",
+            "pipe:1",
+        ]
+
+    def test_never_touches_subprocess(self):
+        result = build_waveform_extract_cmd("a.mp4")
+        assert isinstance(result, list)
+        assert all(isinstance(part, str) for part in result)
 
 
 class TestStylePresets:

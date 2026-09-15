@@ -2,6 +2,7 @@ import io
 import os
 import time
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -36,6 +37,12 @@ def app_client(tmp_path):
 
 def _fake_video_bytes() -> bytes:
     return b"not a real video, just bytes for upload validation"
+
+
+# A real ~10s clip - needed for the waveform tests below (unlike every other
+# route in this file, /waveform actually runs ffmpeg against the uploaded
+# bytes, so the fake placeholder bytes above won't decode).
+FIXTURE = Path(__file__).parent / "fixtures" / "tiny_test_clip.mp4"
 
 
 def _create_job(app_client) -> str:
@@ -243,7 +250,25 @@ class TestSegmentsAndExports:
 
         response = app_client.get(f"/api/jobs/{job_id}/segments")
         assert response.status_code == 200
-        assert response.json() == {"segments": [{"index": 0, "start": 0.0, "end": 1.0, "text": "Hello"}]}
+        assert response.json() == {
+            "segments": [{"index": 0, "start": 0.0, "end": 1.0, "text": "Hello", "words": None}]
+        }
+
+    def test_get_segments_includes_per_word_confidence(self, app_client):
+        job_id = _create_job(app_client)
+        words = [
+            WordTiming(start=0.0, end=0.4, text="Hello", probability=0.98),
+            WordTiming(start=0.4, end=1.0, text="world", probability=0.3),
+        ]
+        _finish_transcription(
+            app_client, job_id, [Segment(start=0.0, end=1.0, text="Hello world", words=words)]
+        )
+
+        response = app_client.get(f"/api/jobs/{job_id}/segments")
+        assert response.status_code == 200
+        response_words = response.json()["segments"][0]["words"]
+        assert response_words[0]["probability"] == 0.98
+        assert response_words[1]["probability"] == 0.3
 
     def test_get_segments_before_ready_returns_404(self, app_client):
         job_id = _create_job(app_client)
@@ -265,31 +290,77 @@ class TestSegmentsAndExports:
         assert "Hi!" in srt_response.text
         assert "Hello" not in srt_response.text
 
-    def test_editing_a_segments_text_drops_its_word_timings(self, app_client):
+    def test_editing_a_segments_text_replaces_real_word_timings_with_an_approximation(self, app_client):
         job_id = _create_job(app_client)
-        words = [WordTiming(start=0.0, end=1.0, text="Hello")]
+        words = [WordTiming(start=0.0, end=1.0, text="Hello", probability=0.9)]
         _finish_transcription(app_client, job_id, [Segment(start=0.0, end=1.0, text="Hello", words=words)])
 
-        # Untouched: karaoke is available.
+        # Untouched: karaoke is available, real per-word confidence present.
         assert app_client.get(f"/api/jobs/{job_id}").json()["karaoke_available"] is True
 
-        app_client.put(f"/api/jobs/{job_id}/segments", json={"segments": [{"index": 0, "text": "Hi!"}]})
+        response = app_client.put(
+            f"/api/jobs/{job_id}/segments", json={"segments": [{"index": 0, "text": "Hi there!"}]}
+        )
 
-        # Edited: the word timings no longer match the new text, so karaoke drops.
-        assert app_client.get(f"/api/jobs/{job_id}").json()["karaoke_available"] is False
+        # Edited: karaoke stays available - via a redistributed APPROXIMATION
+        # over the new text (see redistribute_word_timings), not the original
+        # per-word timing (which no longer matches the new words at all).
+        assert app_client.get(f"/api/jobs/{job_id}").json()["karaoke_available"] is True
+        new_words = response.json()["segments"][0]["words"]
+        assert [w["text"] for w in new_words] == ["Hi", "there!"]
+        # probability=None marks these as approximate, never a real ASR score.
+        assert all(w["probability"] is None for w in new_words)
 
-    def test_editing_with_the_same_text_keeps_word_timings(self, app_client):
+    def test_editing_with_the_same_text_keeps_the_original_real_word_timings(self, app_client):
         job_id = _create_job(app_client)
-        words = [WordTiming(start=0.0, end=1.0, text="Hello")]
+        words = [WordTiming(start=0.0, end=1.0, text="Hello", probability=0.9)]
         _finish_transcription(app_client, job_id, [Segment(start=0.0, end=1.0, text="Hello", words=words)])
 
-        app_client.put(f"/api/jobs/{job_id}/segments", json={"segments": [{"index": 0, "text": "Hello"}]})
+        response = app_client.put(
+            f"/api/jobs/{job_id}/segments", json={"segments": [{"index": 0, "text": "Hello"}]}
+        )
         assert app_client.get(f"/api/jobs/{job_id}").json()["karaoke_available"] is True
+        # Unchanged text -> the ORIGINAL word, with its real probability, survives untouched.
+        assert response.json()["segments"][0]["words"][0]["probability"] == 0.9
 
     def test_put_segments_before_ready_returns_409(self, app_client):
         job_id = _create_job(app_client)
         response = app_client.put(f"/api/jobs/{job_id}/segments", json={"segments": []})
         assert response.status_code == 409
+
+    def test_put_segments_can_adjust_start_and_end_without_touching_text(self, app_client):
+        job_id = _create_job(app_client)
+        words = [WordTiming(start=0.0, end=1.0, text="Hello", probability=0.9)]
+        _finish_transcription(app_client, job_id, [Segment(start=0.0, end=1.0, text="Hello", words=words)])
+
+        response = app_client.put(
+            f"/api/jobs/{job_id}/segments", json={"segments": [{"index": 0, "start": 0.5, "end": 2.0}]}
+        )
+        assert response.status_code == 200
+        segment = response.json()["segments"][0]
+        assert segment["start"] == 0.5
+        assert segment["end"] == 2.0
+        assert segment["text"] == "Hello"
+        # Timing-only edit: text never changed, so the ORIGINAL real word timing survives.
+        assert segment["words"][0]["probability"] == 0.9
+
+    def test_put_segments_rejects_an_end_at_or_before_start(self, app_client):
+        job_id = _create_job(app_client)
+        _finish_transcription(app_client, job_id, [Segment(start=0.0, end=1.0, text="Hello")])
+
+        response = app_client.put(
+            f"/api/jobs/{job_id}/segments", json={"segments": [{"index": 0, "start": 1.0, "end": 1.0}]}
+        )
+        assert response.status_code == 400
+
+    def test_put_segments_rejects_a_negative_start(self, app_client):
+        job_id = _create_job(app_client)
+        _finish_transcription(app_client, job_id, [Segment(start=0.0, end=1.0, text="Hello")])
+
+        response = app_client.put(
+            f"/api/jobs/{job_id}/segments", json={"segments": [{"index": 0, "start": -0.5, "end": 1.0}]}
+        )
+        assert response.status_code == 400
 
     def test_put_segments_malformed_edit_returns_400(self, app_client):
         job_id = _create_job(app_client)
@@ -326,6 +397,43 @@ class TestSegmentsAndExports:
         # key=value like force_style - tiktok's font size (30) is the value
         # right after the font name.
         assert "Style: Default,Arial,30," in response.text
+
+
+class TestWaveform:
+    """Real ffmpeg runs (no mocking) - same posture as test_pipeline.py's own real-pipeline tests."""
+
+    def test_returns_peaks_and_duration_for_the_current_job(self, app_client):
+        with FIXTURE.open("rb") as f:
+            create_response = app_client.post("/api/jobs", files={"file": ("clip.mp4", f, "video/mp4")})
+        job_id = create_response.json()["job_id"]
+
+        response = app_client.get(f"/api/jobs/{job_id}/waveform")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["duration"] > 5  # the fixture is a real ~10s clip
+        assert len(body["peaks"]) > 0
+        assert all(0.0 <= p <= 1.0 for p in body["peaks"])
+
+    def test_returns_404_for_an_unknown_job(self, app_client):
+        response = app_client.get(f"/api/jobs/{uuid.uuid4()}/waveform")
+        assert response.status_code == 404
+
+    def test_still_works_for_a_job_that_is_no_longer_current(self, app_client):
+        """Same disk-existence fallback posture as the srt/vtt/ass/video
+        downloads (see TestHistoricalDownloads)."""
+        with FIXTURE.open("rb") as f:
+            create_response = app_client.post("/api/jobs", files={"file": ("clip.mp4", f, "video/mp4")})
+        old_job_id = create_response.json()["job_id"]
+        # Must reach a terminal status first - JobStore blocks a second
+        # upload while the first is still "active" (QUEUED counts, since the
+        # background transcription task is mocked out and never runs).
+        _finish_transcription(app_client, old_job_id, [Segment(start=0.0, end=1.0, text="Old job")])
+
+        _create_job(app_client)  # a new job takes over JobStore
+
+        response = app_client.get(f"/api/jobs/{old_job_id}/waveform")
+        assert response.status_code == 200
+        assert response.json()["duration"] > 5
 
 
 class TestBurnStyleAndKaraoke:

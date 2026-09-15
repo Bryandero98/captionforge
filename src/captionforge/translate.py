@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 
-from .srt import Segment
+from .srt import Segment, redistribute_word_timings
 
 # argostranslate defaults to compute_type="auto" (ARGOS_COMPUTE_TYPE), which
 # ctranslate2 resolves to a quantized int8/int8_float32 kernel on this CPU -
@@ -72,9 +72,22 @@ def translate_segments(segments: list[Segment], from_code: str, to_code: str) ->
             f"No se pudo cargar el modelo de traducción {from_code}->{to_code} tras instalarlo."
         )
 
-    # `words` drops on translation: it holds the ORIGINAL-language word text
-    # and per-word timing, which no longer lines up with the translated text
-    # (different words, different count, often different order). Keeping it
-    # would silently feed a future karaoke renderer mismatched word/timing
-    # pairs under translated text - `None` is the honest "not available" answer.
-    return [replace(segment, text=translation.translate(segment.text), words=None) for segment in segments]
+    # The ORIGINAL-language `words` (text + per-word timing) can't just be
+    # kept: different words, different count, often different order than the
+    # translated text. Rather than dropping word-level timing outright
+    # (this app's behavior before this heuristic existed), each segment's
+    # existing [start, end) span is redistributed across the TRANSLATED
+    # text's words, proportionally by character length - see
+    # `redistribute_word_timings`'s own docstring for exactly what this is
+    # (and isn't): a cheap, honest approximation, not real forced alignment.
+    # `probability=None` on every resulting word (set inside that function)
+    # is what marks it as approximate rather than a real recognition score.
+    def _translate_one(segment: Segment) -> Segment:
+        translated_text = translation.translate(segment.text)
+        return replace(
+            segment,
+            text=translated_text,
+            words=redistribute_word_timings(translated_text, segment.start, segment.end),
+        )
+
+    return [_translate_one(segment) for segment in segments]

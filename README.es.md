@@ -40,11 +40,18 @@ Cuando termine la transcripción:
   segmentos, en tres formatos (`.vtt` para un `<video><track>` HTML plano,
   `.ass` para un editor que quiera estilos/karaoke reales).
 - **Edita los subtítulos** - corrige un error de transcripción antes de
-  quemar; los tiempos nunca cambian, solo el texto.
+  quemar, y arrastra el inicio/fin de cada segmento directamente sobre una
+  forma de onda para reajustar el tiempo. Las palabras que faster-whisper
+  transcribió con baja confianza aparecen subrayadas (con un resaltado
+  sutil) directo en el editor, para que sepas qué revisar en vez de
+  confiar ciegamente en la transcripción.
 - **Elige un estilo de subtítulo** (Moderno, TikTok bold, Clásico
-  YouTube, Minimalista) y, cuando los tiempos por palabra sobrevivieron
-  (sin tocar por traducción o edición), activa el **resaltado karaoke
-  palabra por palabra** para el quemado.
+  YouTube, Minimalista) y activa el **resaltado karaoke palabra por
+  palabra** para el quemado - disponible siempre que un segmento tenga
+  tiempos por palabra, ya sean los tiempos reales de faster-whisper o los
+  tiempos aproximados (por longitud de carácter) que esta app sintetiza
+  después de traducir o editar el texto de un segmento (ver "Limitaciones
+  conocidas").
 - **Quema en el video** - un paso aparte y bajo demanda de la
   transcripción - nunca te obliga a recodificar todo el video solo para
   obtener el texto.
@@ -79,20 +86,35 @@ SSE, no preguntando una y otra vez.
 ## Cómo está construido
 
 - `src/captionforge/srt.py` - formato y ensamblado puro para `.srt`,
-  `.vtt`, y `.ass` con soporte karaoke (etiquetas `\k` por palabra cuando
-  `Segment.words` sobrevivió a la traducción/edición), más la
-  (de)serialización a diccionario plano usada para persistir segmentos en
-  `segments.json`. Sin I/O.
+  `.vtt`, y `.ass` con soporte karaoke (etiquetas `\k` por palabra siempre
+  que `Segment.words` esté presente). `WordTiming.probability` guarda la
+  confianza real por palabra de faster-whisper (`None` solo para una
+  palabra que esta app sintetizó, nunca para una transcripción real).
+  `redistribute_word_timings()` es la heurística compartida de tiempo
+  aproximado que usan tanto la traducción como la edición de texto en
+  cuanto las palabras de un segmento ya no coinciden con su tiempo por
+  palabra ORIGINAL - ver "Limitaciones conocidas" para el detalle exacto
+  de qué garantiza y qué no. También la (de)serialización a diccionario
+  plano usada para persistir segmentos en `segments.json`. Sin I/O.
 - `src/captionforge/translate.py` - traducción local de segmentos ya
   cronometrados vía argos-translate, desacoplada de Whisper (cuya propia
-  tarea `task="translate"` solo traduce hacia inglés). Descarta `words` en
-  el texto traducido - los tiempos por palabra del idioma original ya no
-  coinciden con él.
+  tarea `task="translate"` solo traduce hacia inglés). Los tiempos por
+  palabra del idioma ORIGINAL no pueden sobrevivir a una traducción
+  (distintas palabras, cantidad y a menudo orden) - en vez de descartar el
+  tiempo por palabra por completo, `redistribute_word_timings()` aproxima
+  un tiempo nuevo para el texto traducido.
+- `src/captionforge/waveform.py` + `ffmpeg_utils.build_waveform_extract_cmd`
+  - datos de amplitud de audio submuestreados para el fondo de forma de
+  onda del editor: un solo paso de ffmpeg decodifica y remuestrea el video
+  original de un trabajo a PCM crudo de 8 bits a una tasa de muestreo baja
+  y fija, agrupado en como máximo 2000 picos antes de enviarse al
+  navegador.
 - `src/captionforge/ffmpeg_utils.py` - construcción pura del `argv` de
-  ffmpeg (extracción de audio, quemado de subtítulos) - nunca ejecuta nada
-  por sí mismo. `STYLE_PRESETS` (modern/tiktok/youtube/minimal) es la
-  única fuente de verdad de la que se renderizan tanto el quemado plano
-  con `force_style` como el quemado karaoke en `.ass`.
+  ffmpeg (extracción de audio, quemado de subtítulos, extracción de forma
+  de onda) - nunca ejecuta nada por sí mismo. `STYLE_PRESETS`
+  (modern/tiktok/youtube/minimal) es la única fuente de verdad de la que
+  se renderizan tanto el quemado plano con `force_style` como el quemado
+  karaoke en `.ass`.
 - `src/captionforge/jobs.py` - una máquina de estados de trabajo en
   memoria, thread-safe (`queued -> extracting_audio -> transcribing ->
   done -> burning_subtitles -> burned`, o `error` desde cualquier estado).
@@ -113,8 +135,11 @@ SSE, no preguntando una y otra vez.
   un trabajo que ya no es el que JobStore rastrea - seguro porque el
   diseño de un-trabajo-a-la-vez de CaptionForge garantiza que cualquier
   trabajo anterior ya llegó a un estado terminal), edición de segmentos
-  (`GET`/`PUT .../segments`, solo el trabajo actual), y el quemado
-  (campos de formulario `style`/`karaoke`).
+  (`GET`/`PUT .../segments`, solo el trabajo actual - `PUT` acepta `text`
+  y/o `start`/`end` para un reajuste por arrastre de forma de onda),
+  `GET .../waveform` (funciona para cualquier trabajo, actual o histórico -
+  solo necesita el video original), y el quemado (campos de formulario
+  `style`/`karaoke`).
 - `src/captionforge/static/` - el frontend: una sola página plana de
   HTML/CSS/JS, sin paso de build, sin framework. `i18n.js` es un traductor
   simple basado en un diccionario plano (español/inglés, respaldado por
@@ -122,7 +147,10 @@ SSE, no preguntando una y otra vez.
   `index.html`; las etiquetas de etapa del trabajo se derivan en el
   cliente a partir del campo `status` (neutral en cuanto a idioma) que ya
   devuelve la API, no del propio `stage_label` del backend (que solo
-  existe en español).
+  existe en español). El editor de segmentos (`app.js`) dibuja la forma de
+  onda en un `<canvas>` con manijas arrastrables de inicio/fin por
+  segmento, y subraya cualquier palabra por debajo de un umbral de
+  confianza usando el `probability` por palabra que devuelve la API.
 
 `scripts/smoke_test_pipeline.py` ejercita todo el pipeline transcribir ->
 traducir -> quemar directamente contra un video real, sin servidor de por
@@ -202,11 +230,37 @@ sobre por qué cada uno de estos es un trabajo separado y no trivial):
   natural (transcribir -> opcionalmente editar -> quemar) y con la
   máquina de estados de un-trabajo-a-la-vez, que no tiene camino de vuelta
   desde BURNED.
-- El resaltado karaoke necesita tiempos por palabra, que se descartan para
-  cualquier segmento traducido o editado a mano (las palabras ya no
-  coinciden con el texto nuevo) - la casilla de karaoke simplemente se
-  oculta cuando ningún segmento la tiene, y sigue funcionando para los que
-  sí.
+- El resaltado karaoke necesita tiempos por palabra. Un segmento traducido
+  o editado a mano recibe tiempos por palabra APROXIMADOS en vez de los
+  originales (reales): `redistribute_word_timings()` reparte el intervalo
+  [start, end) existente del segmento entre las palabras del texto nuevo,
+  proporcionalmente por longitud de carácter - un sustituto barato y
+  honesto para una alineación forzada real, no uno verificado
+  acústicamente. NO está sincronizado labialmente: las palabras de una
+  oración traducida rara vez caen donde realmente ocurre el sonido
+  correspondiente, especialmente para pares de idiomas con orden de
+  palabras muy distinto. Toda palabra que esta app sintetiza así tiene
+  `probability: null` en la respuesta de la API de segmentos,
+  específicamente para que nada la confunda con una confianza de
+  transcripción real. La casilla de karaoke simplemente se oculta cuando
+  ningún segmento tiene tiempos por palabra (reales o aproximados).
+  Una alineación forzada real (un modelo estilo wav2vec2, como hace
+  [WhisperX](https://github.com/m-bain/whisperX)) arreglaría esto
+  correctamente, al costo de una dependencia de modelo nueva por completo
+  - fuera de alcance por ahora; ver los issues de diarización/separación
+  de voz más abajo para el mismo dilema de "nueva dependencia pesada de
+  ML" aplicado a otras dos funciones.
+- El resaltado de palabras de baja confianza en el editor es tan bueno
+  como la `probability` por palabra de faster-whisper - una palabra puede
+  estar mal transcrita con confianza (se oye mal pero se pronuncia claro)
+  o bien transcrita sin confianza (correcta a pesar de audio ruidoso).
+  Trata el subrayado como "vale la pena revisar", no como garantía de
+  corrección.
+- Las manijas de arrastre del editor de forma de onda te dejan encoger o
+  agrandar un segmento libremente; no hay validación contra el inicio/fin
+  de un segmento VECINO, así que es posible arrastrar dos segmentos a
+  rangos de tiempo superpuestos (o con huecos). Nada se rompe, pero
+  revisa el resultado antes de quemar si haces un ajuste grande.
 - "Trabajos recientes" vive en `localStorage`, así que es privado de un
   solo navegador - no sobrevive a borrar los datos del sitio y nunca se
   comparte entre dispositivos.
@@ -240,6 +294,37 @@ todavía:
   Whisper/ffmpeg, así que un plan gratuito no alcanza para uso serio; un
   host de pago es el siguiente paso realista si algún día hay demanda de
   una opción "sin instalar nada". Ver "Apoya este proyecto" abajo.
+- **Diarización de hablantes** ("quién dijo qué") vía
+  [pyannote.audio](https://github.com/pyannote/pyannote-audio) - ver el
+  [issue #4](https://github.com/Bryandero98/captionforge/issues/4) para el
+  motivo de por qué queda diferido: una segunda dependencia pesada de ML
+  basada en PyTorch, más la fricción real de los modelos con puerta de
+  Hugging Face de pyannote (una cuenta + aceptar términos + un token de
+  acceso personal, a diferencia de las descargas anónimas de
+  faster-whisper de hoy).
+- **Separación de voz/fuente antes de transcribir** (vía
+  [Demucs](https://github.com/facebookresearch/demucs)) para audio ruidoso
+  o con mucha música - ver el
+  [issue #5](https://github.com/Bryandero98/captionforge/issues/5) para el
+  motivo de por qué queda diferido: una tercera dependencia pesada de ML,
+  costo real de tiempo de ejecución agregado para el caso común (diálogo
+  limpio) que no lo necesita, y un compromiso de calidad que necesita
+  comparación real antes/después, no solo la suposición de que separar
+  siempre ayuda.
+- **Alineación forzada real** después de traducir o editar texto a mano
+  (un modelo estilo wav2vec2, como hace WhisperX) - la redistribución
+  aproximada de tiempos por palabra (por longitud de carácter) de hoy (ver
+  "Limitaciones conocidas") es un sustituto deliberadamente barato para
+  esto, no un reemplazo.
+- **Una cola de backend paralela real** (procesar más de un video a la
+  vez) - CaptionForge es de un-trabajo-a-la-vez por diseño hoy (ver
+  `jobs.py` y la propia cola de subida del frontend, que sube de forma
+  secuencial precisamente porque el backend solo puede correr un trabajo a
+  la vez). Vale la pena hacerlo eventualmente en una máquina multi-núcleo,
+  pero es un cambio genuinamente más grande (pool de workers, límites de
+  recursos por trabajo, una cola que sobreviva a un reinicio del servidor)
+  que cualquier otra cosa en esta lista - sin plan concreto todavía, solo
+  se anota aquí para que no se confunda con un descuido.
 
 ## Apoya este proyecto
 

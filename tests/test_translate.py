@@ -23,12 +23,12 @@ class TestTranslateSegments:
         assert result == segments
         ensure_mock.assert_not_called()
 
-    def test_translates_text_and_preserves_start_end_but_drops_words(self):
-        words = [WordTiming(start=0.0, end=0.5, text="hola")]
+    def test_translates_text_and_preserves_start_end_but_approximates_new_word_timings(self):
+        words = [WordTiming(start=0.0, end=0.5, text="hola", probability=0.99)]
         segments = [Segment(start=0.0, end=1.0, text="hola", words=words)]
 
         fake_translation = MagicMock()
-        fake_translation.translate.return_value = "hello"
+        fake_translation.translate.return_value = "hello there"
 
         with (
             patch("captionforge.translate._ensure_language_pair_installed"),
@@ -38,13 +38,20 @@ class TestTranslateSegments:
 
         assert len(result) == 1
         translated = result[0]
-        assert translated.text == "hello"
+        assert translated.text == "hello there"
         assert translated.start == 0.0
         assert translated.end == 1.0
-        # The original-language per-word timing no longer lines up with the
-        # translated text (different words/order/count) - keeping it would
-        # feed a karaoke renderer a mismatched word/timing pair.
-        assert translated.words is None
+        # The ORIGINAL-language per-word timing ("hola", probability=0.99) no
+        # longer lines up with the translated text (different words/order/
+        # count) - it's replaced, not kept, by a redistribution over the
+        # TRANSLATED text's own words (see redistribute_word_timings), each
+        # with probability=None (an approximation, never a real recognition
+        # score - see WordTiming's own docstring for why that distinction
+        # matters).
+        assert [w.text for w in translated.words] == ["hello", "there"]
+        assert all(w.probability is None for w in translated.words)
+        assert translated.words[0].start == 0.0
+        assert translated.words[-1].end == 1.0
         fake_translation.translate.assert_called_once_with("hola")
 
     def test_raises_a_clear_error_if_the_pair_still_cant_load_after_install_attempt(self):

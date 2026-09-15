@@ -24,6 +24,7 @@ from captionforge.jobs import JobStatus, JobStore
 from captionforge.pipeline import (
     _ffmpeg_error_detail,
     _run_ffmpeg,
+    read_segments_json,
     run_burn_job,
     run_transcription_job,
     write_segments_json,
@@ -42,8 +43,8 @@ def _fake_whisper_result():
     """One canned segment/word, shaped like faster-whisper's real transcribe() return."""
 
     class FakeWord:
-        def __init__(self, start, end, word):
-            self.start, self.end, self.word = start, end, word
+        def __init__(self, start, end, word, probability=0.95):
+            self.start, self.end, self.word, self.probability = start, end, word, probability
 
     class FakeSegment:
         def __init__(self, start, end, text, words):
@@ -77,6 +78,12 @@ class TestRunTranscriptionJobReal:
         assert (tmp_path / "segments.json").exists()
         assert store.get(job.id).status == JobStatus.DONE
         assert store.get(job.id).srt_ready is True
+
+        # faster-whisper's own per-word confidence (Word.probability) must
+        # survive into the persisted Segment, not just start/end/text - it's
+        # the signal the frontend's low-confidence highlighting reads.
+        [segment] = read_segments_json(tmp_path)
+        assert segment.words[0].probability == 0.95
 
     def test_a_not_yet_cached_model_passes_through_downloading_model_first(self, tmp_path):
         """model_size not in the local cache -> DOWNLOADING_MODEL before TRANSCRIBING.

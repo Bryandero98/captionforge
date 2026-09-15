@@ -148,7 +148,12 @@ def _transcribe_sync(
             stage_label=f"Transcribiendo ({progress * 100:.0f}%)",
         )
         words = (
-            [WordTiming(start=float(w.start), end=float(w.end), text=w.word) for w in raw.words]
+            [
+                WordTiming(
+                    start=float(w.start), end=float(w.end), text=w.word, probability=float(w.probability)
+                )
+                for w in raw.words
+            ]
             if raw.words
             else None
         )

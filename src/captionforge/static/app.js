@@ -482,38 +482,85 @@
   }
 
   // ---- Edit-before-burn: fetch the transcribed segments, let the user fix
-  // the text, PUT the edits back. Restricted server-side to the CURRENT job
-  // (see routes/results.py) - editing only makes sense in the window between
+  // the text and drag each segment's start/end over a waveform backdrop, PUT
+  // the edits back. Restricted server-side to the CURRENT job (see
+  // routes/results.py) - editing only makes sense in the window between
   // transcription finishing and the first burn. ----
-  // Positions one tick per segment along a horizontal strip proportional to
-  // its start/end within the transcript's total span - there's no explicit
-  // "video duration" field on the job, so the last segment's end time is
-  // used as a stand-in (segments already fetched for the row list; no extra
-  // request). Clicking a tick scrolls the matching row into view instead of
-  // editing anything itself - purely a navigation aid over a long transcript.
-  function renderEditTimeline(segments) {
-    editTimeline.innerHTML = "";
-    if (!segments.length) {
-      editTimeline.hidden = true;
+
+  // Below this, a word is flagged as worth double-checking rather than
+  // trusted blindly - not a scientifically derived cutoff, just a
+  // reasonable "probably wrong" line for faster-whisper's own per-word
+  // probability (0..1).
+  const LOW_CONFIDENCE_THRESHOLD = 0.5;
+
+  // The live, editable copy of every segment currently open in the editor -
+  // GET .../segments' own response shape (index/start/end/text/words) plus
+  // whatever a waveform drag has changed since. Text itself stays owned by
+  // its <input> (read from the DOM at save time, as before this feature
+  // existed) - only start/end/words live here, since dragging a handle has
+  // nowhere else to persist its result between drags and Save.
+  let editSegmentsState = [];
+  // The total span the timeline's pixels are scaled against - the real
+  // waveform duration when available, else the same "last segment's end"
+  // stand-in used before this feature existed (see renderEditTimeline).
+  let editTimelineDuration = 0.001;
+  // Peaks fetched once per editor open, kept only so a re-render after
+  // Save (which refreshes word/karaoke state) can redraw the same waveform
+  // without a second network round-trip.
+  let lastWaveformPeaks = null;
+  let activeHandleDrag = null; // { index, edge: "start" | "end" } while a handle is being dragged, else null
+
+  // One decimal place (not whole seconds) - a waveform drag routinely makes
+  // sub-second adjustments, and a label that can't show anything finer than
+  // whole seconds would make most drags look like they did nothing at all.
+  function formatMmSs(seconds) {
+    const clamped = Math.max(0, seconds);
+    const minutes = Math.floor(clamped / 60);
+    const secs = clamped - minutes * 60;
+    return `${minutes}:${secs.toFixed(1).padStart(4, "0")}`;
+  }
+
+  // Renders `words` as small inline spans below a segment's text input,
+  // underlining (+ a subtle background tint) any word below
+  // LOW_CONFIDENCE_THRESHOLD - a lightweight "double check this" signal,
+  // not an editable control of its own (fixing a misheard word still
+  // happens in the text input above it, same as always). Hidden entirely
+  // when there's nothing worth showing: no word data at all, or every word
+  // present is a SYNTHETIC one (`probability === null` - an approximated
+  // redistribution after a translation or a previous text edit, see
+  // srt.redistribute_word_timings) with no real recognition score behind
+  // it to judge as low or high.
+  function renderWordConfidence(container, words) {
+    container.innerHTML = "";
+    const hasRealConfidence = words && words.some((w) => w.probability !== null);
+    if (!hasRealConfidence) {
+      container.hidden = true;
       return;
     }
-    const totalDuration = Math.max(...segments.map((s) => s.end), 0.001);
-    for (const segment of segments) {
-      const tick = document.createElement("div");
-      tick.className = "edit-timeline__tick";
-      tick.style.left = `${(segment.start / totalDuration) * 100}%`;
-      tick.style.width = `${Math.max(((segment.end - segment.start) / totalDuration) * 100, 0.6)}%`;
-      tick.title = segment.text.slice(0, 80);
-      tick.addEventListener("click", () => {
-        const row = editRows.querySelector(`[data-row-index="${segment.index}"]`);
-        if (!row) return;
-        row.scrollIntoView({ block: "center", behavior: "smooth" });
-        row.classList.add("edit-row--flash");
-        setTimeout(() => row.classList.remove("edit-row--flash"), 900);
-      });
-      editTimeline.appendChild(tick);
-    }
-    editTimeline.hidden = false;
+    words.forEach((word, i) => {
+      const span = document.createElement("span");
+      span.className = "word-confidence";
+      span.textContent = word.text;
+      if (word.probability !== null && word.probability < LOW_CONFIDENCE_THRESHOLD) {
+        span.classList.add("word-confidence--low");
+        span.title = t("wordConfidenceLowTitle", { percent: Math.round(word.probability * 100) });
+      }
+      container.appendChild(span);
+      // A real space TEXT NODE between words, not just CSS word-spacing -
+      // that property only affects existing whitespace, and adjacent
+      // <span> elements with no whitespace between them render glued
+      // together with no gap at all (caught via a real-browser check with
+      // Playwright: "hola mundo" rendered as one run-on "holamundo").
+      if (i < words.length - 1) container.appendChild(document.createTextNode(" "));
+    });
+    container.hidden = false;
+  }
+
+  function updateRowTimeLabel(index) {
+    const el = editRows.querySelector(`[data-row-time="${index}"]`);
+    const segment = editSegmentsState.find((s) => s.index === index);
+    if (!el || !segment) return;
+    el.textContent = `${formatMmSs(segment.start)}–${formatMmSs(segment.end)}`;
   }
 
   function renderEditRows(segments) {
@@ -523,24 +570,173 @@
       row.className = "edit-row";
       row.dataset.rowIndex = String(segment.index);
 
-      const totalSeconds = Math.floor(segment.start);
-      const minutes = Math.floor(totalSeconds / 60);
-      const seconds = totalSeconds % 60;
       const time = document.createElement("span");
       time.className = "edit-row__time";
-      time.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`;
+      time.dataset.rowTime = String(segment.index);
+      time.textContent = `${formatMmSs(segment.start)}–${formatMmSs(segment.end)}`;
       row.appendChild(time);
+
+      const textWrap = document.createElement("span");
+      textWrap.className = "edit-row__text-wrap";
 
       const input = document.createElement("input");
       input.type = "text";
       input.className = "edit-row__text";
       input.value = segment.text;
       input.dataset.index = String(segment.index);
-      row.appendChild(input);
+      textWrap.appendChild(input);
 
+      const confidence = document.createElement("div");
+      confidence.className = "edit-row__confidence";
+      renderWordConfidence(confidence, segment.words);
+      textWrap.appendChild(confidence);
+
+      row.appendChild(textWrap);
       editRows.appendChild(row);
     }
   }
+
+  // Draws the waveform peaks (0..1 amplitudes, see /api/jobs/{id}/waveform)
+  // as a simple centered bar chart - purely a visual backdrop for the drag
+  // handles above it, not an interactive element of its own (see
+  // .edit-timeline__canvas's pointer-events: none in style.css).
+  function drawWaveformCanvas(canvas, peaks) {
+    const width = editTimeline.clientWidth || 300;
+    const height = editTimeline.clientHeight || 52;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, width, height);
+    if (!peaks || !peaks.length) return;
+    ctx.fillStyle = "rgba(128, 128, 128, 0.45)";
+    const mid = height / 2;
+    const barWidth = width / peaks.length;
+    peaks.forEach((amplitude, i) => {
+      const barHeight = Math.max(amplitude * (height - 6), 1);
+      ctx.fillRect(i * barWidth, mid - barHeight / 2, Math.max(barWidth, 1), barHeight);
+    });
+  }
+
+  // Re-reads editSegmentsState's current start/end into every tick/handle's
+  // on-screen position - called once on render and again after every drag
+  // move, so the strip always reflects the live (not-yet-saved) values.
+  function positionHandles() {
+    for (const segment of editSegmentsState) {
+      const leftPercent = (segment.start / editTimelineDuration) * 100;
+      const rightPercent = (segment.end / editTimelineDuration) * 100;
+      const tick = editTimeline.querySelector(`.edit-timeline__tick[data-index="${segment.index}"]`);
+      if (tick) {
+        tick.style.left = `${leftPercent}%`;
+        tick.style.width = `${Math.max(rightPercent - leftPercent, 0.6)}%`;
+      }
+      const startHandle = editTimeline.querySelector(
+        `.edit-timeline__handle[data-index="${segment.index}"][data-edge="start"]`
+      );
+      if (startHandle) startHandle.style.left = `${leftPercent}%`;
+      const endHandle = editTimeline.querySelector(
+        `.edit-timeline__handle[data-index="${segment.index}"][data-edge="end"]`
+      );
+      if (endHandle) endHandle.style.left = `${rightPercent}%`;
+    }
+  }
+
+  // Positions one tick + one draggable start/end handle pair per segment
+  // along a horizontal strip proportional to its start/end within the
+  // transcript's total span (real waveform duration when available, else
+  // the last segment's end as a stand-in - same approximation this app
+  // already used before the waveform endpoint existed). Clicking a tick
+  // (not a handle) scrolls the matching row into view - a navigation aid
+  // over a long transcript, unrelated to dragging.
+  function renderEditTimeline(segments, peaks) {
+    editTimeline.innerHTML = "";
+    if (!segments.length) {
+      editTimeline.hidden = true;
+      return;
+    }
+    // Unhidden BEFORE measuring/drawing the canvas below, not after - a
+    // hidden element (or one inside a still-hidden ancestor, i.e.
+    // edit-section itself) reports clientWidth/clientHeight as 0, which
+    // silently drew every waveform at a fixed 300x52 fallback size instead
+    // of the container's real size (caught via a real-browser check with
+    // Playwright, not something a unit test would have exercised, since
+    // jsdom/pytest never lays out real pixels).
+    editTimeline.hidden = false;
+    editTimelineDuration = Math.max(...segments.map((s) => s.end), 0.001);
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "edit-timeline__canvas";
+    editTimeline.appendChild(canvas);
+    drawWaveformCanvas(canvas, peaks);
+
+    for (const segment of segments) {
+      const tick = document.createElement("div");
+      tick.className = "edit-timeline__tick";
+      tick.dataset.index = String(segment.index);
+      tick.title = segment.text.slice(0, 80);
+      tick.addEventListener("click", () => {
+        const row = editRows.querySelector(`[data-row-index="${segment.index}"]`);
+        if (!row) return;
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        row.classList.add("edit-row--flash");
+        setTimeout(() => row.classList.remove("edit-row--flash"), 900);
+      });
+      editTimeline.appendChild(tick);
+
+      for (const edge of ["start", "end"]) {
+        const handle = document.createElement("div");
+        handle.className = `edit-timeline__handle edit-timeline__handle--${edge}`;
+        handle.dataset.index = String(segment.index);
+        handle.dataset.edge = edge;
+        editTimeline.appendChild(handle);
+      }
+    }
+    positionHandles();
+    editTimeline.hidden = false;
+  }
+
+  // Smallest gap kept between a segment's start and end while dragging -
+  // prevents a handle from being dragged past its own opposite handle into
+  // a zero/negative-length segment (the backend rejects that outright, but
+  // clamping here is what keeps the drag itself feeling sane).
+  const MIN_SEGMENT_SPAN_SECONDS = 0.1;
+
+  function clientXToTime(clientX) {
+    const rect = editTimeline.getBoundingClientRect();
+    const fraction = rect.width ? Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1) : 0;
+    return fraction * editTimelineDuration;
+  }
+
+  // Delegated on the container (not per-handle) since handles are
+  // recreated on every renderEditTimeline call - one set of listeners
+  // survives that, individual per-element ones would silently stop working
+  // after the first re-render.
+  editTimeline.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".edit-timeline__handle");
+    if (!handle) return;
+    event.preventDefault();
+    activeHandleDrag = { index: Number(handle.dataset.index), edge: handle.dataset.edge };
+    handle.setPointerCapture(event.pointerId);
+  });
+
+  editTimeline.addEventListener("pointermove", (event) => {
+    if (!activeHandleDrag) return;
+    const segment = editSegmentsState.find((s) => s.index === activeHandleDrag.index);
+    if (!segment) return;
+    const time = clientXToTime(event.clientX);
+    if (activeHandleDrag.edge === "start") {
+      segment.start = Math.min(Math.max(time, 0), segment.end - MIN_SEGMENT_SPAN_SECONDS);
+    } else {
+      segment.end = Math.max(time, segment.start + MIN_SEGMENT_SPAN_SECONDS);
+    }
+    positionHandles();
+    updateRowTimeLabel(segment.index);
+  });
+
+  ["pointerup", "pointercancel"].forEach((eventName) => {
+    editTimeline.addEventListener(eventName, () => {
+      activeHandleDrag = null;
+    });
+  });
 
   editToggleButton.addEventListener("click", async () => {
     if (!editSection.hidden) {
@@ -554,17 +750,43 @@
       return;
     }
     const { segments } = await response.json();
-    renderEditRows(segments);
-    renderEditTimeline(segments);
+    editSegmentsState = segments;
+    renderEditRows(editSegmentsState);
+    // Unhidden BEFORE the waveform canvas is drawn below (not after) - the
+    // canvas measures its own container's real pixel size, which reports
+    // as 0 while edit-section (or any ancestor) is still `hidden`.
     editSection.hidden = false;
+
+    // The waveform is a best-effort visual aid, fetched separately from the
+    // segments themselves - a failure here (offline, or an audio track
+    // ffmpeg genuinely can't decode) must never block the text-only editing
+    // flow that already worked before this feature existed: the timeline
+    // still renders (ticks + drag handles, just no waveform backdrop) either way.
+    lastWaveformPeaks = null;
+    try {
+      const waveformResponse = await fetch(`/api/jobs/${currentJobId}/waveform`);
+      if (waveformResponse.ok) lastWaveformPeaks = (await waveformResponse.json()).peaks;
+    } catch {
+      // Non-fatal - handled by the null fallback already assigned above.
+    }
+    renderEditTimeline(editSegmentsState, lastWaveformPeaks);
   });
 
   editSaveButton.addEventListener("click", async () => {
     if (!currentJobId) return;
-    const edits = Array.from(editRows.querySelectorAll(".edit-row__text")).map((input) => ({
-      index: Number(input.dataset.index),
-      text: input.value,
-    }));
+    // Text comes from the DOM (the input the user actually typed into);
+    // start/end come from editSegmentsState (updated live by a waveform
+    // drag, see the pointermove handler above) - sent together so a save
+    // right after a drag never loses it.
+    const edits = editSegmentsState.map((segment) => {
+      const input = editRows.querySelector(`.edit-row__text[data-index="${segment.index}"]`);
+      return {
+        index: segment.index,
+        text: input ? input.value : segment.text,
+        start: segment.start,
+        end: segment.end,
+      };
+    });
 
     editSaveButton.disabled = true;
     const response = await fetch(`/api/jobs/${currentJobId}/segments`, {
@@ -581,8 +803,18 @@
       return;
     }
 
-    // Editing may have dropped word timings on the changed lines (see
-    // routes/results.py) - refresh whether karaoke is still offered.
+    // The server is the source of truth for what actually got saved
+    // (including any newly-approximated word timing on a changed line, see
+    // routes/results.py) - re-rendering from its response, not the
+    // just-sent edits, keeps the confidence preview and the waveform
+    // strip honest.
+    const { segments: savedSegments } = await response.json();
+    editSegmentsState = savedSegments;
+    renderEditRows(editSegmentsState);
+    renderEditTimeline(editSegmentsState, lastWaveformPeaks);
+
+    // Editing may have changed word timings on the changed lines - refresh
+    // whether karaoke is still offered.
     const jobResponse = await fetch(`/api/jobs/${currentJobId}`);
     if (jobResponse.ok) {
       const job = await jobResponse.json();

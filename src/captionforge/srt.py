@@ -8,7 +8,7 @@ asserts, independent of any real transcription ever running.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -18,11 +18,22 @@ class WordTiming:
     Not used to render the v1 .srt (which is segment-level), but captured now
     so a future word-by-word "karaoke" caption UI doesn't need to touch the
     transcription pipeline again, only the rendering layer.
+
+    `probability` is faster-whisper's own per-word confidence (its `Word.
+    probability`, 0..1) - `None` only for a word this app SYNTHESIZED itself
+    (see `redistribute_word_timings` below), never for one that actually came
+    out of a real transcription. That's a deliberate, load-bearing
+    distinction: a `None` probability is the signal the frontend's
+    low-confidence highlighting (and any future caller) uses to know "this
+    timing is an approximation, don't judge it as a confidence score" -
+    treating a synthesized word's fabricated timing as if it were a real
+    recognition probability would be actively misleading, not just unhelpful.
     """
 
     start: float
     end: float
     text: str
+    probability: float | None = None
 
 
 @dataclass(frozen=True)
@@ -167,7 +178,7 @@ def segments_to_ass(segments: list[Segment], style: dict[str, object]) -> str:
 
 
 def word_timing_to_dict(word: WordTiming) -> dict:
-    return {"start": word.start, "end": word.end, "text": word.text}
+    return {"start": word.start, "end": word.end, "text": word.text, "probability": word.probability}
 
 
 def segment_to_dict(segment: Segment) -> dict:
@@ -186,8 +197,63 @@ def segment_from_dict(data: dict) -> Segment:
         start=data["start"],
         end=data["end"],
         text=data["text"],
-        words=[WordTiming(start=w["start"], end=w["end"], text=w["text"]) for w in words] if words else None,
+        words=(
+            # `.get("probability")` (not `["probability"]`): tolerates a
+            # segments.json written before this field existed - an older
+            # job's history entry still round-trips instead of a KeyError.
+            [
+                WordTiming(start=w["start"], end=w["end"], text=w["text"], probability=w.get("probability"))
+                for w in words
+            ]
+            if words
+            else None
+        ),
     )
+
+
+def redistribute_word_timings(text: str, start: float, end: float) -> list[WordTiming] | None:
+    """Approximates per-word timing for text with no real per-word recognition behind it.
+
+    Used after a translation (translate.py) or a manual text edit
+    (routes/results.py) - both replace a segment's text with words
+    faster-whisper never actually timed, so there's no real per-word
+    timestamp to report. Rather than dropping word-level timing entirely
+    (this app's v1 behavior - and still the right call if this function
+    can't run: see the empty/degenerate cases below), this splits the
+    segment's existing [start, end) span across the NEW text's words,
+    proportionally by character length - a cheap, honest stand-in for real
+    forced alignment (which would need a wav2vec2-style model this project
+    doesn't have; see the forced-realignment issue this session opened).
+    It is NOT lip-synced or acoustically verified in any way: a translated
+    sentence's words rarely land where the corresponding sound actually
+    occurs, especially for a language pair with very different word order.
+    `probability=None` on every synthesized word is what marks that
+    honestly (see WordTiming's own docstring) - this must never be confused
+    with a real transcription confidence score.
+
+    Returns None (no karaoke for this segment) for text with no words, or a
+    non-positive span - both are degenerate inputs a caller can otherwise
+    reasonably pass (an edit can clear a segment's text to "").
+    """
+    words = text.split()
+    duration = end - start
+    if not words or duration <= 0:
+        return None
+
+    weights = [len(w) for w in words]
+    total_weight = sum(weights)
+    cursor = start
+    timings = []
+    for word, weight in zip(words, weights, strict=True):
+        word_end = cursor + (weight / total_weight) * duration
+        timings.append(WordTiming(start=cursor, end=word_end, text=word, probability=None))
+        cursor = word_end
+    # Floating-point drift across many small additions can leave the last
+    # word's end a hair short of/past `end` - pin it exactly so the ASS
+    # karaoke renderer's own duration math (word.end - word.start, summed
+    # across the line) never disagrees with the segment's own [start, end).
+    timings[-1] = replace(timings[-1], end=end)
+    return timings
 
 
 def segments_to_dicts(segments: list[Segment]) -> list[dict]:

@@ -38,11 +38,17 @@ Once transcription finishes:
 - **Download `.srt`, `.vtt`, or `.ass`** directly - the same segments,
   three formats (`.vtt` for a plain HTML `<video><track>`, `.ass` for an
   editor that wants real styling/karaoke tags).
-- **Edit captions** - fix a transcription mistake before burning; timing
-  never changes, only the text.
+- **Edit captions** - fix a transcription mistake before burning, and drag
+  each segment's start/end directly over a waveform to retime it. Words
+  faster-whisper transcribed with low confidence are underlined (with a
+  subtle highlight) right in the editor, so you know what to double-check
+  instead of trusting the transcript blindly.
 - **Pick a caption style** (Modern, TikTok bold, YouTube classic, Minimal)
-  and, when word-level timing survived (untouched by translation or an
-  edit), turn on **word-by-word karaoke highlighting** for the burn.
+  and turn on **word-by-word karaoke highlighting** for the burn - available
+  whenever a segment has per-word timing, whether that's faster-whisper's
+  own real timing or the approximate, character-length-based timing this
+  app synthesizes after you translate or edit a segment's text (see "Known
+  limitations").
 - **Burn into video** - a separate, on-demand step from transcription -
   you're never forced to re-encode the whole video just to get the text.
 
@@ -75,19 +81,32 @@ stream, not by polling.
 ## How it's built
 
 - `src/captionforge/srt.py` - pure formatting/assembly for `.srt`, `.vtt`,
-  and karaoke-capable `.ass` (per-word `\k` tags when `Segment.words`
-  survived translation/editing), plus the plain-dict (de)serialization used
-  to persist segments to `segments.json`. No I/O.
+  and karaoke-capable `.ass` (per-word `\k` tags whenever `Segment.words` is
+  present). `WordTiming.probability` carries faster-whisper's own per-word
+  confidence (`None` only for a word this app synthesized itself, never a
+  real transcription). `redistribute_word_timings()` is the shared
+  approximate-timing heuristic both translation and text-editing use once a
+  segment's words no longer match its ORIGINAL per-word timing - see "Known
+  limitations" for exactly what it does and doesn't guarantee. Also the
+  plain-dict (de)serialization used to persist segments to
+  `segments.json`. No I/O.
 - `src/captionforge/translate.py` - local translation of already-timed
   segments via argos-translate, decoupled from Whisper (whose own
-  `task="translate"` only ever translates into English). Drops `words` on
-  the translated text - the original-language per-word timing no longer
-  lines up with it.
+  `task="translate"` only ever translates into English). The
+  ORIGINAL-language per-word timing can't survive a translation (different
+  words, count, and often order) - rather than dropping word-level timing
+  outright, `redistribute_word_timings()` approximates new timing for the
+  translated text.
+- `src/captionforge/waveform.py` + `ffmpeg_utils.build_waveform_extract_cmd`
+  - downsampled audio amplitude data for the editor's waveform backdrop: a
+  single ffmpeg pass decodes+resamples a job's original video to raw 8-bit
+  PCM at a low, fixed sample rate, bucketed down to at most 2000 peaks
+  before being sent to the browser.
 - `src/captionforge/ffmpeg_utils.py` - pure ffmpeg `argv` construction
-  (audio extraction, subtitle burning) - never executes anything itself.
-  `STYLE_PRESETS` (modern/tiktok/youtube/minimal) is the single source of
-  truth both the plain-SRT `force_style` burn and the karaoke `.ass` burn
-  render from.
+  (audio extraction, subtitle burning, waveform extraction) - never
+  executes anything itself. `STYLE_PRESETS` (modern/tiktok/youtube/minimal)
+  is the single source of truth both the plain-SRT `force_style` burn and
+  the karaoke `.ass` burn render from.
 - `src/captionforge/jobs.py` - an in-memory, thread-safe job state
   machine (`queued -> extracting_audio -> transcribing -> done ->
   burning_subtitles -> burned`, or `error` from anywhere). Holds ONE job
@@ -105,14 +124,20 @@ stream, not by polling.
   downloads (with a disk-existence fallback for a job that's no longer the
   one JobStore is tracking - safe because CaptionForge's one-job-at-a-time
   design guarantees any older job already reached a terminal state),
-  segment editing (`GET`/`PUT .../segments`, current job only), and burn
-  (`style`/`karaoke` form fields).
+  segment editing (`GET`/`PUT .../segments`, current job only - `PUT`
+  accepts `text`, and/or `start`/`end` for a waveform-drag retime),
+  `GET .../waveform` (works for any job, current or historical - it only
+  ever needs the original video file), and burn (`style`/`karaoke` form
+  fields).
 - `src/captionforge/static/` - the frontend: one plain HTML/CSS/JS page,
   no build step, no framework. `i18n.js` is a small flat-dictionary
   translator (Spanish/English, `localStorage`-backed) that drives every
   `data-i18n`-tagged element in `index.html`; job stage labels are derived
   client-side from the language-neutral `status` field the API already
   returns, not from the backend's own (Spanish-only) `stage_label` text.
+  The segment editor (`app.js`) renders the waveform as a `<canvas>` with
+  draggable start/end handles per segment, and underlines any word below a
+  confidence threshold using the per-word `probability` the API returns.
 
 `scripts/smoke_test_pipeline.py` exercises the whole transcribe ->
 translate -> burn pipeline directly against a real video, no server
@@ -188,10 +213,33 @@ work):
   jobs.py), so an older job in "recent jobs" offers downloads only. This
   matches the natural flow (transcribe -> optionally edit -> burn) and
   the one-job-at-a-time state machine, which has no path back from BURNED.
-- Karaoke highlighting needs word-level timing, which is dropped for any
-  segment that was translated or manually edited (the words no longer line
-  up with the new text) - the karaoke checkbox is simply hidden when no
-  segment has it, and still works for whichever segments do.
+- Karaoke highlighting needs word-level timing. A segment translated or
+  manually edited gets APPROXIMATE word timing instead of its original
+  (real) one: `redistribute_word_timings()` splits the segment's existing
+  [start, end) span across the new text's words, proportionally by
+  character length - a cheap, honest stand-in for real forced alignment,
+  not an acoustically verified one. It is NOT lip-synced: a translated
+  sentence's words rarely land where the corresponding sound actually
+  occurs, especially for language pairs with very different word order.
+  Every word this app synthesizes this way has `probability: null` in the
+  segments API response specifically so nothing mistakes it for a real
+  transcription confidence score. The karaoke checkbox is simply hidden
+  when no segment has any word timing at all (real or approximate).
+  Real forced alignment (a wav2vec2-style model, the way
+  [WhisperX](https://github.com/m-bain/whisperX) does it) would fix this
+  properly, at the cost of a whole new model dependency - out of scope for
+  now; see the diarization/voice-separation issues below for the same
+  "new heavy ML dependency" trade-off applied to two other features.
+- The low-confidence word highlighting in the editor is only as good as
+  faster-whisper's own per-word `probability` - a word can be confidently
+  wrong (misheard but pronounced clearly) or unconfidently right (correct
+  despite noisy audio). Treat the underline as "worth a second look", not
+  as a correctness guarantee.
+- The waveform editor's drag handles let you shrink or grow a segment
+  freely; there's no validation against a NEIGHBORING segment's start/end,
+  so it's possible to drag two segments into overlapping (or gapped) time
+  ranges. Nothing crashes, but review the result before burning if you make
+  a large adjustment.
 - "Recent jobs" lives in `localStorage`, so it's private to one browser -
   it does not survive clearing site data and is never shared between
   devices.
@@ -222,6 +270,34 @@ Ideas worth doing eventually, deliberately not started yet:
   Whisper/ffmpeg, so a free-tier host isn't enough for serious use; a paid
   host is the realistic next step if there's ever demand for a
   "no-install-at-all" option. See "Support this project" below.
+- **Speaker diarization** ("who said what") via
+  [pyannote.audio](https://github.com/pyannote/pyannote-audio) - see
+  [issue #4](https://github.com/Bryandero98/captionforge/issues/4) for why
+  it's deferred: a second heavy PyTorch-based ML dependency, plus real
+  friction from pyannote's gated Hugging Face models (an account + accepted
+  terms + a personal access token, unlike faster-whisper's anonymous
+  downloads today).
+- **Vocal/source separation before transcription** (via
+  [Demucs](https://github.com/facebookresearch/demucs)) for noisy or
+  music-heavy audio - see
+  [issue #5](https://github.com/Bryandero98/captionforge/issues/5) for why
+  it's deferred: a third heavy ML dependency, real added runtime cost for
+  the common case (clean dialogue) that doesn't need it, and a quality
+  trade-off that needs real before/after comparison, not just an
+  assumption that separation always helps.
+- **Real forced alignment** after a translation or manual text edit (a
+  wav2vec2-style model, the way WhisperX does it) - today's approximate,
+  character-length-based word-timing redistribution (see "Known
+  limitations") is a deliberately cheap stand-in for this, not a
+  replacement for it.
+- **A real parallel backend queue** (processing more than one video at
+  once) - CaptionForge is one-job-at-a-time by design today (see `jobs.py`
+  and the frontend's own client-side upload queue, which uploads
+  sequentially specifically because the backend can only run one job at a
+  time). Worth doing eventually for a multi-core machine, but a genuinely
+  bigger change (worker pool, per-job resource limits, a queue that
+  survives a server restart) than anything else in this list - no concrete
+  plan yet, flagged here only so it isn't mistaken for an oversight.
 
 ## Support this project
 

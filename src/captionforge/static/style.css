@@ -324,7 +324,9 @@ body {
 
 .edit-timeline {
   position: relative;
-  height: 26px;
+  /* Tall enough to hold the waveform canvas plus full-height drag handles -
+     26px (the original tick-only strip) left no room for either. */
+  height: 52px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -332,19 +334,75 @@ body {
   overflow: hidden;
 }
 
+.edit-timeline__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Purely a visual backdrop - clicks must reach the tick/handle elements
+     layered on top of it, never be swallowed by the canvas itself. */
+  pointer-events: none;
+}
+
 .edit-timeline__tick {
   position: absolute;
   top: 3px;
   bottom: 3px;
+  z-index: 1;
   background: var(--accent);
   border-radius: 2px;
-  opacity: 0.55;
+  opacity: 0.28;
   cursor: pointer;
   transition: opacity 0.12s ease;
 }
 
 .edit-timeline__tick:hover {
+  opacity: 0.5;
+}
+
+/* One per segment start/end - a thin, full-height, draggable mark
+   overlaid on the waveform/tick strip. Centered on its exact time via
+   translateX(-50%) so the mark's MIDDLE (not its edge) lines up with the
+   instant it represents. */
+.edit-timeline__handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  /* Always above every tick (z-index 1), regardless of DOM order - two
+     adjacent segments routinely share an exact boundary, so without this a
+     tick appended after a handle (see the +/-3px offset comment below)
+     could otherwise sit on top and silently swallow that handle's clicks. */
+  z-index: 2;
+  transform: translateX(-50%);
+  cursor: ew-resize;
+  /* Prevents the browser's own touch-scroll/zoom gestures from hijacking a
+     drag on touch devices - this element's whole job is to be dragged. */
+  touch-action: none;
+  border-radius: 2px;
+  opacity: 0.9;
+}
+
+.edit-timeline__handle:hover,
+.edit-timeline__handle:active {
   opacity: 1;
+}
+
+/* Adjacent segments routinely share an exact boundary (one's end equals the
+   next one's start, e.g. contiguous transcript segments with no gap) - two
+   handles centered on the SAME pixel would leave the bottom one
+   permanently ungrabbable (the one rendered last simply wins every click).
+   Nudging each variant a few px off its exact center keeps both
+   independently draggable even when coincident, at a negligible (few
+   millisecond) precision cost the rest of the time. */
+.edit-timeline__handle--start {
+  background: #34c759;
+  transform: translateX(calc(-50% - 3px));
+}
+
+.edit-timeline__handle--end {
+  background: #ff453a;
+  transform: translateX(calc(-50% + 3px));
 }
 
 .edit-rows {
@@ -358,9 +416,10 @@ body {
 
 .edit-row {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 92px 1fr;
   gap: 10px;
-  align-items: center;
+  align-items: start;
+  padding: 4px 0;
   border-radius: 6px;
   transition: background 0.3s ease;
 }
@@ -373,6 +432,14 @@ body {
   font-size: 0.75rem;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+  padding-top: 8px;
+}
+
+.edit-row__text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .edit-row__text {
@@ -383,6 +450,27 @@ body {
   padding: 8px 10px;
   font-size: 0.9rem;
   width: 100%;
+}
+
+/* A read-only preview line under each text input, showing the same words
+   with any low-confidence one highlighted - see app.js's
+   renderWordConfidence. Hidden entirely when there's nothing to flag (no
+   word data, or every word is a synthetic/approximated timing with no real
+   recognition score behind it). */
+.edit-row__confidence {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  word-spacing: 0.2em;
+}
+
+.word-confidence--low {
+  text-decoration: underline wavy rgba(255, 69, 58, 0.9);
+  text-underline-offset: 2px;
+  background: rgba(255, 69, 58, 0.12);
+  border-radius: 3px;
+  padding: 0 1px;
+  cursor: help;
 }
 
 .edit-section__actions {

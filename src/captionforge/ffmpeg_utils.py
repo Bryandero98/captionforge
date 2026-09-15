@@ -114,6 +114,38 @@ def resolve_style(style_name: str | None) -> dict[str, object]:
 MODERN_SUBTITLE_STYLE = _style_to_force_style(STYLE_PRESETS["modern"])
 
 
+# Low enough that even an hour-long video decodes to a modest number of raw
+# samples (waveform.py downsamples further from there); high enough that
+# consecutive samples still track syllable-level loudness changes, which is
+# all the editor's waveform backdrop needs (see waveform.py's module docstring).
+WAVEFORM_SAMPLE_RATE_HZ = 100
+
+
+def build_waveform_extract_cmd(video_path: str) -> list[str]:
+    """ffmpeg argv that decodes video_path's audio to raw unsigned 8-bit mono PCM on stdout.
+
+    u8 (not s16le) deliberately: each byte IS one sample, silence is the
+    literal value 128 - no endianness or multi-byte-sample math needed on the
+    read side (see waveform.py), just `abs(byte - 128)`.
+    """
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        video_path,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(WAVEFORM_SAMPLE_RATE_HZ),
+        "-f",
+        "u8",
+        "-acodec",
+        "pcm_u8",
+        "pipe:1",
+    ]
+
+
 def build_extract_audio_cmd(video_path: str, audio_path: str) -> list[str]:
     """ffmpeg argv to extract a video's audio track as 16kHz mono WAV - the format faster-whisper expects."""
     return [
