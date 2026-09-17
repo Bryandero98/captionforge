@@ -354,3 +354,51 @@ class TestRunBurnJobReal:
         assert output_path.stat().st_size > 0
         assert not (srt_path.parent / "karaoke.ass").exists()
         assert store.get(job_id).status == JobStatus.BURNED
+
+    def test_a_cancel_mid_flight_does_not_clobber_the_cancellation_message(self, tmp_path):
+        """Same regression as run_transcription_job's identically-named test above,
+        for run_burn_job's own copy of the cancel-while-in-flight race: cancel()
+        moving the job to ERROR used to surface as an InvalidTransitionError from
+        the transition(BURNED) call below, caught by the generic `except
+        Exception`, which overwrote "Cancelado por el usuario." with that
+        confusing technical message and re-raised it unhandled.
+        """
+        store, job_id, srt_path, output_path = self._prep_done_job(
+            tmp_path, [Segment(start=0.0, end=1.0, text="Hola")]
+        )
+        real_segments = read_segments_json(srt_path.parent)
+
+        def _cancel_then_return(*_args, **_kwargs):
+            store.cancel(job_id)
+            return real_segments
+
+        with patch("captionforge.pipeline.read_segments_json", side_effect=_cancel_then_return):
+            # Must not raise - InvalidTransitionError is swallowed, not re-thrown.
+            asyncio.run(run_burn_job(store, job_id, FIXTURE, srt_path, output_path, "modern", False))
+
+        assert store.get(job_id).status == JobStatus.ERROR
+        assert store.get(job_id).error == "Cancelado por el usuario."
+
+    def test_a_supersede_mid_flight_does_not_touch_the_new_job(self, tmp_path):
+        """Same race, but the slot was reused for a brand new upload (rather than
+        left cancelled) before this orphaned background task's next store call -
+        which must then raise UnknownJobError (job_id no longer matches
+        self._job) rather than corrupting the new job.
+        """
+        store, job_id, srt_path, output_path = self._prep_done_job(
+            tmp_path, [Segment(start=0.0, end=1.0, text="Hola")]
+        )
+        real_segments = read_segments_json(srt_path.parent)
+        new_job_holder = {}
+
+        def _supersede_then_return(*_args, **_kwargs):
+            store.cancel(job_id)
+            new_job_holder["job"] = store.create()
+            return real_segments
+
+        with patch("captionforge.pipeline.read_segments_json", side_effect=_supersede_then_return):
+            asyncio.run(run_burn_job(store, job_id, FIXTURE, srt_path, output_path, "modern", False))
+
+        new_job = new_job_holder["job"]
+        assert store.get(new_job.id).status == JobStatus.QUEUED
+        assert store.get(new_job.id).error is None

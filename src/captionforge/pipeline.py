@@ -302,6 +302,17 @@ async def run_burn_job(
         await _run_ffmpeg(cmd, on_progress=_on_burn_progress, total_duration=total_duration)
         store.update(job_id, progress=1.0, video_ready=True, stage_label="Listo")
         store.transition(job_id, JobStatus.BURNED)
+    except (InvalidTransitionError, UnknownJobError):
+        # Same reasoning as run_transcription_job's identical guard above:
+        # the job was already cancelled (JobStore.cancel() moved it to
+        # ERROR - the transition() call above then finds a status that
+        # can't reach BURNED) or superseded by a new upload entirely
+        # (job_id no longer matches self._job) while this background task
+        # was mid-flight. Without this guard, the generic handler below
+        # would clobber the real "Cancelado por el usuario." message with
+        # this confusing transition error, or - if superseded - raise
+        # UnknownJobError from inside its own except block.
+        return
     except Exception as exc:
         store.update(job_id, error=str(exc))
         store.transition(job_id, JobStatus.ERROR)
