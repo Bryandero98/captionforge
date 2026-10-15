@@ -16,7 +16,8 @@ never gets right on its own:
 
 Scope (see README's "Packaged build (first step)" section and issue #2):
 one platform per build (whatever OS runs `pyinstaller` - no cross-compile),
-CPU-only, unsigned, ffmpeg NOT bundled.
+CPU-only, unsigned. ffmpeg: the spec collects imageio-ffmpeg's binary, but that has NOT yet been
+verified in a built executable (the app falls back to ffmpeg on PATH).
 
 Usage: `pyinstaller scripts/captionforge.spec` (also what
 scripts/build_installer.py runs for you).
@@ -42,7 +43,8 @@ hiddenimports = []
 # manifests) that PyInstaller's static import analysis can't discover on
 # its own - collect_all pulls in each package's full contents rather than
 # guessing which submodules/binaries actually get touched at runtime.
-for package in ("faster_whisper", "ctranslate2", "argostranslate"):
+# imageio_ffmpeg carries the ffmpeg binary (with libass) the app runs - see ffmpeg_locator.py.
+for package in ("faster_whisper", "ctranslate2", "argostranslate", "imageio_ffmpeg"):
     pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries

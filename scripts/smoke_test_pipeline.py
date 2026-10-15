@@ -24,6 +24,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from captionforge.ffmpeg_locator import with_ffmpeg_path
 from captionforge.ffmpeg_utils import build_burn_subtitles_cmd, build_extract_audio_cmd
 from captionforge.srt import Segment, WordTiming, segments_to_srt
 from captionforge.translate import translate_segments
@@ -45,7 +46,7 @@ def select_device(model_size: str):
 def extract_audio(video_path: Path, audio_path: Path) -> None:
     cmd = build_extract_audio_cmd(str(video_path), str(audio_path))
     print(f"$ {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    subprocess.run(with_ffmpeg_path(cmd), check=True, capture_output=True, text=True)
 
 
 def transcribe(model, audio_path: Path, language: str | None) -> list[Segment]:
@@ -79,7 +80,7 @@ def transcribe(model, audio_path: Path, language: str | None) -> list[Segment]:
 def burn_subtitles(video_path: Path, srt_path: Path, output_path: Path) -> None:
     cmd = build_burn_subtitles_cmd(str(video_path), str(srt_path), str(output_path))
     print(f"$ {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    subprocess.run(with_ffmpeg_path(cmd), check=True, capture_output=True, text=True)
 
 
 def main() -> None:

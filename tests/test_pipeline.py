@@ -402,3 +402,37 @@ class TestRunBurnJobReal:
         new_job = new_job_holder["job"]
         assert store.get(new_job.id).status == JobStatus.QUEUED
         assert store.get(new_job.id).error is None
+
+
+class TestRunFfmpegUsesResolvedExecutable:
+    def test_the_resolved_ffmpeg_replaces_the_bare_name_and_keeps_the_rest_of_the_argv(self, monkeypatch):
+        resolved = "/ruta con espacios/ffmpeg-resuelto"
+        monkeypatch.setattr("captionforge.ffmpeg_locator.find_ffmpeg", lambda: resolved)
+        captured: list = []
+
+        async def fake_create_subprocess_exec(*args, **kwargs):
+            captured.extend(args)
+            raise RuntimeError("capturado: no se ejecuta nada")
+
+        target = "captionforge.pipeline.asyncio.create_subprocess_exec"
+        monkeypatch.setattr(target, fake_create_subprocess_exec)
+
+        with pytest.raises(RuntimeError, match="capturado"):
+            asyncio.run(_run_ffmpeg(["ffmpeg", "-y", "-i", "entrada con espacios.mp4", "salida.wav"]))
+
+        assert captured == [resolved, "-y", "-i", "entrada con espacios.mp4", "salida.wav"]
+
+    def test_missing_ffmpeg_raises_a_clear_error_and_never_spawns_a_process(self, monkeypatch):
+        monkeypatch.setattr("captionforge.ffmpeg_locator.find_ffmpeg", lambda: None)
+        spawned = []
+
+        async def fake_create_subprocess_exec(*args, **kwargs):
+            spawned.append(args)
+
+        target = "captionforge.pipeline.asyncio.create_subprocess_exec"
+        monkeypatch.setattr(target, fake_create_subprocess_exec)
+
+        with pytest.raises(FileNotFoundError, match="CAPTIONFORGE_FFMPEG"):
+            asyncio.run(_run_ffmpeg(["ffmpeg", "-version"]))
+
+        assert spawned == []
