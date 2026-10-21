@@ -24,7 +24,7 @@ if (!python) {
 const conEntorno = join(raiz, "apps", "api-gateway", "scripts", "with-env.mjs");
 const resultado = spawnSync(
   process.execPath,
-  [conEntorno, "worker", "--", `"${python}"`, "-m", "pytest", ...process.argv.slice(2)],
+  [conEntorno, "worker", "--", process.platform === "win32" ? `"${python}"` : python, "-m", "pytest", ...process.argv.slice(2)],
   { cwd: aqui, stdio: "inherit", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } },
 );
 process.exit(resultado.status ?? 1);
