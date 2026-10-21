@@ -9,8 +9,13 @@
 FROM python:3.12-slim
 
 # libgomp1: lo cargan ctranslate2 y onnxruntime. ffmpeg viene con imageio-ffmpeg (paquete heredado).
+# fontconfig + fuentes: libass (dentro de ffmpeg) las necesita para dibujar los subtítulos quemados; la imagen
+# slim no trae ninguna y sin ellas el quemado falla o sale sin texto. Los estilos piden Arial: fonts-liberation
+# (Liberation Sans) es su sustituta de mismas medidas y fonts-dejavu-core es la de respaldo para cualquier otro
+# glifo. `fc-cache` deja la caché hecha en la imagen en vez de en cada arranque.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libgomp1 \
+ && apt-get install -y --no-install-recommends libgomp1 fontconfig fonts-dejavu-core fonts-liberation \
+ && fc-cache -f \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --create-home --uid 10001 worker \
  && mkdir -p /models /work \
