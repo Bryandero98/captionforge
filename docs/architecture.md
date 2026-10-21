@@ -93,7 +93,9 @@ de RAM.
 
 ## Seguimiento conocido (revisión independiente, 2026-10-21)
 
-Rama `fix/security-hardening`: **corregidos** H2 (memoria de las subidas: tope total y por cliente, ritmo mínimo,
+Rama `fix/docker-fonts`: **corregido** F1 (la imagen del worker instala `fontconfig`, `fonts-liberation` —sustituta de Arial— y
+`fonts-dejavu-core`; `check_image.py` quema un SRT y un ASS de karaoke y mira el fotograma, y comprueba que Arial resuelva a
+Liberation Sans). Rama `fix/security-hardening`: **corregidos** H2 (memoria de las subidas: tope total y por cliente, ritmo mínimo,
 partes de 5 MiB), H4 (tope y duración máxima de los flujos SSE), H7 (ffmpeg con entorno mínimo), el apagado
 ordenado del worker y la limpieza de `/work` al arrancar (ver [ADR 0010](adr/0010-endurecimiento-del-api-y-trabajos-huerfanos.md)).
 Siguen abiertos:
@@ -103,7 +105,6 @@ Siguen abiertos:
 | H7b | El entorno mínimo evita la herencia accidental de secretos, **no** un ffmpeg ya comprometido que corra con el mismo usuario (podría leer `/proc/<padre>/environ`) | Ejecutar ffmpeg con otro usuario, o en otro contenedor, con `no-new-privileges` y seccomp |
 | H9 | CI/CD: workflows sin bloque `permissions`, publicación a PyPI con token de larga vida, imagen sin dependencias fijadas por resumen | `permissions` mínimos, publicación por entorno protegido o Trusted Publishing, versiones fijadas |
 | H10 | Sin `API_KEY`, una página externa puede lanzar POST contra un API local (CSRF) o usar DNS rebinding | Comprobar `Host`/`Origin` y cabeceras de seguridad (helmet); `API_KEY` obligatoria fuera de desarrollo |
-| F1 | La imagen del worker (`python:3.12-slim`) no trae fuentes ni configuración de fontconfig, y `check_image.py` no prueba ningún quemado | Prueba de humo del quemado dentro de la imagen e instalar una fuente |
 
 Además: el paquete `legacy` de PyPI conserva el riesgo que ya se corrigió en la imagen del worker (PyAV 19 con
 faster-whisper 1.2.1 sin fijar: `av==18.1.0` en `apps/ai-worker/constraints.txt`).
