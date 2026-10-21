@@ -30,6 +30,12 @@ MAX_PEAKS = 2000
 
 _SILENCE = 128  # u8 PCM's zero-amplitude midpoint - every sample is compared against this.
 
+# Decoding only the audio track is fast even for a multi-hour video; this is a
+# ceiling for a hung ffmpeg, which would otherwise block a worker thread (and
+# the HTTP request waiting on it) forever. subprocess.run kills the child
+# itself when the timeout expires.
+WAVEFORM_TIMEOUT_SECONDS = 600.0
+
 
 class WaveformExtractionError(RuntimeError):
     """Raised when ffmpeg fails to decode video_path's audio track for the waveform."""
@@ -72,9 +78,19 @@ def compute_waveform_peaks(video_path: Path) -> tuple[list[float], float]:
     """
     cmd = build_waveform_extract_cmd(str(video_path))
     try:
-        result = subprocess.run(with_ffmpeg_path(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = subprocess.run(
+            with_ffmpeg_path(cmd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=WAVEFORM_TIMEOUT_SECONDS,
+        )
     except OSError as exc:  # FileNotFoundError (no ffmpeg) or PermissionError (not executable)
         raise WaveformExtractionError(f"No se pudo ejecutar ffmpeg para el waveform: {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise WaveformExtractionError(
+            f"ffmpeg superó el tiempo máximo ({WAVEFORM_TIMEOUT_SECONDS:.0f} s) leyendo el audio "
+            "para el waveform."
+        ) from exc
     if result.returncode != 0:
         stderr_tail = result.stderr.decode(errors="replace")[-400:]
         raise WaveformExtractionError(f"ffmpeg no pudo leer el audio para el waveform: {stderr_tail}")
