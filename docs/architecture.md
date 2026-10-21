@@ -103,8 +103,8 @@ Siguen abiertos:
 | Id | Riesgo | Qué falta |
 |---|---|---|
 | H7b | El entorno mínimo evita la herencia accidental de secretos, **no** un ffmpeg ya comprometido que corra con el mismo usuario (podría leer `/proc/<padre>/environ`) | Ejecutar ffmpeg con otro usuario, o en otro contenedor, con `no-new-privileges` y seccomp |
-| H9 | CI/CD: workflows sin bloque `permissions`, publicación a PyPI con token de larga vida, imagen sin dependencias fijadas por resumen | `permissions` mínimos, publicación por entorno protegido o Trusted Publishing, versiones fijadas |
-| H10 | Sin `API_KEY`, una página externa puede lanzar POST contra un API local (CSRF) o usar DNS rebinding | Comprobar `Host`/`Origin` y cabeceras de seguridad (helmet); `API_KEY` obligatoria fuera de desarrollo |
+| H9b | H9 está corregido en workflows y publicación; las imágenes base siguen fijadas por etiqueta y no por resumen `sha256` | Fijar por resumen (ver [Límites declarados](architecture_and_security.md#límites-declarados)) |
+| Pasos manuales | Registrar el publicador de confianza en PyPI, crear el entorno `pypi` con revisores y retirar `PYPI_API_TOKEN` | Mantenedor |
 
 Además: el paquete `legacy` de PyPI conserva el riesgo que ya se corrigió en la imagen del worker (PyAV 19 con
 faster-whisper 1.2.1 sin fijar: `av==18.1.0` en `apps/ai-worker/constraints.txt`).

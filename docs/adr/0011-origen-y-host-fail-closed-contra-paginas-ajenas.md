@@ -42,7 +42,9 @@ cerrada (`apps/api-gateway/src/security/request-guard.ts`, gancho `onRequest` de
 `cross-site`/`same-site`. Los sondeos del orquestador llegan con el `Host` del pod o del balanceador. Una página
 ajena con `<img src=".../health">` sí envía esas señales, así que recibe 403 antes de que se ejecute `SELECT 1` ni
 los pings a Redis y S3; además `/health` tiene su propio contador de uso (600 por minuto y cliente) en lugar de
-quedar fuera del límite.
+quedar fuera del límite. **Límite conocido:** la exención tampoco comprueba `Host`, y con DNS rebinding el
+navegador declara `same-origin`; la ruta responde, pero solo con el estado de las dependencias y bajo su tope.
+Es la única ruta sin comprobación de `Host`, y se acepta porque los sondeos del orquestador la necesitan.
 
 **CORS** (`@fastify/cors`) se registra **solo si `ALLOWED_ORIGINS` no está vacío**, con la misma lista, métodos
 `GET, HEAD, POST, PUT, OPTIONS`, cabeceras `Content-Type, If-Match, Authorization, X-API-Key, Range`, sin

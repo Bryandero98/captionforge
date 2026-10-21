@@ -19,6 +19,13 @@ updates:
     commit-message:
       prefix: "chore(docker)"
 
+  - package-ecosystem: docker
+    directory: /apps/api-gateway
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(docker)"
+
   - package-ecosystem: docker-compose
     directory: /
     schedule:
