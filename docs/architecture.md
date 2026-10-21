@@ -93,7 +93,7 @@ de RAM.
 
 ## Seguimiento conocido (revisión independiente, 2026-10-21)
 
-Rama `fix/docker-fonts`: **corregido** F1 (la imagen del worker instala `fontconfig`, `fonts-liberation` —sustituta de Arial— y
+Rama `fix/security-h9-h10`: **corregidos** H9 (workflows con `permissions` global de solo lectura, acciones fijadas por SHA, publicación a PyPI por Trusted Publishing y Dependabot; lo comprueba `tools/check-workflows.mjs`) y H10 (guardia de `Host`, `Origin` y `Sec-Fetch-Site` y CORS de lista cerrada, [ADR 0011](adr/0011-origen-y-host-fail-closed-contra-paginas-ajenas.md)). Rama `fix/docker-fonts`: **corregido** F1 (la imagen del worker instala `fontconfig`, `fonts-liberation` —sustituta de Arial— y
 `fonts-dejavu-core`; `check_image.py` quema un SRT y un ASS de karaoke y mira el fotograma, y comprueba que Arial resuelva a
 Liberation Sans). Rama `fix/security-hardening`: **corregidos** H2 (memoria de las subidas: tope total y por cliente, ritmo mínimo,
 partes de 5 MiB), H4 (tope y duración máxima de los flujos SSE), H7 (ffmpeg con entorno mínimo), el apagado
@@ -103,8 +103,8 @@ Siguen abiertos:
 | Id | Riesgo | Qué falta |
 |---|---|---|
 | H7b | El entorno mínimo evita la herencia accidental de secretos, **no** un ffmpeg ya comprometido que corra con el mismo usuario (podría leer `/proc/<padre>/environ`) | Ejecutar ffmpeg con otro usuario, o en otro contenedor, con `no-new-privileges` y seccomp |
-| H9 | CI/CD: workflows sin bloque `permissions`, publicación a PyPI con token de larga vida, imagen sin dependencias fijadas por resumen | `permissions` mínimos, publicación por entorno protegido o Trusted Publishing, versiones fijadas |
-| H10 | Sin `API_KEY`, una página externa puede lanzar POST contra un API local (CSRF) o usar DNS rebinding | Comprobar `Host`/`Origin` y cabeceras de seguridad (helmet); `API_KEY` obligatoria fuera de desarrollo |
+| H9b | H9 está corregido en workflows y publicación; las imágenes base siguen fijadas por etiqueta y no por resumen `sha256` | Fijar por resumen (ver [Límites declarados](architecture_and_security.md#límites-declarados)) |
+| Pasos manuales | Registrar el publicador de confianza en PyPI, crear el entorno `pypi` con revisores y retirar `PYPI_API_TOKEN` | Mantenedor |
 
 Además: el paquete `legacy` de PyPI conserva el riesgo que ya se corrigió en la imagen del worker (PyAV 19 con
 faster-whisper 1.2.1 sin fijar: `av==18.1.0` en `apps/ai-worker/constraints.txt`).

@@ -22,6 +22,11 @@
     "smoke": "node tools/smoke/run.mjs",
     "worker:test": "node apps/ai-worker/scripts/test.mjs",
     "e2e": "node tools/e2e/run.mjs",
+    "workflows:check": "node tools/check-workflows.mjs",
+    "workflows:test": "node --test tools/check-workflows.test.mjs",
     "compose:check": "docker compose config --quiet && docker compose --profile app config --quiet"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
   }
 }

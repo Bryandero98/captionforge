@@ -20,15 +20,15 @@ jobs:
     name: Contratos (esquemas, generadores, paridad Node/Python)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
       # Python 3.13: la misma versión con la que se generan y se comprueban los modelos Pydantic.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
 
@@ -38,6 +38,9 @@ jobs:
         run: |
           python -m venv packages/contracts/.venv
           packages/contracts/.venv/bin/python -m pip install -r packages/contracts/requirements-dev.txt
+
+      - name: Workflows con mínimo privilegio (permissions global de solo lectura, acciones fijadas por SHA)
+        run: npm run workflows:test && npm run workflows:check
 
       - name: Los archivos generados están al día
         run: npm run contracts:check
@@ -50,14 +53,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
 
@@ -132,7 +135,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Generar .env con secretos aleatorios (solo para esta ejecución)
         run: |

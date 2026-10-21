@@ -10,7 +10,7 @@ const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
 async function start(security: Partial<typeof baseConfig.security>): Promise<string> {
   const app = await createApp(
-    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { apiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, trustProxy: false, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0, uploadRateWindowMs: 30_000, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, ...security } },
+    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { apiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, trustProxy: false, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0, uploadRateWindowMs: 30_000, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"], ...security } },
     { logger: ["error"] },
   );
   await app.listen(0, "127.0.0.1");
@@ -82,6 +82,18 @@ describe("clave de API (API_KEY)", () => {
 });
 
 describe("límite de uso", () => {
+  it("/health tiene su propio contador con un tope alto (600 por minuto): ya no es una vía libre para martillear la base de datos", async () => {
+    const base = await start({ rateLimitPerMinute: 5, uploadRateLimitPerMinute: 0 });
+    const codes: number[] = [];
+    for (let batch = 0; batch < 13; batch++) {
+      codes.push(...(await Promise.all(Array.from({ length: 50 }, () => fetch(`${base}/health`).then((r) => r.status)))));
+    }
+    expect(codes.filter((code) => code === 200).length).toBe(600);
+    expect(codes.filter((code) => code === 429).length).toBe(50);
+    // El contador general de la persona usuaria no se gastó con los sondeos.
+    expect((await fetch(`${base}/v1/jobs/00000000-0000-4000-8000-000000000000`)).status).toBe(404);
+  });
+
   it("responde 429 con mensaje en español al pasar el máximo por minuto, y /health no cuenta", async () => {
     const base = await start({ rateLimitPerMinute: 5 });
     const path = `${base}/v1/jobs/00000000-0000-4000-8000-000000000000`;
@@ -129,7 +141,7 @@ describe("límite de uso", () => {
 describe("configuración", () => {
   it("los valores por defecto activan los límites y dejan la clave sin configurar", () => {
     const env = { ...process.env } as Record<string, string | undefined>;
-    for (const name of ["API_KEY", "RATE_LIMIT_PER_MINUTE", "UPLOAD_RATE_LIMIT_PER_MINUTE", "REAPER_INTERVAL_SECONDS", "TRUST_PROXY", "MAX_CONCURRENT_UPLOADS", "MAX_CONCURRENT_UPLOADS_PER_CLIENT", "UPLOAD_MIN_BYTES_PER_SECOND", "UPLOAD_RATE_WINDOW_SECONDS", "MAX_EVENT_STREAMS", "MAX_EVENT_STREAMS_PER_CLIENT", "EVENT_STREAM_MAX_SECONDS"]) delete env[name];
+    for (const name of ["API_KEY", "RATE_LIMIT_PER_MINUTE", "UPLOAD_RATE_LIMIT_PER_MINUTE", "REAPER_INTERVAL_SECONDS", "TRUST_PROXY", "MAX_CONCURRENT_UPLOADS", "MAX_CONCURRENT_UPLOADS_PER_CLIENT", "UPLOAD_MIN_BYTES_PER_SECOND", "UPLOAD_RATE_WINDOW_SECONDS", "MAX_EVENT_STREAMS", "MAX_EVENT_STREAMS_PER_CLIENT", "EVENT_STREAM_MAX_SECONDS", "ALLOWED_ORIGINS", "ALLOWED_HOSTS"]) delete env[name];
     const config = loadConfig(env);
     expect(config.security).toEqual({
       apiKey: undefined,
@@ -143,6 +155,8 @@ describe("configuración", () => {
       maxEventStreams: 200,
       maxEventStreamsPerClient: 10,
       eventStreamMaxMs: 1_800_000,
+      allowedOrigins: [],
+      allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
     });
     expect(config.reaper).toEqual({ intervalMs: 60_000, staleRunningMs: 20 * 60_000, queuedGraceMs: 5 * 60_000 });
   });
@@ -154,6 +168,39 @@ describe("configuración", () => {
     ["10.0.0.0/8, 192.168.1.5", ["10.0.0.0/8", "192.168.1.5"]],
   ])("TRUST_PROXY=%j se interpreta como %j (booleano o lista de redes)", (raw, expected) => {
     expect(loadConfig({ ...process.env, TRUST_PROXY: raw }).security.trustProxy).toEqual(expected);
+  });
+
+  it.each([
+    ["http://localhost:5173", ["http://localhost:5173"]],
+    ["http://localhost:5173/", ["http://localhost:5173"]],
+    ["HTTPS://App.Ejemplo.com, http://localhost:5173", ["https://app.ejemplo.com", "http://localhost:5173"]],
+    ["http://localhost:80", ["http://localhost"]],
+    ["", []],
+  ])("ALLOWED_ORIGINS=%j se normaliza a %j", (raw, expected) => {
+    expect(loadConfig({ ...process.env, ALLOWED_ORIGINS: raw }).security.allowedOrigins).toEqual(expected);
+  });
+
+  it.each([
+    ["", ["localhost", "127.0.0.1", "[::1]"]],
+    ["API.Ejemplo.com, localhost", ["api.ejemplo.com", "localhost"]],
+    ["[::1]", ["[::1]"]],
+  ])("ALLOWED_HOSTS=%j se interpreta como %j", (raw, expected) => {
+    expect(loadConfig({ ...process.env, ALLOWED_HOSTS: raw }).security.allowedHosts).toEqual(expected);
+  });
+
+  it.each([
+    ["ALLOWED_ORIGINS", "*"],
+    ["ALLOWED_ORIGINS", "http://localhost:5173, *"],
+    ["ALLOWED_ORIGINS", "localhost:5173"],
+    ["ALLOWED_ORIGINS", "http://localhost:5173/app"],
+    ["ALLOWED_ORIGINS", "http://usuario@localhost:5173"],
+    ["ALLOWED_ORIGINS", "ftp://localhost"],
+    ["ALLOWED_HOSTS", "*"],
+    ["ALLOWED_HOSTS", "localhost:3000"],
+    ["ALLOWED_HOSTS", "http://localhost"],
+    ["ALLOWED_HOSTS", "a b"],
+  ])("rechaza %s=%j al arrancar (nunca comodines ni valores ambiguos)", (name, value) => {
+    expect(() => loadConfig({ ...process.env, [name]: value })).toThrow(name);
   });
 
   it.each([

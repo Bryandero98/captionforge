@@ -3,16 +3,18 @@ import "reflect-metadata";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-import { HttpException, type LogLevel } from "@nestjs/common";
+import { HttpException, Logger, type LogLevel } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import multipart from "@fastify/multipart";
+import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyRequest } from "fastify";
 
 import { AppModule } from "./app.module.js";
 import { type AppConfig, loadConfig } from "./config/config.js";
 import { clientKey } from "./security/client-key.js";
+import { describePolicy, evaluate } from "./security/request-guard.js";
 
 export async function createApp(
   config: AppConfig,
@@ -25,6 +27,9 @@ export async function createApp(
     new FastifyAdapter({ bodyLimit: 4 * 1024 * 1024, trustProxy: config.security.trustProxy }),
     { logger: options.logger ?? ["error", "warn", "log"] },
   );
+  // La guardia va PRIMERO: los ganchos corren en orden de registro, y ni el CORS ni el límite de uso ni el
+  // procesado del cuerpo deben ocurrir para una petición que ya se sabe ajena.
+  await registerBrowserGuard(app, config);
   await app.register(multipart, {
     limits: {
       files: 1,
@@ -40,6 +45,50 @@ export async function createApp(
 }
 
 /**
+ * Defensa frente a páginas ajenas (H10): Host, Origin y Sec-Fetch-Site (ver request-guard.ts), CORS con lista
+ * cerrada y cabeceras de seguridad. Sin ALLOWED_ORIGINS no se registra CORS: el API solo responde a su propio origen.
+ */
+async function registerBrowserGuard(app: NestFastifyApplication, config: AppConfig): Promise<void> {
+  const { allowedOrigins, allowedHosts } = config.security;
+  const fastify = app.getHttpAdapter().getInstance();
+
+  fastify.addHook("onRequest", async (request, reply) => {
+    const verdict = evaluate(
+      {
+        method: request.method,
+        path: request.url,
+        host: request.headers.host,
+        origin: request.headers.origin,
+        secFetchSite: request.headers["sec-fetch-site"] as string | undefined,
+      },
+      { allowedOrigins, allowedHosts },
+    );
+    if (verdict === null) return;
+    // Misma forma que las excepciones de Nest, para que los clientes vean un solo formato de error.
+    const error = verdict.status === 421 ? "Misdirected Request" : "Forbidden";
+    // `connection: close`: el cuerpo de la petición rechazada no se lee, así que la conexión no se reutiliza.
+    return reply.code(verdict.status).header("connection", "close").send({ statusCode: verdict.status, message: verdict.message, error });
+  });
+
+  if (allowedOrigins.length > 0) {
+    await app.register(cors, {
+      origin: allowedOrigins,
+      methods: ["GET", "HEAD", "POST", "PUT", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "If-Match", "Authorization", "X-API-Key", "Range"],
+      exposedHeaders: ["ETag", "Content-Disposition", "Content-Range", "Content-Length", "Accept-Ranges", "Retry-After"],
+      credentials: false, // el API no usa cookies: nunca se piden credenciales cross-origin
+      maxAge: 600,
+    });
+  }
+
+  fastify.addHook("onSend", async (_request, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
+  });
+}
+
+/**
  * Rutas caras (subir un video, pedir un quemado): tienen su propio tope y contador. Se decide por la RUTA
  * que Fastify resolvió, no por la URL cruda: `/v1/jobs/%74ranscribe` llega al mismo handler y comparando
  * texto se colaba en el contador general (24 veces más holgado).
@@ -48,6 +97,10 @@ const isUpload = (request: FastifyRequest): boolean => {
   const route = request.routeOptions?.url;
   return request.method === "POST" && (route === "/v1/jobs/transcribe" || route === "/v1/jobs/:id/burn");
 };
+
+/** /health tiene contador propio y holgado: ya no es una vía libre para martillear la base de datos, Redis y S3. */
+const HEALTH_LIMIT_PER_MINUTE = 600;
+const isHealth = (request: FastifyRequest): boolean => request.routeOptions?.url === "/health";
 
 /**
  * Límite de peticiones por IP. Las subidas tienen su propio tope y su propio contador: subir un video
@@ -58,13 +111,17 @@ const isUpload = (request: FastifyRequest): boolean => {
 async function registerRateLimit(app: NestFastifyApplication, config: AppConfig): Promise<void> {
   const { rateLimitPerMinute, uploadRateLimitPerMinute } = config.security;
   if (rateLimitPerMinute === 0 && uploadRateLimitPerMinute === 0) return;
-  const limitFor = (request: FastifyRequest): number => (isUpload(request) ? uploadRateLimitPerMinute : rateLimitPerMinute);
+  const limitFor = (request: FastifyRequest): number => {
+    if (isHealth(request)) return rateLimitPerMinute === 0 ? 0 : HEALTH_LIMIT_PER_MINUTE;
+    return isUpload(request) ? uploadRateLimitPerMinute : rateLimitPerMinute;
+  };
+  const bucketOf = (request: FastifyRequest): string => (isHealth(request) ? "salud" : isUpload(request) ? "subida" : "api");
   await app.register(rateLimit, {
     global: true,
     timeWindow: "1 minute",
     max: (request) => limitFor(request),
-    keyGenerator: (request) => `${isUpload(request) ? "subida" : "api"}:${clientKey(request.ip)}`,
-    allowList: (request) => request.url.split("?")[0] === "/health" || limitFor(request) === 0,
+    keyGenerator: (request) => `${bucketOf(request)}:${clientKey(request.ip)}`,
+    allowList: (request) => limitFor(request) === 0,
     // HttpException: Nest lo responde como un 429 normal en lugar de registrarlo como error interno.
     errorResponseBuilder: (_request, context) =>
       new HttpException(`Demasiadas peticiones. Inténtalo de nuevo en ${Math.ceil(context.ttl / 1000)} s.`, 429),
@@ -75,6 +132,8 @@ async function bootstrap(): Promise<void> {
   const config = loadConfig();
   const app = await createApp(config);
   await app.listen(config.port, config.host);
+  // La política efectiva queda en el registro: un ALLOWED_HOSTS o ALLOWED_ORIGINS mal puesto se ve al arrancar.
+  new Logger("Seguridad").log(`Política de navegador activa — ${describePolicy(config.security)}`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

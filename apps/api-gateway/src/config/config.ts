@@ -36,6 +36,10 @@ export interface AppConfig {
     maxEventStreams: number;
     maxEventStreamsPerClient: number;
     eventStreamMaxMs: number;
+    /** Orígenes de navegador autorizados (CORS y CSRF), ya normalizados. Vacío = ninguno: solo mismo origen. */
+    allowedOrigins: string[];
+    /** Nombres de host con los que se puede llegar al API (anti DNS rebinding), sin puerto. */
+    allowedHosts: string[];
   };
 }
 
@@ -55,6 +59,43 @@ function parseTrustProxy(raw: string | undefined): boolean | string[] {
     return isIP(address) !== 0 && (prefix === undefined || (/^\d{1,3}$/.test(prefix) && Number(prefix) <= (isIP(address) === 4 ? 32 : 128)));
   });
   if (!valid) throw new Error(`TRUST_PROXY debe ser true, false o una lista de IP/CIDR (recibido "${raw}")`);
+  return entries;
+}
+
+/**
+ * ALLOWED_ORIGINS: lista de orígenes (esquema://host[:puerto]) separados por comas. Se normalizan como los
+ * envía el navegador. Nunca comodines: `*` junto con una clave de API o con datos propios es la puerta que
+ * esta lista existe para cerrar.
+ */
+function parseAllowedOrigins(raw: string | undefined): string[] {
+  const entries = (raw ?? "").split(",").map((entry) => entry.trim()).filter((entry) => entry !== "");
+  return entries.map((entry) => {
+    let url: URL;
+    try {
+      url = new URL(entry);
+    } catch {
+      throw new Error(`ALLOWED_ORIGINS: "${entry}" no es un origen válido (esquema://host[:puerto], p. ej. http://localhost:5173)`);
+    }
+    const bare = url.pathname === "/" && url.search === "" && url.hash === "" && url.username === "" && url.password === "";
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || !bare || entry === "*") {
+      throw new Error(`ALLOWED_ORIGINS: "${entry}" debe ser solo esquema://host[:puerto] con http o https, sin ruta ni credenciales`);
+    }
+    return url.origin;
+  });
+}
+
+/**
+ * ALLOWED_HOSTS: nombres con los que se puede llegar al API, separados por comas, sin puerto ni comodines.
+ * Por defecto solo el bucle local: quien lo publique con un nombre propio debe declararlo.
+ */
+function parseAllowedHosts(raw: string | undefined): string[] {
+  const entries = (raw ?? "").split(",").map((entry) => entry.trim().toLowerCase()).filter((entry) => entry !== "");
+  if (entries.length === 0) return ["localhost", "127.0.0.1", "[::1]"];
+  for (const entry of entries) {
+    if (!/^(?:\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)$/.test(entry)) {
+      throw new Error(`ALLOWED_HOSTS: "${entry}" no es un nombre de host válido (sin puerto, ruta ni comodines)`);
+    }
+  }
   return entries;
 }
 
@@ -114,6 +155,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       maxEventStreams: integer("MAX_EVENT_STREAMS", 200, { allowZero: true }),
       maxEventStreamsPerClient: integer("MAX_EVENT_STREAMS_PER_CLIENT", 10, { allowZero: true }),
       // Pasado este tiempo el servidor cierra el flujo y el cliente SSE reconecta solo (EventSource).
+      allowedOrigins: parseAllowedOrigins(env.ALLOWED_ORIGINS),
+      allowedHosts: parseAllowedHosts(env.ALLOWED_HOSTS),
       eventStreamMaxMs: integer("EVENT_STREAM_MAX_SECONDS", 1800, { allowZero: true, max: 86_400 }) * 1000,
     },
   };
