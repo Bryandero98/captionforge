@@ -185,14 +185,23 @@ class AiWorker:
             await client.aclose()
 
     # ------------------------------------------------------------------- ciclo
-    def _on_failed(self, job: Any, error: Any, *_: Any) -> None:
-        """BullMQ marca `failed` también los trabajos atascados (stalled), que nadie cerró en PostgreSQL."""
-        job_id = str(getattr(job, "id", ""))
+    def _close_interrupted(self, job_id: str) -> None:
         if not job_id:
             return
-        asyncio.get_running_loop().create_task(
+        # fail() es condicional (solo QUEUED/RUNNING): si el trabajo ya se cerró con su código real, no hace nada.
+        task = asyncio.get_running_loop().create_task(
             self.repo.fail(job_id, "INTERNAL", "El trabajo se interrumpió inesperadamente.")
         )
+        task.add_done_callback(lambda t: t.cancelled() or t.exception() is None or log.error("no se pudo cerrar %s", job_id))
+
+    def _on_failed(self, job: Any, error: Any, *_: Any) -> None:
+        self._close_interrupted(str(getattr(job, "id", "")))
+
+    def _on_stalled(self, job_id: Any, *_: Any) -> None:
+        """Un worker murió a mitad de un trabajo (OOM, corte) y su candado venció. Con maxStalledCount=0
+        BullMQ ya no lo reencola; aquí se cierra la fila para que el API no lo muestre RUNNING para siempre.
+        Python de BullMQ emite `stalled` (con el id), no `failed`, para estos trabajos."""
+        self._close_interrupted(str(job_id))
 
     def _new_worker(self, queue_name: str, processor: Callable[..., Awaitable[dict[str, Any]]]) -> Worker:
         worker = Worker(
@@ -202,11 +211,13 @@ class AiWorker:
                 "connection": self.config.redis_connection,
                 "concurrency": self.config.concurrency,
                 "lockDuration": self.config.lock_duration_ms,
+                "stalledInterval": self.config.stalled_interval_ms,
                 # Un trabajo atascado no se reencola solo (se reharía horas de cómputo): falla y se informa.
                 "maxStalledCount": 0,
             },
         )
         worker.on("failed", self._on_failed)
+        worker.on("stalled", self._on_stalled)
         return worker
 
     async def start(self) -> None:

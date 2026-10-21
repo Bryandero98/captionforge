@@ -11,7 +11,8 @@ import { DEFAULT_OUT_DIR, isMain } from "./lib.mjs";
 function listFiles(dir) {
   const out = [];
   for (const entry of readdirSync(dir)) {
-    if (entry === "__pycache__") continue; // lo crea Python al importar; no es parte de lo generado
+    // Los crea Python al importar o al instalar en modo editable (`pip install -e`); no son parte de lo generado.
+    if (entry === "__pycache__" || entry.endsWith(".egg-info")) continue;
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...listFiles(full));
     else out.push(full);

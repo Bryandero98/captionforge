@@ -242,3 +242,29 @@ def test_a_transcription_and_a_burn_never_run_at_the_same_time(config, new_job, 
     assert transcribed["status"] == burned["status"] == "COMPLETED"
     first, second = sorted((transcribed, burned), key=lambda r: r["startedAt"])
     assert second["startedAt"] >= first["finishedAt"], "los dos trabajos se solaparon: falta el hueco único (ADR 0006)"
+
+
+def test_a_job_whose_worker_died_is_closed_instead_of_staying_running_forever(config, new_job, api_db) -> None:  # noqa: ANN001
+    """Simula la caída del worker borrando el candado del trabajo en Redis: BullMQ lo detecta como
+    atascado (stalled) y la fila de PostgreSQL deja de decir RUNNING."""
+    cfg = dataclasses.replace(isolated(config), stalled_interval_ms=1000)
+    slow = ModelProvider(loader=lambda s: (FakeWhisper(delay=0.5, segments=16), "cpu"), is_cached=lambda s: True)
+    job_id, payload = new_job()
+
+    async def go() -> dict:
+        worker = AiWorker(cfg, models=slow)
+        await worker.start()
+        queue = await enqueue(cfg, payload)
+        client = aioredis.Redis(host=cfg.redis_host, port=cfg.redis_port, password=cfg.redis_password)
+        try:
+            await wait_for(api_db, job_id, until=lambda r: r["stage"] == "transcribing")
+            await client.delete(f"bull:{cfg.queue_name}:{job_id}:lock")  # el candado "venció"
+            return await wait_for(api_db, job_id, until=lambda r: r["status"] in TERMINAL, timeout=30)
+        finally:
+            await client.aclose()
+            await queue.close()
+            await worker.stop()
+
+    row = asyncio.run(go())
+    assert (row["status"], row["errorCode"]) == ("FAILED", "INTERNAL")
+    assert "interrumpi" in (row["errorMessage"] or "")

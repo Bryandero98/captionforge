@@ -34,6 +34,11 @@ export class QueueService implements OnModuleDestroy {
     await this.burn.add("burn", payload, { jobId: payload.jobId });
   }
 
+  /** ¿Sigue el trabajo en su cola, en cualquier estado? (esperando, activo, completado o fallido) */
+  async exists(kind: JobKind, jobId: string): Promise<boolean> {
+    return (await (kind === "BURN" ? this.burn : this.transcribe).getJob(jobId)) !== undefined;
+  }
+
   /** Quita el trabajo de la cola si todavía no empezó. true = se quitó (nadie lo había tomado). */
   async removeIfWaiting(kind: JobKind, jobId: string): Promise<boolean> {
     const job = await (kind === "BURN" ? this.burn : this.transcribe).getJob(jobId);

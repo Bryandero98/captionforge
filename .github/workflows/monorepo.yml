@@ -144,9 +144,8 @@ jobs:
       - name: Construir la imagen
         run: docker compose --profile app build ai-worker
 
-      - name: La imagen arranca sin privilegios y trae todo lo que el pipeline necesita
+      - name: La imagen arranca sin privilegios y Whisper, PyAV y ffmpeg trabajan juntos
         run: |
           image=$(docker compose --profile app config --images | grep ai-worker)
-          docker run --rm --entrypoint python "$image" -c \
-            "import ai_worker.worker, faster_whisper, argostranslate.translate, captionforge_contracts; from captionforge.ffmpeg_locator import find_ffmpeg; assert find_ffmpeg(), 'sin ffmpeg'"
           docker run --rm --entrypoint sh "$image" -c 'test "$(id -u)" != 0 && test -w /models && test -w /work'
+          docker run --rm -i --entrypoint python "$image" - < apps/ai-worker/scripts/check_image.py

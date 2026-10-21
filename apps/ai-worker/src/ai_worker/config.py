@@ -35,6 +35,8 @@ class WorkerConfig:
     # El candado se renueva cada mitad de este tiempo; Whisper y ffmpeg corren fuera del bucle de
     # eventos (ADR 0006), así que se renueva aunque un segmento tarde minutos.
     lock_duration_ms: int = 60_000
+    # Cada cuánto busca BullMQ trabajos cuyo candado venció (un worker que murió a mitad).
+    stalled_interval_ms: int = 30_000
     ffmpeg_stall_timeout: float = 300.0
     ffmpeg_total_timeout: float = 6 * 3600.0
 
@@ -77,6 +79,7 @@ class WorkerConfig:
             work_dir=Path(env.get("WORK_DIR", "") or "work"),
             concurrency=int(number("WORKER_CONCURRENCY", 1, integer=True)),
             lock_duration_ms=int(number("LOCK_DURATION_MS", 60_000, integer=True)),
+            stalled_interval_ms=int(number("STALLED_INTERVAL_MS", 30_000, integer=True)),
             ffmpeg_stall_timeout=number("FFMPEG_STALL_TIMEOUT_SECONDS", 300.0),
             ffmpeg_total_timeout=number("FFMPEG_TOTAL_TIMEOUT_SECONDS", 6 * 3600.0),
         )

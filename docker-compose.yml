@@ -192,10 +192,19 @@ services:
       PORT: "3000"
       HOST: 0.0.0.0 # dentro del contenedor; en el anfitrión el puerto solo se publica en 127.0.0.1
       # Runtime: rol cf_api (sin DDL). Pool por debajo del límite de 20 conexiones del rol.
-      DATABASE_URL: postgresql://cf_api:${CF_API_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-captionforge}?connection_limit=10&pool_timeout=10
+      DATABASE_URL: postgresql://cf_api:${CF_API_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-captionforge}
+      # El adaptador de Prisma (node-postgres) ignora connection_limit de la URL: el pool se fija aquí.
+      # cf_api admite 20 conexiones en total, repartidas entre todas las réplicas del API.
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
       S3_ACCESS_KEY: ${S3_API_ACCESS_KEY:-cf-api}
       S3_SECRET_KEY: ${S3_API_SECRET_KEY}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-4294967296}
+      # Protección opcional (ver .env.example). Sin API_KEY el puerto solo está publicado en 127.0.0.1.
+      API_KEY: ${API_KEY:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
+      UPLOAD_RATE_LIMIT_PER_MINUTE: ${UPLOAD_RATE_LIMIT_PER_MINUTE:-10}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      JOB_STALE_MINUTES: ${JOB_STALE_MINUTES:-20}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

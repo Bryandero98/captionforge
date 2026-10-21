@@ -48,7 +48,8 @@ contra la infraestructura dockerizada para no gastar RAM. Para un despliegue com
 
 ## API
 
-Todo cuelga de `/v1/jobs`. El estado lo escribe el worker en PostgreSQL; el API lo lee.
+Todo cuelga de `/v1/jobs`. El estado lo escribe el worker en PostgreSQL; el API lo lee. Con `API_KEY`
+definida (ver `.env.example`) todas las rutas piden `Authorization: Bearer <clave>`; `/health` queda abierto.
 
 | Método y ruta | Qué hace |
 |---|---|
@@ -81,7 +82,8 @@ Todo cuelga de `/v1/jobs`. El estado lo escribe el worker en PostgreSQL; el API 
 
 Los porqués están en [docs/adr/](docs/adr): contratos por esquema, `objectKey` en vez de URLs,
 Python directo a PostgreSQL, almacenamiento S3 sin MinIO, reglas del worker, desarrollo local,
-el API en NestJS y por qué el worker reutiliza `legacy/` en lugar de copiarlo.
+el API en NestJS, por qué el worker reutiliza `legacy/` en lugar de copiarlo y el endurecimiento
+del API (clave opcional, límites de uso, trabajos huérfanos).
 
 ## Licencia
 

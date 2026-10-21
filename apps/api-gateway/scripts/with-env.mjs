@@ -55,6 +55,14 @@ const hijo = spawn(enWindows ? comando.join(" ") : comando[0], enWindows ? [] : 
     S3_REGION: "us-east-1",
     S3_BUCKET: env.S3_BUCKET ?? "captionforge",
     S3_FORCE_PATH_STYLE: "true",
+    // Desarrollo y pruebas: las pruebas crean decenas de trabajos por minuto desde 127.0.0.1 y el
+    // recolector no debe actuar solo mientras se prueba. En producción mandan los valores por defecto
+    // (límites activos); las pruebas de seguridad y del recolector construyen su propia configuración.
+    RATE_LIMIT_PER_MINUTE: process.env.RATE_LIMIT_PER_MINUTE ?? "0",
+    UPLOAD_RATE_LIMIT_PER_MINUTE: process.env.UPLOAD_RATE_LIMIT_PER_MINUTE ?? "0",
+    REAPER_INTERVAL_SECONDS: process.env.REAPER_INTERVAL_SECONDS ?? "0",
+    // cf_api admite 20 conexiones en total: con varias instancias del API en paralelo (una por archivo de prueba) el pool por defecto (10) las agotaría.
+    DB_POOL_MAX: process.env.DB_POOL_MAX ?? "3",
     S3_ACCESS_KEY: rol === "worker" ? (env.S3_WORKER_ACCESS_KEY ?? "cf-worker") : (env.S3_API_ACCESS_KEY ?? "cf-api"),
     S3_SECRET_KEY: rol === "worker" ? requerido("S3_WORKER_SECRET_KEY") : requerido("S3_API_SECRET_KEY"),
   },
