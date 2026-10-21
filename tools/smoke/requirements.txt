@@ -1,0 +1,2 @@
+bullmq==3.4.3
+pydantic>=2.7
