@@ -11,6 +11,7 @@ import uuid
 from bullmq import Queue
 from captionforge_contracts import BurnResult, TranscribeResult
 
+import pytest
 import redis.asyncio as aioredis
 
 from ai_worker.models import ModelProvider
@@ -113,6 +114,36 @@ def test_invalid_payload_fails_without_touching_the_pipeline(config, new_job, ap
 
     row = asyncio.run(go())
     assert row["status"] == "FAILED" and row["errorCode"] == "INTERNAL"
+    assert fake_models.whisper.calls == 0 and fake_models.loads == 0
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        pytest.param(lambda p, jid: {**p, "outputPrefix": "jobs/11111111-1111-4111-8111-111111111111/out/"}, id="prefijo-de-otro-trabajo"),
+        pytest.param(lambda p, jid: {**p, "input": {**p["input"], "bucket": "otro-bucket"}}, id="bucket-ajeno"),
+    ],
+)
+def test_payload_that_escapes_its_job_scope_is_rejected_before_any_work(tamper, config, new_job, api_db, fake_models) -> None:  # noqa: ANN001
+    """Defensa en profundidad: aunque el payload cumpla el contrato, el worker no escribe fuera de
+    jobs/<su id>/out/ ni lee de otro bucket u otro árbol (si Redis se comprometiera)."""
+    cfg = isolated(config)
+    job_id, payload = new_job()
+    broken = tamper(payload, job_id)
+
+    async def go() -> dict:
+        worker = AiWorker(cfg, models=fake_models)
+        await worker.start()
+        queue = await enqueue(cfg, payload, data=broken)
+        try:
+            return await wait_for(api_db, job_id, until=lambda r: r["status"] in TERMINAL)
+        finally:
+            await queue.close()
+            await worker.stop()
+
+    row = asyncio.run(go())
+    assert row["status"] == "FAILED" and row["errorCode"] == "INTERNAL"
+    assert "fuera del alcance" in row["errorMessage"]
     assert fake_models.whisper.calls == 0 and fake_models.loads == 0
 
 

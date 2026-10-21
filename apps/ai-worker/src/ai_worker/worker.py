@@ -98,6 +98,11 @@ class AiWorker:
             failure = JobFailure("INTERNAL", "El jobId del payload no coincide con el id del trabajo.")
             await self.repo.fail(job_id, failure.code, failure.message)
             raise Exception(failure_reason(job_id, failure))
+        if not self._within_scope(payload, job_id):
+            log.error("payload del trabajo %s fuera del alcance permitido; se rechaza", job_id)
+            failure = JobFailure("INTERNAL", "El payload apunta fuera del alcance del trabajo.")
+            await self.repo.fail(job_id, failure.code, failure.message)
+            raise Exception(failure_reason(job_id, failure))
 
         if self._slot is None:
             self._slot = asyncio.Semaphore(1)
@@ -111,6 +116,15 @@ class AiWorker:
                 return await self._execute(job, job_id, payload, signal, run, ranges, cancel)
         finally:
             self._cancel_events.pop(job_id, None)
+
+    def _within_scope(self, payload: Any, job_id: str) -> bool:
+        """Defensa en profundidad: el contrato ya limita las claves a jobs/<uuid>/…, pero un payload válido
+        podría apuntar a la salida de OTRO trabajo o a otro bucket. Escribe solo en jobs/<su id>/out/ y lee
+        solo del bucket configurado (el quemado lee del trabajo padre, por eso las entradas no se atan al id)."""
+        if payload.outputPrefix != f"jobs/{job_id}/out/":
+            return False
+        refs = [payload.input, *([payload.segments] if hasattr(payload, "segments") else [])]
+        return all(ref.bucket == self.storage.bucket for ref in refs)
 
     async def _execute(
         self,
