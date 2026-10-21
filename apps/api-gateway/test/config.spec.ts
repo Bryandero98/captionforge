@@ -1,3 +1,5 @@
+import { isAbsolute } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { loadConfig } from "../src/config/config.js";
@@ -37,5 +39,22 @@ describe("loadConfig", () => {
 
   it("rechaza un MAX_UPLOAD_BYTES inválido", () => {
     expect(() => loadConfig({ ...base, MAX_UPLOAD_BYTES: "mucho" })).toThrow(/MAX_UPLOAD_BYTES/);
+  });
+});
+
+describe("loadConfig: interfaz web", () => {
+  it("por defecto sirve apps/web/public, que queda junto al API", () => {
+    const root = loadConfig(base).webRoot;
+    expect(root?.replaceAll(String.fromCharCode(92), "/")).toMatch(/\/apps\/web\/public$/);
+  });
+
+  it("WEB_ROOT cambia la carpeta y se resuelve a ruta absoluta", () => {
+    const root = loadConfig({ ...base, WEB_ROOT: "./mi-web" }).webRoot;
+    expect(root?.replaceAll(String.fromCharCode(92), "/")).toMatch(/\/mi-web$/);
+    expect(isAbsolute(root ?? "")).toBe(true);
+  });
+
+  it.each(["off", "OFF", "none", "false"])("WEB_ROOT=%s desactiva la interfaz (despliegue solo de API)", (value) => {
+    expect(loadConfig({ ...base, WEB_ROOT: value }).webRoot).toBeUndefined();
   });
 });

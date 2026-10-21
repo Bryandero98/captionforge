@@ -1,0 +1,14 @@
+{
+  "name": "@captionforge/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interfaz web de CaptionForge: JavaScript de módulos ES sin compilar, servida por el propio API Gateway (mismo origen, sin CORS).",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "check": "tsc -p jsconfig.json"
+  }
+}
