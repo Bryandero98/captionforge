@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 export const APP_CONFIG = Symbol("APP_CONFIG");
 
 export interface AppConfig {
@@ -19,7 +21,41 @@ export interface AppConfig {
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
   /** Protección opcional del API: clave compartida y límites de uso por IP (0 = sin límite). */
-  security: { apiKey: string | undefined; rateLimitPerMinute: number; uploadRateLimitPerMinute: number; trustProxy: boolean };
+  security: {
+    apiKey: string | undefined;
+    rateLimitPerMinute: number;
+    uploadRateLimitPerMinute: number;
+    /** Lista de redes de confianza (IP o CIDR) o booleano. `true` confía en TODA cabecera X-Forwarded-For. */
+    trustProxy: boolean | string[];
+    /** Operaciones largas a la vez (0 = sin límite): subidas en total y por cliente, y flujos SSE en total y por cliente. */
+    maxConcurrentUploads: number;
+    maxConcurrentUploadsPerClient: number;
+    /** Ritmo mínimo de una subida, medido por ventanas: por debajo se corta con 408 (0 = sin mínimo). */
+    uploadMinBytesPerSecond: number;
+    uploadRateWindowMs: number;
+    maxEventStreams: number;
+    maxEventStreamsPerClient: number;
+    eventStreamMaxMs: number;
+  };
+}
+
+/**
+ * TRUST_PROXY: `false` (por defecto), `true` o una lista de IP/CIDR de proxies de confianza.
+ * Con `true`, Fastify toma la entrada más a la izquierda de X-Forwarded-For, que controla el cliente: un límite por
+ * IP se esquiva rotando esa cabecera. Detrás de un proxy propio, lista su dirección o red: así el cliente es la
+ * última entrada que no es de confianza. (El modo numérico de Fastify 5.12 devuelve la IP del socket, por eso no se admite.)
+ */
+function parseTrustProxy(raw: string | undefined): boolean | string[] {
+  const value = (raw ?? "").trim();
+  if (value === "" || value === "false") return false;
+  if (value === "true") return true;
+  const entries = value.split(",").map((entry) => entry.trim());
+  const valid = entries.every((entry) => {
+    const [address = "", prefix] = entry.split("/");
+    return isIP(address) !== 0 && (prefix === undefined || (/^\d{1,3}$/.test(prefix) && Number(prefix) <= (isIP(address) === 4 ? 32 : 128)));
+  });
+  if (!valid) throw new Error(`TRUST_PROXY debe ser true, false o una lista de IP/CIDR (recibido "${raw}")`);
+  return entries;
 }
 
 /** Lee y valida el entorno; falla al arrancar (no a mitad de una petición) si falta algo. */
@@ -29,12 +65,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (!value) throw new Error(`Falta la variable de entorno ${name}`);
     return value;
   };
-  const integer = (name: string, fallback: number, { allowZero = false } = {}): number => {
+  const integer = (name: string, fallback: number, { allowZero = false, max = Number.MAX_SAFE_INTEGER } = {}): number => {
     const raw = env[name];
     if (raw === undefined || raw === "") return fallback;
     const value = Number(raw);
-    if (!Number.isInteger(value) || value < 0 || (value === 0 && !allowZero)) {
-      throw new Error(`${name} debe ser un entero ${allowZero ? "no negativo" : "positivo"} (recibido "${raw}")`);
+    if (!Number.isInteger(value) || value < 0 || (value === 0 && !allowZero) || value > max) {
+      throw new Error(`${name} debe ser un entero ${allowZero ? "no negativo" : "positivo"}${max < Number.MAX_SAFE_INTEGER ? ` de como máximo ${max}` : ""} (recibido "${raw}")`);
     }
     return value;
   };
@@ -68,7 +104,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       apiKey,
       rateLimitPerMinute: integer("RATE_LIMIT_PER_MINUTE", 240, { allowZero: true }),
       uploadRateLimitPerMinute: integer("UPLOAD_RATE_LIMIT_PER_MINUTE", 10, { allowZero: true }),
-      trustProxy: (env.TRUST_PROXY ?? "false") === "true",
+      trustProxy: parseTrustProxy(env.TRUST_PROXY),
+      // Cada subida retiene ~15 MiB (3 partes de 5 MiB): con 4 a la vez son ~60 MiB de los 512 del contenedor.
+      maxConcurrentUploads: integer("MAX_CONCURRENT_UPLOADS", 4, { allowZero: true }),
+      maxConcurrentUploadsPerClient: integer("MAX_CONCURRENT_UPLOADS_PER_CLIENT", 2, { allowZero: true }),
+      // 16 KiB/s: cualquier cliente real lo supera con mucho; un goteo de bytes que retiene la plaza, no.
+      uploadMinBytesPerSecond: integer("UPLOAD_MIN_BYTES_PER_SECOND", 16_384, { allowZero: true }),
+      uploadRateWindowMs: integer("UPLOAD_RATE_WINDOW_SECONDS", 30, { max: 3600 }) * 1000,
+      maxEventStreams: integer("MAX_EVENT_STREAMS", 200, { allowZero: true }),
+      maxEventStreamsPerClient: integer("MAX_EVENT_STREAMS_PER_CLIENT", 10, { allowZero: true }),
+      // Pasado este tiempo el servidor cierra el flujo y el cliente SSE reconecta solo (EventSource).
+      eventStreamMaxMs: integer("EVENT_STREAM_MAX_SECONDS", 1800, { allowZero: true, max: 86_400 }) * 1000,
     },
   };
 }

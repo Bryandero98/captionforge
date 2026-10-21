@@ -72,6 +72,52 @@ def find_ffmpeg() -> str | None:
     return system
 
 
+# Variables que ffmpeg (y libass/fontconfig, para grabar subtitulos) necesita para arrancar y encontrar
+# tipografias. Todo lo demas -credenciales de PostgreSQL, S3, Redis, tokens- se queda fuera: ffmpeg decodifica
+# archivos que sube cualquiera, y un fallo en un decodificador no debe regalarle los secretos del worker.
+_FFMPEG_ENV_ALLOWED = frozenset(
+    {
+        # Windows y busqueda de ejecutables
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "PROGRAMDATA",
+        "WINDIR",
+        "COMSPEC",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "HOME",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",  # cache de fontconfig
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_DATA_DIRS",
+        "FONTCONFIG_FILE",
+        "FONTCONFIG_PATH",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+    }
+)
+
+
+def ffmpeg_env() -> dict[str, str]:
+    """Entorno minimo para el subproceso de ffmpeg: solo lo de `_FFMPEG_ENV_ALLOWED` (lista blanca).
+
+    Limite conocido: protege contra la herencia accidental, no contra un ffmpeg ya comprometido que corra con
+    el mismo usuario (podria leer /proc/<padre>/environ). Eso exige otro usuario o contenedor para ffmpeg.
+    """
+    # Windows guarda los nombres en mayusculas y no distingue; en Linux/macOS si, y "path" no es "PATH".
+    fold = (lambda name: name.upper()) if os.name == "nt" else (lambda name: name)
+    return {name: value for name, value in os.environ.items() if fold(name) in _FFMPEG_ENV_ALLOWED}
+
+
 def with_ffmpeg_path(cmd: list[str]) -> list[str]:
     """Returns `cmd` with its first element (the bare "ffmpeg") replaced by the resolved executable."""
     exe = find_ffmpeg()

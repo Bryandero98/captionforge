@@ -12,6 +12,7 @@ import type { FastifyRequest } from "fastify";
 
 import { AppModule } from "./app.module.js";
 import { type AppConfig, loadConfig } from "./config/config.js";
+import { clientKey } from "./security/client-key.js";
 
 export async function createApp(
   config: AppConfig,
@@ -62,7 +63,7 @@ async function registerRateLimit(app: NestFastifyApplication, config: AppConfig)
     global: true,
     timeWindow: "1 minute",
     max: (request) => limitFor(request),
-    keyGenerator: (request) => `${isUpload(request) ? "subida" : "api"}:${request.ip}`,
+    keyGenerator: (request) => `${isUpload(request) ? "subida" : "api"}:${clientKey(request.ip)}`,
     allowList: (request) => request.url.split("?")[0] === "/health" || limitFor(request) === 0,
     // HttpException: Nest lo responde como un 429 normal en lugar de registrarlo como error interno.
     errorResponseBuilder: (_request, context) =>

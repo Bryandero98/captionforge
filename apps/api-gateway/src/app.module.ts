@@ -9,6 +9,7 @@ import { ReaperService } from "./jobs/reaper.service.js";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { QueueService } from "./queue/queue.service.js";
 import { ApiKeyGuard } from "./security/api-key.guard.js";
+import { ConnectionLimits } from "./security/connection-limits.js";
 import { StorageService } from "./storage/storage.service.js";
 
 @Module({})
@@ -25,6 +26,7 @@ export class AppModule {
         QueueService,
         JobsService,
         ReaperService,
+        ConnectionLimits,
         { provide: APP_GUARD, useClass: ApiKeyGuard },
       ],
     };
