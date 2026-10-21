@@ -106,6 +106,19 @@ jobs:
       - name: API Gateway - construir la imagen de despliegue
         run: docker compose --profile app build migrate
 
+      # Sin torch ni faster-whisper: el código heredado los importa de forma diferida y las pruebas
+      # simulan Whisper. ffmpeg llega con imageio-ffmpeg (el mismo localizador que usa el worker).
+      - name: AI Worker - entorno Python
+        run: |
+          python -m venv apps/ai-worker/.venv
+          apps/ai-worker/.venv/bin/python -m pip install -e packages/contracts/generated/python
+          apps/ai-worker/.venv/bin/python -m pip install --no-deps -e legacy
+          apps/ai-worker/.venv/bin/python -m pip install huggingface_hub tqdm imageio-ffmpeg
+          apps/ai-worker/.venv/bin/python -m pip install -e "apps/ai-worker[dev]"
+
+      - name: AI Worker - pruebas contra PostgreSQL, Redis, S3 y ffmpeg reales
+        run: npm run worker:test
+
       - name: Registros de los contenedores (si algo falló)
         if: failure()
         run: docker compose logs --no-color --tail 80
@@ -113,3 +126,27 @@ jobs:
       - name: Apagar
         if: always()
         run: docker compose down -v
+
+  worker-image:
+    name: AI Worker (imagen de despliegue)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generar .env con secretos aleatorios (solo para esta ejecución)
+        run: |
+          for v in POSTGRES_PASSWORD CF_OWNER_DB_PASSWORD CF_API_DB_PASSWORD CF_WORKER_DB_PASSWORD REDIS_PASSWORD \
+                   S3_ROOT_PASSWORD S3_API_SECRET_KEY S3_WORKER_SECRET_KEY; do
+            echo "$v=$(openssl rand -hex 16)" >> .env
+          done
+
+      - name: Construir la imagen
+        run: docker compose --profile app build ai-worker
+
+      - name: La imagen arranca sin privilegios y trae todo lo que el pipeline necesita
+        run: |
+          image=$(docker compose --profile app config --images | grep ai-worker)
+          docker run --rm --entrypoint python "$image" -c \
+            "import ai_worker.worker, faster_whisper, argostranslate.translate, captionforge_contracts; from captionforge.ffmpeg_locator import find_ffmpeg; assert find_ffmpeg(), 'sin ffmpeg'"
+          docker run --rm --entrypoint sh "$image" -c 'test "$(id -u)" != 0 && test -w /models && test -w /work'

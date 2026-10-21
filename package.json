@@ -20,6 +20,7 @@
     "infra:logs": "docker compose logs -f --tail=100",
     "infra:verify": "bash docker/verify-infra.sh",
     "smoke": "node tools/smoke/run.mjs",
+    "worker:test": "node apps/ai-worker/scripts/test.mjs",
     "compose:check": "docker compose config --quiet && docker compose --profile app config --quiet"
   }
 }
