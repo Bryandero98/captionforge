@@ -58,8 +58,14 @@ export class ReaperService implements OnModuleInit, OnModuleDestroy {
   async reapOnce(now: Date = new Date()): Promise<{ stuckRunning: number; lostQueued: number }> {
     const { staleRunningMs, queuedGraceMs } = this.config.reaper;
 
+    const staleBefore = new Date(now.getTime() - staleRunningMs);
+    const stale = await this.prisma.job.findMany({
+      where: { status: "RUNNING", updatedAt: { lt: staleBefore } },
+      select: { id: true },
+      take: 200,
+    });
     const stuck = await this.prisma.job.updateMany({
-      where: { status: "RUNNING", updatedAt: { lt: new Date(now.getTime() - staleRunningMs) } },
+      where: { id: { in: stale.map((job) => job.id) }, status: "RUNNING", updatedAt: { lt: staleBefore } },
       data: {
         status: "FAILED",
         errorCode: "INTERNAL",
@@ -68,10 +74,16 @@ export class ReaperService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    // Si el worker sigue vivo (solo estaba callado), que deje de gastar CPU en un trabajo que ya se dio por cerrado.
+    for (const { id } of stale) {
+      await this.queue.requestCancel(id).catch((e: unknown) => this.logger.warn(`No se pudo avisar de la cancelación de ${id}: ${(e as Error).message}`));
+    }
+
     let lostQueued = 0;
     const waiting = await this.prisma.job.findMany({
       where: { status: "QUEUED", createdAt: { lt: new Date(now.getTime() - queuedGraceMs) } },
       select: { id: true, kind: true },
+      orderBy: { createdAt: "asc" },
       take: 200,
     });
     for (const { id, kind } of waiting) {

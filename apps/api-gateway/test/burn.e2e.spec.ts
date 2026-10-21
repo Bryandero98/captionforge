@@ -337,3 +337,56 @@ describe("GET /v1/jobs/:id/artifacts/video", () => {
     expect((await get(`/v1/jobs/${transcription}/artifacts/video`)).status).toBe(404);
   });
 });
+
+describe("refuerzos de la revisión", () => {
+  it("un segundo quemado de la misma transcripción mientras otro está en curso: 409", async () => {
+    const { id } = await completedTranscription();
+    const first = (await (await fetch(`${base}/v1/jobs/${id}/burn`, json({}))).json()) as { id: string };
+    created.push(first.id);
+    expect((await fetch(`${base}/v1/jobs/${id}/burn`, json({}))).status).toBe(409);
+    // Cuando el primero termina ya se puede pedir otro (otro estilo, por ejemplo).
+    await worker.query(`UPDATE "Job" SET status = 'COMPLETED', "updatedAt" = now() WHERE id = $1`, [first.id]);
+    const second = await fetch(`${base}/v1/jobs/${id}/burn`, json({ style: "minimal" }));
+    expect(second.status).toBe(202);
+    created.push(((await second.json()) as { id: string }).id);
+  });
+
+  it.each([
+    ["línea en blanco (inyectaría subtítulos falsos en el SRT)", { index: 0, text: "hola\n\n99\n00:00:01,000 --> 00:00:02,000\nfalso" }],
+    ["tiempo absurdo", { index: 0, start: 0, end: 1e300 }],
+  ])("PUT segments rechaza: %s", async (_name, edit) => {
+    const { id, etag, segmentsKey } = await completedTranscription();
+    expect((await put(`/v1/jobs/${id}/segments`, { segments: [edit] })).status).toBe(400);
+    expect((await storage.head(segmentsKey))!.etag).toBe(etag);
+  });
+
+  it("HEAD de un artefacto responde con las cabeceras sin leer el objeto de S3", async () => {
+    const { id: parent } = await completedTranscription();
+    const burn = (await (await fetch(`${base}/v1/jobs/${parent}/burn`, json({}))).json()) as { id: string };
+    created.push(burn.id);
+    const key = `jobs/${burn.id}/out/captioned.mp4`;
+    keys.push(key);
+    await storage.putBuffer(key, Buffer.from("0123456789"), "video/mp4");
+    const result = { schemaVersion: 1, jobId: burn.id, usedKaraoke: false, artifacts: { video: key } };
+    await worker.query(`UPDATE "Job" SET status = 'COMPLETED', result = $2::jsonb, "updatedAt" = now() WHERE id = $1`, [burn.id, JSON.stringify(result)]);
+
+    const read = vi.spyOn(storage, "getStream");
+    try {
+      const response = await fetch(`${base}/v1/jobs/${burn.id}/artifacts/video`, { method: "HEAD" });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-length")).toBe("10");
+      expect(response.headers.get("content-disposition")).toContain("entrevista.captioned.mp4");
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
+
+    // Rangos que no son un único "bytes=a-b" se ignoran (se sirve entero) y el 416 informa el tamaño real.
+    const multi = await fetch(`${base}/v1/jobs/${burn.id}/artifacts/video`, { headers: { range: "bytes=0-1,5-9" } });
+    expect(multi.status).toBe(200);
+    expect((await multi.arrayBuffer()).byteLength).toBe(10);
+    const out = await fetch(`${base}/v1/jobs/${burn.id}/artifacts/video`, { headers: { range: "bytes=50-60" } });
+    expect(out.status).toBe(416);
+    expect(out.headers.get("content-range")).toBe("bytes */10");
+  });
+});

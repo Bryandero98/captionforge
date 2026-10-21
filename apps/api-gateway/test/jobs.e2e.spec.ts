@@ -45,6 +45,15 @@ async function createJob(options: unknown = {}): Promise<{ id: string; [k: strin
   return job;
 }
 
+
+/** Hace de worker que escucha cancelaciones: sin al menos un suscriptor el API responde 503 (nadie las recibiría). */
+async function listenForCancellations(): Promise<() => void> {
+  const { Redis } = await import("ioredis");
+  const subscriber = new Redis({ host: config.redis.host, port: config.redis.port, password: config.redis.password });
+  await subscriber.subscribe("captionforge:cancel");
+  return () => subscriber.disconnect();
+}
+
 beforeAll(async () => {
   app = await createApp(config, { logger: ["error"] });
   await app.listen(0, "127.0.0.1");
@@ -346,9 +355,14 @@ describe("ids de trabajo", () => {
 
     await worker.query(`UPDATE "Job" SET status = 'RUNNING', "updatedAt" = now() WHERE id = $1`, [job.id]);
     await (await queue.getJob(job.id))?.remove();
-    const response = await fetch(`${base}/v1/jobs/${upper}/cancel`, { method: "POST" });
-    expect(response.status).toBe(202); // antes: 500, el mensaje con el id en mayúsculas no pasaba el contrato
-    expect(((await response.json()) as { id: string }).id).toBe(job.id);
+    const stop = await listenForCancellations();
+    try {
+      const response = await fetch(`${base}/v1/jobs/${upper}/cancel`, { method: "POST" });
+      expect(response.status).toBe(202); // antes: 500, el mensaje con el id en mayúsculas no pasaba el contrato
+      expect(((await response.json()) as { id: string }).id).toBe(job.id);
+    } finally {
+      stop();
+    }
   });
 });
 
@@ -367,7 +381,13 @@ describe("carrera cancelar / tomar el trabajo", () => {
   it("si el worker ya lo tomó, cancelar no pisa su estado: se avisa por pub/sub y sigue RUNNING", async () => {
     const job = await createJob();
     await worker.query(`UPDATE "Job" SET status = 'RUNNING', "startedAt" = now(), "updatedAt" = now() WHERE id = $1`, [job.id]);
-    const response = await fetch(`${base}/v1/jobs/${job.id}/cancel`, { method: "POST" });
+    const stop = await listenForCancellations();
+    let response: Response;
+    try {
+      response = await fetch(`${base}/v1/jobs/${job.id}/cancel`, { method: "POST" });
+    } finally {
+      stop();
+    }
     expect(response.status).toBe(202);
     const row = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
     expect(row.status).toBe("RUNNING");
@@ -418,4 +438,53 @@ describe("subida interrumpida por el cliente", () => {
       spy.mockRestore();
     }
   }, 15_000);
+});
+
+describe("cancelar sin nadie escuchando", () => {
+  it("503 si ningún worker recibe el aviso (pub/sub no guarda historial); el trabajo no se toca", async () => {
+    const job = await createJob();
+    await worker.query(`UPDATE "Job" SET status = 'RUNNING', "startedAt" = now(), "updatedAt" = now() WHERE id = $1`, [job.id]);
+    await (await queue.getJob(job.id))?.remove();
+    const response = await fetch(`${base}/v1/jobs/${job.id}/cancel`, { method: "POST" });
+    expect(response.status).toBe(503);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("RUNNING");
+  });
+});
+
+describe("validación antes de subir", () => {
+  it("unas opciones inválidas se rechazan sin llegar a subir el video a S3", async () => {
+    const spy = vi.spyOn(storage, "putStream");
+    try {
+      const response = await upload({ modelSize: "gigante" });
+      expect(response.status).toBe(400);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("resultado público", () => {
+  it("GET del trabajo no expone bucket ni claves internas del almacenamiento", async () => {
+    const job = await createJob();
+    const result = {
+      schemaVersion: 1,
+      jobId: job.id,
+      detectedLanguage: "es",
+      device: "cpu",
+      durationSeconds: 1,
+      segmentCount: 1,
+      artifacts: {
+        srt: `jobs/${job.id}/out/output.srt`,
+        segments: { bucket: config.s3.bucket, objectKey: `jobs/${job.id}/out/segments.json`, etag: "9b2cf535f27731c974343645a3985328" },
+        waveform: `jobs/${job.id}/out/waveform.json`,
+      },
+    };
+    await worker.query(`UPDATE "Job" SET status = 'COMPLETED', result = $2::jsonb, "updatedAt" = now() WHERE id = $1`, [job.id, JSON.stringify(result)]);
+    const text = await (await fetch(`${base}/v1/jobs/${job.id}`)).text();
+    expect(text).not.toContain("objectKey");
+    expect(text).not.toContain(config.s3.bucket);
+    expect(text).not.toContain("jobs/");
+    expect(JSON.parse(text)).toMatchObject({ result: { detectedLanguage: "es", segmentCount: 1, artifacts: ["srt", "segments", "waveform"] } });
+  });
 });

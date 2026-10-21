@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from captionforge_contracts import JobProgress
@@ -47,7 +48,9 @@ class Progress:
         sink: ProgressSink | None = None,
         min_interval: float = 1.0,
         ranges: dict[str, tuple[float, float]] | None = None,
+        on_closed: Callable[[], None] | None = None,
     ) -> None:
+        self._on_closed = on_closed
         self._ranges = STAGE_RANGES if ranges is None else ranges
         self._repo = repo
         self._job_id = job_id
@@ -70,7 +73,13 @@ class Progress:
         percent = max(self.scale(stage, fraction), self._last_percent)  # nunca retrocede
         self._last_stage, self._last_at, self._last_percent = stage, now, percent
         try:
-            await self._repo.report(self._job_id, stage, round(percent, 1), message)
+            if not await self._repo.report(self._job_id, stage, round(percent, 1), message):
+                # La fila ya no está RUNNING: la cerró la API (cancelación) o el recolector. Seguir sería
+                # gastar horas de CPU en un trabajo que nadie espera.
+                log.warning("el trabajo %s ya no está en curso; se aborta", self._job_id)
+                if self._on_closed is not None:
+                    self._on_closed()
+                return
             if self._sink is not None:
                 message_model = JobProgress.model_validate(
                     {"schemaVersion": 1, "stage": stage, "percent": round(percent, 1), "message": message}

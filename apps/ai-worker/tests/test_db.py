@@ -99,3 +99,21 @@ def test_idle_connection_survives_longer_than_the_idle_in_transaction_timeout(co
 
     assert asyncio.run(go()) is True
     r.close()
+
+
+def test_touch_only_renews_running_jobs(config, new_job, api_db) -> None:  # noqa: ANN001
+    job_id, _ = new_job(upload_input=False)
+    r = repo(config)
+
+    async def go() -> tuple[bool, bool, bool]:
+        before_claim = await r.touch(job_id)  # QUEUED: no es un latido válido
+        await r.claim(job_id)
+        api_db.execute("UPDATE \"Job\" SET \"updatedAt\" = now() - interval '30 minutes' WHERE id = %s", (job_id,))
+        running = await r.touch(job_id)
+        await r.complete(job_id, {})
+        return before_claim, running, await r.touch(job_id)
+
+    assert asyncio.run(go()) == (False, True, False)
+    r.close()
+    fresh = api_db.execute("SELECT now() - \"updatedAt\" < interval '1 minute' FROM \"Job\" WHERE id = %s", (job_id,)).fetchone()
+    assert fresh is not None

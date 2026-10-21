@@ -163,13 +163,35 @@ export class JobsController {
     }
     const artifact = await this.jobs.artifactKey(id, name);
     if (!artifact) throw new NotFoundException("Ese artefacto todavía no existe.");
-    // Range: los navegadores lo piden para reproducir y saltar dentro de un video sin bajarlo entero.
-    const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
+    // HEAD (Fastify lo expone solo): responder con la cabecera de S3, sin abrir el objeto. Con GetObject el
+    // video entero se leía y se descartaba, una amplificación de lectura de S3 a coste casi nulo del cliente.
+    if (req.method === "HEAD") {
+      const meta = await this.storage.head(artifact.key);
+      if (!meta) throw new NotFoundException("Ese artefacto ya no está disponible.");
+      // Respuesta cruda: Fastify pone Content-Length: 0 a un HEAD sin cuerpo, y aquí hay que informar el tamaño real.
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "Content-Type": meta.contentType ?? "application/octet-stream",
+        "Content-Length": meta.size,
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": contentDisposition(artifact.filename),
+        "X-Content-Type-Options": "nosniff",
+      });
+      reply.raw.end();
+      return;
+    }
+    // Range: los navegadores lo piden para reproducir y saltar dentro de un video sin bajarlo entero. Solo se
+    // admite un rango simple; cualquier otra forma se ignora (se sirve el objeto entero) en lugar de llegar a S3.
+    const range =
+      typeof req.headers.range === "string" && /^bytes=\d*-\d*$/.test(req.headers.range) ? req.headers.range : undefined;
     let object;
     try {
       object = await this.storage.getStream(artifact.key, range);
     } catch (error) {
-      if ((error as { name?: string }).name === "InvalidRange") throw new HttpException("Rango no satisfacible.", 416);
+      if ((error as { name?: string }).name === "InvalidRange") {
+        reply.header("Content-Range", "bytes */" + ((await this.storage.head(artifact.key))?.size ?? 0));
+        throw new HttpException("Rango no satisfacible.", 416);
+      }
       throw error;
     }
     if (!object) throw new NotFoundException("Ese artefacto ya no está disponible.");

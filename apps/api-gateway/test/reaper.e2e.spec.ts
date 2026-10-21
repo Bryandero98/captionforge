@@ -85,6 +85,21 @@ describe("trabajos RUNNING sin respuesta", () => {
     expect((await row(id)).status).toBe("RUNNING");
   });
 
+  it("avisa por Redis al worker del trabajo que cierra, por si solo estaba callado y sigue gastando CPU", async () => {
+    const { Redis } = await import("ioredis");
+    const subscriber = new Redis({ host: config.redis.host, port: config.redis.port, password: config.redis.password });
+    const received: string[] = [];
+    subscriber.on("message", (_channel, message) => received.push((JSON.parse(message) as { jobId: string }).jobId));
+    await subscriber.subscribe("captionforge:cancel");
+    try {
+      const id = await insertJob({ status: "RUNNING", minutesSinceUpdate: 40 });
+      await reaper.reapOnce();
+      await expect.poll(() => received.includes(id), { timeout: 3000 }).toBe(true);
+    } finally {
+      subscriber.disconnect();
+    }
+  });
+
   it("es idempotente: una segunda pasada no vuelve a tocar lo ya cerrado", async () => {
     const id = await insertJob({ status: "RUNNING", minutesSinceUpdate: 45 });
     await reaper.reapOnce();

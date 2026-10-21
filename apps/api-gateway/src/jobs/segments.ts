@@ -30,6 +30,8 @@ export class SegmentsError extends Error {}
 export const MAX_SEGMENTS = 20_000;
 const MAX_TEXT = 2_000;
 const MAX_WORDS = 500;
+/** ~277 horas: más que cualquier video; evita tiempos como 1e300 que rompen el SRT. */
+const MAX_SECONDS = 1_000_000;
 
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -92,8 +94,14 @@ export function parseEdits(body: unknown): { edits: SegmentEdit[]; etag: string 
     if (text !== undefined && (typeof text !== "string" || text.length > MAX_TEXT)) {
       throw new SegmentsError(`El texto del segmento ${index} no es válido (máximo ${MAX_TEXT} caracteres).`);
     }
+    // Una línea en blanco cierra el subtítulo en el formato SRT: lo que siga se leería como otro (falso).
+    if (typeof text === "string" && /\n[ \t\r]*\n/.test(text.replace(/\r\n/g, "\n"))) {
+      throw new SegmentsError(`El texto del segmento ${index} no puede tener líneas en blanco.`);
+    }
     for (const [name, value] of [["start", start], ["end", end]] as const) {
-      if (value !== undefined && !isNumber(value)) throw new SegmentsError(`${name} del segmento ${index} no es un número.`);
+      if (value !== undefined && (!isNumber(value) || value > MAX_SECONDS)) {
+        throw new SegmentsError(`${name} del segmento ${index} no es un tiempo válido.`);
+      }
     }
     return { index: index as number, text: text as string | undefined, start: start as number | undefined, end: end as number | undefined };
   });
@@ -107,7 +115,8 @@ export function parseEdits(body: unknown): { edits: SegmentEdit[]; etag: string 
 export function redistributeWordTimings(text: string, start: number, end: number): WordTiming[] | null {
   const words = text.split(/\s+/).filter((word) => word.length > 0);
   const duration = end - start;
-  if (words.length === 0 || duration <= 0) return null;
+  // Más de MAX_WORDS palabras en un solo subtítulo no es un subtítulo: sin tiempos por palabra (no karaoke).
+  if (words.length === 0 || words.length > MAX_WORDS || duration <= 0) return null;
   // Python cuenta puntos de código (len), JS unidades UTF-16: Array.from iguala el resultado con emojis.
   const weight = (word: string): number => Array.from(word).length;
   const total = words.reduce((sum, word) => sum + weight(word), 0);

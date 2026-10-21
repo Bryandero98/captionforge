@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from typing import Any
 
 import psycopg
@@ -17,6 +18,7 @@ from psycopg.types.json import Jsonb
 
 # La API (Prisma) guarda las fechas como TIMESTAMP sin zona, en UTC.
 _NOW = "(now() AT TIME ZONE 'UTC')"
+_ATTEMPTS = 4
 
 
 class JobRepository:
@@ -33,18 +35,32 @@ class JobRepository:
 
     def _execute_sync(self, sql: str, params: tuple[Any, ...]) -> int:
         with self._lock:
-            for attempt in (1, 2):
+            for attempt in range(1, _ATTEMPTS + 1):
                 try:
                     if self._conn is None or self._conn.closed:
-                        self._conn = psycopg.connect(self._url, autocommit=True, connect_timeout=10)
+                        self._conn = psycopg.connect(
+                            self._url,
+                            autocommit=True,
+                            connect_timeout=10,
+                            # Una consulta no puede quedarse colgada para siempre ni con la red cortada sin aviso
+                            # (sin esto, un corte mudo bloquea el candado de esta clase y el hueco único del worker).
+                            options="-c statement_timeout=30000",
+                            keepalives=1,
+                            keepalives_idle=30,
+                            keepalives_interval=10,
+                            keepalives_count=3,
+                            tcp_user_timeout=30000,
+                        )
                     return self._conn.execute(sql, params).rowcount
                 except psycopg.OperationalError:
-                    # La conexión se cayó (reinicio de PostgreSQL, red): una reconexión y un reintento.
+                    # La conexión se cayó (reinicio de PostgreSQL, red): se reconecta y se reintenta con espera
+                    # creciente. Un reinicio de unos segundos no debe costar el resultado de horas de cómputo.
                     if self._conn is not None:
                         self._conn.close()
                     self._conn = None
-                    if attempt == 2:
+                    if attempt == _ATTEMPTS:
                         raise
+                    time.sleep(min(2**attempt, 10))
         raise AssertionError("inalcanzable")
 
     async def _execute(self, sql: str, *params: Any) -> int:
@@ -68,6 +84,13 @@ class JobRepository:
             percent,
             message,
             job_id,
+        )
+        return rows == 1
+
+    async def touch(self, job_id: str) -> bool:
+        """Latido: renueva updatedAt. False si el trabajo ya no está RUNNING (lo cerró otro: API o recolector)."""
+        rows = await self._execute(
+            f"""UPDATE "Job" SET "updatedAt" = {_NOW} WHERE id = %s AND status = 'RUNNING'""", job_id
         )
         return rows == 1
 

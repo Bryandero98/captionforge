@@ -108,10 +108,10 @@ export class StorageService {
     }
   }
 
-  async head(key: string): Promise<{ etag: string; size: number } | null> {
+  async head(key: string): Promise<{ etag: string; size: number; contentType: string | undefined } | null> {
     try {
       const out = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
-      return { etag: cleanEtag(out.ETag) ?? "", size: out.ContentLength ?? 0 };
+      return { etag: cleanEtag(out.ETag) ?? "", size: out.ContentLength ?? 0, contentType: out.ContentType };
     } catch (error) {
       if (isMissing(error)) return null;
       throw error;

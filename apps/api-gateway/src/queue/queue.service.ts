@@ -36,7 +36,12 @@ export class QueueService implements OnModuleDestroy {
 
   /** ¿Sigue el trabajo en su cola, en cualquier estado? (esperando, activo, completado o fallido) */
   async exists(kind: JobKind, jobId: string): Promise<boolean> {
-    return (await (kind === "BURN" ? this.burn : this.transcribe).getJob(jobId)) !== undefined;
+    const job = await (kind === "BURN" ? this.burn : this.transcribe).getJob(jobId);
+    if (!job) return false;
+    // Un trabajo fallido o completado en Redis ya no va a ejecutarse: para una fila QUEUED es como si se hubiera perdido
+    // (p. ej. el worker no pudo reclamarlo porque PostgreSQL estaba caído y BullMQ lo dio por fallido).
+    const state = await job.getState();
+    return state !== "failed" && state !== "completed";
   }
 
   /** Quita el trabajo de la cola si todavía no empezó. true = se quitó (nadie lo había tomado). */
@@ -54,10 +59,11 @@ export class QueueService implements OnModuleDestroy {
   }
 
   /** Pide al worker que aborte el trabajo en curso (cancelación cooperativa, ADR 0006). */
-  async requestCancel(jobId: string): Promise<void> {
+  /** Devuelve cuántos workers recibieron el aviso (0 = nadie escucha). */
+  async requestCancel(jobId: string): Promise<number> {
     const message = { schemaVersion: 1, jobId };
     assertContract("cancel-message.v1", message);
-    await this.publisher.publish(CANCEL_CHANNEL, JSON.stringify(message));
+    return this.publisher.publish(CANCEL_CHANNEL, JSON.stringify(message));
   }
 
   async ping(): Promise<void> {

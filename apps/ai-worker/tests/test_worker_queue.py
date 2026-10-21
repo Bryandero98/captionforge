@@ -268,3 +268,52 @@ def test_a_job_whose_worker_died_is_closed_instead_of_staying_running_forever(co
     row = asyncio.run(go())
     assert (row["status"], row["errorCode"]) == ("FAILED", "INTERNAL")
     assert "interrumpi" in (row["errorMessage"] or "")
+
+
+def test_heartbeat_keeps_a_silent_job_alive_and_aborts_when_the_row_was_closed(config, new_job, api_db) -> None:  # noqa: ANN001
+    """Etapas como descargar 4 GiB no informan progreso; sin latido el recolector del API las cerraría a los 20 min."""
+    import threading
+
+    cfg = dataclasses.replace(isolated(config), heartbeat_seconds=0.3)
+    job_id, _ = new_job(upload_input=False)
+
+    async def go() -> tuple[bool, bool]:
+        worker = AiWorker(cfg)
+        assert await worker.repo.claim(job_id)
+        api_db.execute("UPDATE \"Job\" SET \"updatedAt\" = now() - interval '30 minutes' WHERE id = %s", (job_id,))
+        cancel = threading.Event()
+        beat = asyncio.create_task(worker._heartbeat(job_id, cancel))
+        await asyncio.sleep(1.0)
+        refreshed = api_db.execute("SELECT now() - \"updatedAt\" < interval '1 minute' FROM \"Job\" WHERE id = %s", (job_id,)).fetchone()[0]
+        assert not cancel.is_set() and not beat.done()
+        # Alguien (la API, el recolector) cierra la fila: el latido lo detecta y pide abortar.
+        api_db.execute("UPDATE \"Job\" SET status = 'FAILED' WHERE id = %s", (job_id,))
+        await asyncio.wait_for(beat, timeout=3)
+        worker.repo.close()
+        return refreshed, cancel.is_set()
+
+    assert asyncio.run(go()) == (True, True)
+
+
+def test_cancellations_still_arrive_after_redis_drops_the_subscription(config, new_job, api_db) -> None:  # noqa: ANN001
+    cfg = isolated(config)
+    slow = ModelProvider(loader=lambda s: (FakeWhisper(delay=0.5, segments=40), "cpu"), is_cached=lambda s: True)
+    job_id, payload = new_job()
+
+    async def go() -> dict:
+        worker = AiWorker(cfg, models=slow)
+        await worker.start()
+        queue = await enqueue(cfg, payload)
+        admin = aioredis.Redis(host=cfg.redis_host, port=cfg.redis_port, password=cfg.redis_password)
+        try:
+            await wait_for(api_db, job_id, until=lambda r: r["stage"] == "transcribing")
+            await admin.client_kill_filter(_type="pubsub")  # Redis "se cae" para los suscriptores
+            await asyncio.sleep(2.5)  # el worker reconecta con espera
+            await publish_cancel(cfg, job_id)
+            return await wait_for(api_db, job_id, until=lambda r: r["status"] in TERMINAL, timeout=20)
+        finally:
+            await admin.aclose()
+            await queue.close()
+            await worker.stop()
+
+    assert asyncio.run(go())["status"] == "CANCELLED"

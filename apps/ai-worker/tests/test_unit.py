@@ -6,6 +6,7 @@ import asyncio
 import errno
 
 import pytest
+from captionforge.models import InsufficientDiskSpaceError
 from captionforge.pipeline import FfmpegTimeoutError
 from captionforge.waveform import WaveformExtractionError
 from captionforge_contracts import JobError
@@ -61,6 +62,7 @@ class TestClassify:
             (RuntimeError("ffmpeg fallo (codigo 1): C:\\secreto\\ruta"), "FFMPEG_FAILED"),
             (ValueError("algo raro"), "INTERNAL"),
             (JobFailure("MODEL_DOWNLOAD_FAILED", "m"), "MODEL_DOWNLOAD_FAILED"),
+            (InsufficientDiskSpaceError("sin espacio para el modelo"), "OUT_OF_DISK"),
         ],
     )
     def test_maps_to_contract_codes(self, error: BaseException, code: str) -> None:
@@ -81,12 +83,13 @@ class TestClassify:
 
 
 class FakeRepo:
-    def __init__(self) -> None:
+    def __init__(self, open_job: bool = True) -> None:
         self.rows: list[tuple[str, float]] = []
+        self.open_job = open_job
 
     async def report(self, job_id: str, stage: str, percent: float, message: str | None) -> bool:
         self.rows.append((stage, percent))
-        return True
+        return self.open_job
 
 
 class TestProgress:
@@ -137,6 +140,17 @@ class TestProgress:
         asyncio.run(go())
         assert received == [{"schemaVersion": 1, "stage": "transcribing", "percent": received[0]["percent"], "message": "mitad"}]
         assert 0 < received[0]["percent"] < 99
+
+    def test_aborts_the_job_when_its_row_was_closed_elsewhere(self) -> None:
+        """repo.report devuelve False si el API canceló o el recolector cerró la fila: seguir sería gastar CPU en vano."""
+        closed: list[bool] = []
+
+        async def go() -> None:
+            progress = Progress(FakeRepo(open_job=False), "id", asyncio.get_running_loop(), on_closed=lambda: closed.append(True), min_interval=0.0)  # type: ignore[arg-type]
+            await progress.report("transcribing", 0.5, "m")
+
+        asyncio.run(go())
+        assert closed == [True]
 
     def test_a_failing_repository_never_breaks_the_job(self) -> None:
         class Broken:

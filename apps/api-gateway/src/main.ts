@@ -38,8 +38,15 @@ export async function createApp(
   return app;
 }
 
-const isUpload = (request: FastifyRequest): boolean =>
-  request.method === "POST" && request.url.split("?")[0] === "/v1/jobs/transcribe";
+/**
+ * Rutas caras (subir un video, pedir un quemado): tienen su propio tope y contador. Se decide por la RUTA
+ * que Fastify resolvió, no por la URL cruda: `/v1/jobs/%74ranscribe` llega al mismo handler y comparando
+ * texto se colaba en el contador general (24 veces más holgado).
+ */
+const isUpload = (request: FastifyRequest): boolean => {
+  const route = request.routeOptions?.url;
+  return request.method === "POST" && (route === "/v1/jobs/transcribe" || route === "/v1/jobs/:id/burn");
+};
 
 /**
  * Límite de peticiones por IP. Las subidas tienen su propio tope y su propio contador: subir un video

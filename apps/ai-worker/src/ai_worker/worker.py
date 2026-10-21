@@ -128,9 +128,12 @@ class AiWorker:
             failure = JobFailure("CANCELLED", "El trabajo ya no estaba pendiente.")
             raise Exception(failure_reason(job_id, failure))
 
-        progress = Progress(self.repo, job_id, asyncio.get_running_loop(), sink=job, ranges=ranges)
+        progress = Progress(
+            self.repo, job_id, asyncio.get_running_loop(), sink=job, ranges=ranges, on_closed=cancel.set
+        )
         runner = asyncio.create_task(run(payload, progress, cancel))
         aborted = asyncio.create_task(signal.wait())
+        heartbeat = asyncio.create_task(self._heartbeat(job_id, cancel))
         try:
             await asyncio.wait({runner, aborted}, return_when=asyncio.FIRST_COMPLETED)
             if not runner.done():
@@ -150,39 +153,70 @@ class AiWorker:
             raise Exception(failure_reason(job_id, failure)) from error
         finally:
             aborted.cancel()
+            heartbeat.cancel()
 
-        await self.repo.complete(job_id, result)
+        if not await self.repo.complete(job_id, result):
+            # La fila ya no estaba RUNNING (la cerró el recolector o la API mientras trabajábamos): los
+            # artefactos están en S3 pero PostgreSQL no los refleja. Que quede dicho, no en silencio.
+            log.error("trabajo %s terminó pero su fila ya estaba cerrada; resultado no registrado: %s", job_id, result)
         return result
+
+    async def _heartbeat(self, job_id: str, cancel: threading.Event) -> None:
+        """Renueva `updatedAt` mientras el trabajo corre, con independencia de las etapas que informan progreso."""
+        while True:
+            await asyncio.sleep(self.config.heartbeat_seconds)
+            try:
+                if not await self.repo.touch(job_id):
+                    log.warning("el trabajo %s ya no está en curso; se aborta", job_id)
+                    cancel.set()
+                    return
+            except Exception:  # noqa: BLE001 - un latido fallido no debe tumbar el trabajo; el siguiente reintenta
+                log.warning("no se pudo escribir el latido de %s", job_id, exc_info=True)
 
     # --------------------------------------------------------------- cancelación
     async def _listen_for_cancellations(self, subscribed: asyncio.Event) -> None:
-        client = aioredis.Redis(
-            host=self.config.redis_host,
-            port=self.config.redis_port,
-            password=self.config.redis_password,
-            decode_responses=True,
-        )
-        pubsub = client.pubsub()
+        """Escucha el canal de cancelación para siempre: si Redis cae, reconecta con espera. Sin esto, un
+        corte de Redis dejaba al worker procesando pero sordo a las cancelaciones, sin ningún aviso."""
+        delay = 1.0
+        while True:
+            client = aioredis.Redis(
+                host=self.config.redis_host,
+                port=self.config.redis_port,
+                password=self.config.redis_password,
+                decode_responses=True,
+            )
+            pubsub = client.pubsub()
+            try:
+                await pubsub.subscribe(self.config.cancel_channel)
+                subscribed.set()
+                delay = 1.0
+                async for message in pubsub.listen():
+                    self._handle_cancel_message(message)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.error("se perdió la suscripción de cancelaciones; reintento en %.0f s", delay, exc_info=True)
+            finally:
+                with contextlib.suppress(Exception):
+                    await pubsub.aclose()
+                    await client.aclose()
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
+
+    def _handle_cancel_message(self, message: dict[str, Any]) -> None:
+        if message["type"] != "message":
+            return
         try:
-            await pubsub.subscribe(self.config.cancel_channel)
-            subscribed.set()
-            async for message in pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                try:
-                    cancel = CancelMessage.model_validate_json(message["data"], strict=True)
-                except Exception:  # noqa: BLE001 - un mensaje malformado se ignora, nunca tumba al worker
-                    log.warning("mensaje de cancelación ignorado (malformado)")
-                    continue
-                job_id = str(cancel.jobId)
-                for worker in self._workers:
-                    worker.cancelJob(job_id, "cancelled")  # False si el trabajo no es de esa cola
-                event = self._cancel_events.get(job_id)
-                if event is not None:
-                    event.set()
-        finally:
-            await pubsub.aclose()
-            await client.aclose()
+            cancel = CancelMessage.model_validate_json(message["data"], strict=True)
+        except Exception:  # noqa: BLE001 - un mensaje malformado se ignora, nunca tumba al worker
+            log.warning("mensaje de cancelación ignorado (malformado)")
+            return
+        job_id = str(cancel.jobId)
+        for worker in self._workers:
+            worker.cancelJob(job_id, "cancelled")  # False si el trabajo no es de esa cola
+        event = self._cancel_events.get(job_id)
+        if event is not None:
+            event.set()
 
     # ------------------------------------------------------------------- ciclo
     def _close_interrupted(self, job_id: str) -> None:
@@ -193,6 +227,14 @@ class AiWorker:
             self.repo.fail(job_id, "INTERNAL", "El trabajo se interrumpió inesperadamente.")
         )
         task.add_done_callback(lambda t: t.cancelled() or t.exception() is None or log.error("no se pudo cerrar %s", job_id))
+
+    def _on_lock_lost(self, job_ids: Any, *_: Any) -> None:
+        """No se pudo renovar el candado: otro worker puede tomar el trabajo. Se aborta el nuestro."""
+        for job_id in job_ids if isinstance(job_ids, (list, tuple, set)) else [job_ids]:
+            log.error("candado perdido en el trabajo %s; se aborta", job_id)
+            event = self._cancel_events.get(str(job_id))
+            if event is not None:
+                event.set()
 
     def _on_failed(self, job: Any, error: Any, *_: Any) -> None:
         self._close_interrupted(str(getattr(job, "id", "")))
@@ -217,6 +259,8 @@ class AiWorker:
             },
         )
         worker.on("failed", self._on_failed)
+        worker.on("error", lambda error, *_: log.error("error de BullMQ: %s", error))
+        worker.on("lockRenewalFailed", self._on_lock_lost)
         worker.on("stalled", self._on_stalled)
         return worker
 
@@ -227,7 +271,9 @@ class AiWorker:
         ]
         subscribed = asyncio.Event()
         self._cancel_task = asyncio.create_task(self._listen_for_cancellations(subscribed))
-        await subscribed.wait()
+        # Si Redis no está disponible al arrancar, fallar (y que Docker reinicie el proceso) en vez de quedarse
+        # esperando sin consumir ni avisar.
+        await asyncio.wait_for(subscribed.wait(), timeout=60)
         log.info("worker listo (colas %s y %s)", self.config.queue_name, self.config.burn_queue_name)
 
     async def stop(self) -> None:

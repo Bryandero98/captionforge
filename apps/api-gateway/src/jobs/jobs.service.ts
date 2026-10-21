@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  PayloadTooLargeException,
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
@@ -70,11 +71,21 @@ export function toView(job: Job): JobView {
     sizeBytes: Number(job.sizeBytes), // el máximo del contrato (100 GiB) cabe en un número seguro
     options: job.options,
     error: job.errorCode ? { code: job.errorCode, message: job.errorMessage } : null,
-    result: job.result,
+    result: publicResult(job.result),
     createdAt: job.createdAt.toISOString(),
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
   };
+}
+
+/**
+ * El resultado del worker, sin bucket, claves ni ETag internos (ADR 0002): los artefactos se piden por
+ * nombre en /artifacts/:name y los subtítulos, con su etag, en /segments.
+ */
+export function publicResult(result: unknown): unknown {
+  if (result === null || typeof result !== "object") return result ?? null;
+  const { artifacts, ...rest } = result as { artifacts?: Record<string, unknown> } & Record<string, unknown>;
+  return { ...rest, artifacts: artifacts ? Object.keys(artifacts) : [] };
 }
 
 /** El nombre del usuario es solo informativo: se queda con el último segmento y lo acota. */
@@ -138,6 +149,22 @@ export class JobsService {
     const inputKey = `jobs/${id}/input${extensionOf(originalFilename)}`;
     const outputPrefix = `jobs/${id}/out/`;
 
+    // Se valida contra el contrato ANTES de subir: unas opciones inválidas con un video de 4 GiB
+    // gastaban todo el ancho de banda y el almacenamiento para responder 400 al final.
+    try {
+      assertContract("transcribe-job.v1", {
+        schemaVersion: 1,
+        jobId: id,
+        requestedAt: new Date().toISOString(),
+        input: { bucket: this.storage.bucket, objectKey: inputKey, originalFilename, contentType: upload.mimetype, sizeBytes: 1 },
+        outputPrefix,
+        options,
+      });
+    } catch (error) {
+      if (error instanceof ContractViolation) throw new BadRequestException(error.message);
+      throw error;
+    }
+
     const { sizeBytes } = await this.storage.putStream(inputKey, upload.stream, upload.mimetype);
     if (sizeBytes === 0) {
       await this.storage.delete(inputKey).catch(() => undefined);
@@ -198,13 +225,19 @@ export class JobsService {
    *  no impide los demás ni cambia la respuesta, que siempre es 503. */
   private async failEnqueue(id: string, error: unknown, objectsToDelete: string[]): Promise<never> {
     this.logger.error(`No se pudo encolar el trabajo ${id}: ${(error as Error).message}`);
-    await this.prisma.job
+    const closed = await this.prisma.job
       .updateMany({
         where: { id, status: "QUEUED" },
         data: { status: "FAILED", errorCode: "INTERNAL", errorMessage: "No se pudo encolar el trabajo.", finishedAt: new Date() },
       })
-      .catch((e: unknown) => this.logger.error(`No se pudo marcar fallido el trabajo ${id}: ${(e as Error).message}`));
-    for (const key of objectsToDelete) await this.storage.delete(key).catch(() => undefined);
+      .then((r) => r.count)
+      .catch((e: unknown) => {
+        this.logger.error(`No se pudo marcar fallido el trabajo ${id}: ${(e as Error).message}`);
+        return 0;
+      });
+    // Si el fallo fue ambiguo (el comando llegó a Redis) y un worker ya tomó el trabajo, la fila no está QUEUED:
+    // borrar su entrada lo haría fallar a mitad de camino.
+    if (closed === 1) for (const key of objectsToDelete) await this.storage.delete(key).catch(() => undefined);
     throw new ServiceUnavailableException("La cola no está disponible. Inténtalo de nuevo en un momento.");
   }
 
@@ -221,7 +254,10 @@ export class JobsService {
   }
 
   private async readSegments(key: string): Promise<{ segments: Segment[]; etag: string }> {
-    const stored = await this.storage.getBuffer(key, MAX_SEGMENTS_BYTES);
+    const stored = await this.storage.getBuffer(key, MAX_SEGMENTS_BYTES).catch((error: unknown) => {
+      if (error instanceof PayloadTooLargeException) throw new ConflictException("Los subtítulos guardados son demasiado grandes para editarlos.");
+      throw error;
+    });
     if (!stored) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
     try {
       return { segments: parseSegments(JSON.parse(stored.body.toString("utf-8"))), etag: stored.etag };
@@ -263,7 +299,9 @@ export class JobsService {
       throw error;
     }
 
-    const { etag } = await this.storage.putBuffer(segmentsKey, Buffer.from(JSON.stringify(updated)), "application/json");
+    const serialized = Buffer.from(JSON.stringify(updated));
+    if (serialized.length > MAX_SEGMENTS_BYTES) throw new BadRequestException("Las ediciones hacen los subtítulos demasiado grandes.");
+    const { etag } = await this.storage.putBuffer(segmentsKey, serialized, "application/json");
     const srtKey = (job.result as { artifacts?: { srt?: unknown } } | null)?.artifacts?.srt;
     if (typeof srtKey === "string" && srtKey.startsWith(job.outputPrefix) && !srtKey.includes("..")) {
       await this.storage.putBuffer(srtKey, Buffer.from(segmentsToSrt(updated)), "application/x-subrip");
@@ -281,6 +319,11 @@ export class JobsService {
     const { job: parent, segmentsKey } = await this.completedTranscription(parentId);
     const head = await this.storage.head(segmentsKey);
     if (!head) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
+
+    const active = await this.prisma.job.count({
+      where: { kind: "BURN", parentJobId: parent.id, status: { in: ["QUEUED", "RUNNING"] } },
+    });
+    if (active > 0) throw new ConflictException("Ya hay un quemado en curso para esta transcripción. Espera a que termine o cancélalo.");
 
     const id = randomUUID();
     const outputPrefix = `jobs/${id}/out/`;
@@ -374,7 +417,15 @@ export class JobsService {
     if (isTerminal(current.status)) {
       throw new ConflictException(`El trabajo ya terminó (${current.status}).`);
     }
-    await this.queue.requestCancel(id);
+    const receivers = await this.queue.requestCancel(id).catch((error: unknown) => {
+      this.logger.error(`No se pudo publicar la cancelación de ${id}: ${(error as Error).message}`);
+      throw new ServiceUnavailableException("No se pudo avisar al worker. Inténtalo de nuevo en un momento.");
+    });
+    if (receivers === 0) {
+      // Pub/sub no guarda historial: sin ningún worker escuchando, el aviso se pierde.
+      this.logger.warn(`La cancelación de ${id} no la recibió ningún worker.`);
+      throw new ServiceUnavailableException("Ningún worker está escuchando; la cancelación no se pudo entregar.");
+    }
     return toView(current);
   }
 

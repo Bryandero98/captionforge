@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from captionforge.ffmpeg_utils import build_extract_audio_cmd
+from captionforge.models import InsufficientDiskSpaceError
 from captionforge.pipeline import _run_ffmpeg
 from captionforge.srt import Segment, WordTiming, segments_to_dicts, segments_to_srt
 from captionforge.translate import translate_segments
@@ -138,7 +139,9 @@ class TranscribeRunner:
                 )
             except Exception as error:  # noqa: BLE001 - red, Hub, permisos: todo es "no se pudo descargar"
                 # ConnectionError y TimeoutError también son OSError: solo la falta de espacio conserva su código.
-                if isinstance(error, OSError) and error.errno == errno.ENOSPC:
+                if (isinstance(error, OSError) and error.errno == errno.ENOSPC) or isinstance(
+                    error, InsufficientDiskSpaceError
+                ):
                     raise
                 log.error("descarga del modelo falló", exc_info=error)
                 raise JobFailure("MODEL_DOWNLOAD_FAILED", "No se pudo descargar el modelo de transcripción.") from error

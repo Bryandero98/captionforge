@@ -144,3 +144,28 @@ describe("configuración", () => {
     expect(() => loadConfig({ ...process.env, [name]: value })).toThrow(new RegExp(name));
   });
 });
+
+describe("el límite de las rutas caras no se esquiva", () => {
+  it("la URL con letras codificadas (%74ranscribe) cuenta en el contador de subidas", async () => {
+    const base = await start({ rateLimitPerMinute: 100, uploadRateLimitPerMinute: 2 });
+    const upload = async (path: string): Promise<number> => {
+      const data = new FormData();
+      data.append("file", new File([new Uint8Array(64).fill(1)], "a.mp4", { type: "video/mp4" }));
+      const response = await fetch(`${base}${path}`, { method: "POST", body: data });
+      if (response.status === 202) {
+        const { id } = (await response.json()) as { id: string };
+        await fetch(`${base}/v1/jobs/${id}/cancel`, { method: "POST" });
+      }
+      return response.status;
+    };
+    expect([await upload("/v1/jobs/transcribe"), await upload("/v1/jobs/%74ranscribe"), await upload("/v1/jobs/%74ranscribe")]).toEqual([202, 202, 429]);
+  });
+
+  it("pedir quemados comparte el tope de las subidas (cada uno es un ffmpeg de horas)", async () => {
+    const base = await start({ rateLimitPerMinute: 100, uploadRateLimitPerMinute: 2 });
+    const id = "00000000-0000-4000-8000-000000000000";
+    const codes: number[] = [];
+    for (let i = 0; i < 4; i++) codes.push((await fetch(`${base}/v1/jobs/${id}/burn`, { method: "POST" })).status);
+    expect(codes).toEqual([404, 404, 429, 429]);
+  });
+});

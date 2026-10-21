@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import logging
 
+from captionforge.models import InsufficientDiskSpaceError
 from captionforge.pipeline import FfmpegTimeoutError
 from captionforge.waveform import WaveformExtractionError
 
@@ -32,6 +33,8 @@ def classify(error: BaseException) -> JobFailure:
         return error
     if isinstance(error, FfmpegTimeoutError):
         return JobFailure("FFMPEG_TIMEOUT", "ffmpeg superó el tiempo máximo y se canceló.")
+    if isinstance(error, InsufficientDiskSpaceError):
+        return JobFailure("OUT_OF_DISK", "No hay espacio en disco para el modelo de transcripción.")
     if isinstance(error, ObjectNotFound):
         return JobFailure("INPUT_NOT_FOUND", "El video de entrada ya no está disponible.")
     if isinstance(error, OSError) and error.errno == errno.ENOSPC:

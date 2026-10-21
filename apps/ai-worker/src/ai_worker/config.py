@@ -37,6 +37,9 @@ class WorkerConfig:
     lock_duration_ms: int = 60_000
     # Cada cuánto busca BullMQ trabajos cuyo candado venció (un worker que murió a mitad).
     stalled_interval_ms: int = 30_000
+    # Latido del trabajo en curso: el recolector del API cierra los RUNNING sin cambios durante 20 min, y hay
+    # etapas largas que no informan progreso (descargar 4 GiB, traducir miles de segmentos).
+    heartbeat_seconds: float = 60.0
     ffmpeg_stall_timeout: float = 300.0
     ffmpeg_total_timeout: float = 6 * 3600.0
 
@@ -80,6 +83,7 @@ class WorkerConfig:
             concurrency=int(number("WORKER_CONCURRENCY", 1, integer=True)),
             lock_duration_ms=int(number("LOCK_DURATION_MS", 60_000, integer=True)),
             stalled_interval_ms=int(number("STALLED_INTERVAL_MS", 30_000, integer=True)),
+            heartbeat_seconds=number("HEARTBEAT_SECONDS", 60.0),
             ffmpeg_stall_timeout=number("FFMPEG_STALL_TIMEOUT_SECONDS", 300.0),
             ffmpeg_total_timeout=number("FFMPEG_TOTAL_TIMEOUT_SECONDS", 6 * 3600.0),
         )
