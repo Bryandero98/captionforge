@@ -17,7 +17,7 @@ import argostranslate.translate  # noqa: F401 - se importa de forma diferida en 
 import captionforge_contracts  # noqa: F401
 from captionforge.ffmpeg_locator import ffmpeg_env, find_ffmpeg, with_ffmpeg_path
 from captionforge.ffmpeg_utils import STYLE_PRESETS, build_burn_subtitles_cmd
-from captionforge.srt import Segment, segments_to_ass
+from captionforge.srt import Segment, WordTiming, segments_to_ass
 from faster_whisper.audio import decode_audio
 
 import ai_worker.worker  # noqa: F401
@@ -52,7 +52,8 @@ def bright_pixels(video: str) -> int:
     """Píxeles claros del fotograma a 1 s (escala de grises, 8 bits)."""
     frame = run_ffmpeg(["-ss", "1", "-i", video, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"])
     assert frame.returncode == 0, frame.stderr.decode(errors="replace")[-500:]
-    return sum(1 for value in frame.stdout if value > 200)
+    # 100: las palabras aún no cantadas del karaoke van en ámbar (gris ~202), muy cerca de un corte en 200.
+    return sum(1 for value in frame.stdout if value > 100)
 
 
 def check_burn(label: str, folder: str, background: str, subtitles: str, *, is_ass: bool) -> None:
@@ -62,7 +63,8 @@ def check_burn(label: str, folder: str, background: str, subtitles: str, *, is_a
     stderr = result.stderr.decode(errors="replace")
     assert result.returncode == 0, f"el quemado {label} falló (código {result.returncode}): {stderr[-600:]}"
     # Sin fuentes libass avisa por fontconfig y sigue adelante: el video sale sin texto y con código 0.
-    assert "fontconfig error" not in stderr.lower(), (
+    problems = ("fontconfig error", "failed to find any fallback", "failed to load fonctconfig")
+    assert not any(problem in stderr.lower() for problem in problems), (
         f"fontconfig sin configuración o sin fuentes ({label}): {stderr[-600:]}"
     )
     pixels = bright_pixels(output)
@@ -84,10 +86,27 @@ with tempfile.TemporaryDirectory() as folder:
         handle.write("1\n00:00:00,000 --> 00:00:02,000\nHOLA MUNDO, esto es una prueba de subtítulos\n")
     check_burn("srt", folder, background, srt, is_ass=False)
 
-    segment = Segment(start=0.0, end=2.0, text="HOLA MUNDO esto es una prueba")
+    # Con palabras con tiempos, para que el ASS lleve etiquetas \k de karaoke de verdad (sin ellas es una línea plana).
+    words = [
+        WordTiming(start=i * 0.4, end=i * 0.4 + 0.4, text=word, probability=0.9)
+        for i, word in enumerate(("HOLA", "MUNDO", "esto", "es", "una", "prueba"))
+    ]
+    segment = Segment(start=0.0, end=2.4, text="HOLA MUNDO esto es una prueba", words=words)
     ass = os.path.join(folder, "karaoke.ass")
     with open(ass, "w", encoding="utf-8") as handle:
         handle.write(segments_to_ass([segment], STYLE_PRESETS["modern"]))
+    with open(ass, encoding="utf-8") as handle:
+        assert "\\k" in handle.read(), (
+            "el ASS de karaoke no lleva etiquetas de karaoke (k): no se prueba el karaoke"
+        )
     check_burn("karaoke", folder, background, ass, is_ass=True)
+
+    # Los estilos piden Arial: debe resolverse a su sustituta de mismas medidas, no a la fuente de respaldo.
+    arial = subprocess.run(
+        ["fc-match", "-f", "%{family}", "Arial"], capture_output=True, text=True, check=True
+    ).stdout
+    assert "Liberation" in arial, (
+        f"Arial se resuelve a {arial!r} en vez de Liberation Sans (¿falta fonts-liberation?)"
+    )
 
 print("imagen correcta: ffmpeg, decode_audio y el quemado de subtítulos (SRT y karaoke) funcionan")
