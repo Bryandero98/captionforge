@@ -19,7 +19,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from .ffmpeg_locator import with_ffmpeg_path
+from .ffmpeg_locator import ffmpeg_env, with_ffmpeg_path
 from .ffmpeg_utils import WAVEFORM_SAMPLE_RATE_HZ, build_waveform_extract_cmd
 
 # Hard cap on points actually returned - keeps the JSON response (and the
@@ -83,6 +83,7 @@ def compute_waveform_peaks(video_path: Path) -> tuple[list[float], float]:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=WAVEFORM_TIMEOUT_SECONDS,
+            env=ffmpeg_env(),
         )
     except OSError as exc:  # FileNotFoundError (no ffmpeg) or PermissionError (not executable)
         raise WaveformExtractionError(f"No se pudo ejecutar ffmpeg para el waveform: {exc}") from exc

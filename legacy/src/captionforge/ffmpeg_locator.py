@@ -72,6 +72,28 @@ def find_ffmpeg() -> str | None:
     return system
 
 
+# Variables que ffmpeg (y libass/fontconfig, para grabar subtitulos) necesita para arrancar y encontrar
+# tipografias. Todo lo demas -credenciales de PostgreSQL, S3, Redis, tokens- se queda fuera: ffmpeg decodifica
+# archivos que sube cualquiera, y un fallo en un decodificador no debe regalarle los secretos del worker.
+_FFMPEG_ENV_ALLOWED = frozenset(
+    {
+        "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC",  # Windows y busqueda de ejecutables
+        "TEMP", "TMP", "TMPDIR",
+        "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA",  # cache de fontconfig
+        "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_DATA_DIRS",
+        "FONTCONFIG_FILE", "FONTCONFIG_PATH",
+        "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
+        "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ",
+    }
+)
+
+
+def ffmpeg_env() -> dict[str, str]:
+    """Entorno minimo para el subproceso de ffmpeg: solo lo de `_FFMPEG_ENV_ALLOWED` (lista blanca)."""
+    allowed = {name.upper() for name in _FFMPEG_ENV_ALLOWED}
+    return {name: value for name, value in os.environ.items() if name.upper() in allowed}
+
+
 def with_ffmpeg_path(cmd: list[str]) -> list[str]:
     """Returns `cmd` with its first element (the bare "ffmpeg") replaced by the resolved executable."""
     exe = find_ffmpeg()
