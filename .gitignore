@@ -13,3 +13,5 @@ jobs/
 # smoke_test_pipeline.py / manual runs, not the fixture itself
 tests/fixtures/*.srt
 tests/fixtures/*_captioned.mp4
+
+graphify-out/

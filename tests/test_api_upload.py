@@ -233,6 +233,16 @@ class TestHealth:
         assert body["status"] == "ok"
         assert isinstance(body["ffmpeg_available"], bool)
 
+    def test_health_reports_ffmpeg_available_when_one_is_found(self, app_client, monkeypatch):
+        monkeypatch.setattr("captionforge.app.find_ffmpeg", lambda: "/ruta/ffmpeg")
+
+        assert app_client.get("/api/health").json()["ffmpeg_available"] is True
+
+    def test_health_reports_ffmpeg_unavailable_when_none_is_found(self, app_client, monkeypatch):
+        monkeypatch.setattr("captionforge.app.find_ffmpeg", lambda: None)
+
+        assert app_client.get("/api/health").json()["ffmpeg_available"] is False
+
     def test_languages_endpoint_lists_every_code_the_upload_route_accepts(self, app_client):
         from captionforge.languages import WHISPER_LANGUAGE_CODES
 

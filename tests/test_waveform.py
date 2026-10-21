@@ -65,3 +65,63 @@ class TestComputeWaveformPeaksReal:
         missing = tmp_path / "does-not-exist.mp4"
         with pytest.raises(WaveformExtractionError):
             compute_waveform_peaks(missing)
+
+
+class TestComputeWaveformUsesResolvedExecutable:
+    def test_runs_the_resolved_ffmpeg_not_the_bare_name(self, monkeypatch):
+        monkeypatch.setattr("captionforge.ffmpeg_locator.find_ffmpeg", lambda: "/ruta/ffmpeg-resuelto")
+        captured: dict = {}
+
+        class FakeResult:
+            returncode = 0
+            stdout = bytes([128, 200, 128, 60])
+            stderr = b""
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return FakeResult()
+
+        monkeypatch.setattr("captionforge.waveform.subprocess.run", fake_run)
+
+        peaks, _duration = compute_waveform_peaks(FIXTURE)
+
+        assert captured["cmd"][0] == "/ruta/ffmpeg-resuelto"
+        assert peaks  # the fake audio was decoded into peaks
+
+    def test_missing_ffmpeg_becomes_a_waveform_error_with_the_actionable_message(self, monkeypatch):
+        monkeypatch.setattr("captionforge.ffmpeg_locator.find_ffmpeg", lambda: None)
+
+        with pytest.raises(WaveformExtractionError, match="CAPTIONFORGE_FFMPEG"):
+            compute_waveform_peaks(FIXTURE)
+
+    def test_a_non_executable_ffmpeg_becomes_a_waveform_error(self, monkeypatch):
+        monkeypatch.setattr("captionforge.ffmpeg_locator.find_ffmpeg", lambda: "/ruta/ffmpeg-resuelto")
+
+        def fake_run(cmd, **kwargs):
+            raise PermissionError("[Errno 13] Permission denied")
+
+        monkeypatch.setattr("captionforge.waveform.subprocess.run", fake_run)
+
+        with pytest.raises(WaveformExtractionError, match="Permission denied"):
+            compute_waveform_peaks(FIXTURE)
+
+    def test_a_real_ffmpeg_in_a_folder_with_spaces_selected_via_env_var_works_end_to_end(
+        self, tmp_path, monkeypatch
+    ):
+        from captionforge.ffmpeg_locator import find_ffmpeg
+
+        real = find_ffmpeg()
+        if real is None:
+            pytest.skip("no ffmpeg available on this machine")
+        import shutil
+
+        folder = tmp_path / "carpeta con espacios"
+        folder.mkdir()
+        copied = folder / Path(real).name
+        shutil.copy2(real, copied)
+        monkeypatch.setenv("CAPTIONFORGE_FFMPEG", str(copied))
+
+        peaks, duration = compute_waveform_peaks(FIXTURE)
+
+        assert peaks
+        assert duration > 0

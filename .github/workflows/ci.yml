@@ -19,13 +19,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install ffmpeg (Ubuntu)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Install ffmpeg (Windows)
-        if: runner.os == 'Windows'
-        run: choco install ffmpeg -y
+      # Ubuntu and Windows deliberately install NO system ffmpeg: CaptionForge ships
+      # its own (imageio-ffmpeg), and these jobs prove that path works end to end.
 
       - name: Install ffmpeg (macOS)
         if: runner.os == 'macOS'

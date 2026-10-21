@@ -13,8 +13,8 @@ step)" section for what this does and does not cover:
   installed in the current venv. No CUDA/cuDNN wheels, no GPU detection.
 - No code signing: Windows SmartScreen / macOS Gatekeeper will warn on
   first run.
-- ffmpeg is NOT bundled: a user still needs it on PATH, same as running
-  from source.
+- ffmpeg: the spec collects the binary shipped by imageio-ffmpeg, but this has
+  NOT yet been verified in a built executable; the app falls back to ffmpeg on PATH.
 
 Usage:
     pip install -e ".[build]"
@@ -43,7 +43,10 @@ def main() -> None:
     print("Running:", " ".join(cmd))
     subprocess.run(cmd, cwd=ROOT, check=True)
     print("\nBuilt executable: dist/captionforge" + (".exe" if sys.platform == "win32" else ""))
-    print('ffmpeg is NOT bundled - it must still be on PATH. See the README\'s "Packaged build" section.')
+    print(
+        "ffmpeg: the bundled build is collected but NOT yet verified in this executable; "
+        "if captions fail, put ffmpeg on PATH. See the README's 'Packaged build' section."
+    )
 
 
 if __name__ == "__main__":

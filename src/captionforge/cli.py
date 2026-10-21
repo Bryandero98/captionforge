@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import webbrowser
 from threading import Timer
@@ -12,6 +11,7 @@ import uvicorn
 
 from .app import create_app
 from .config import Settings
+from .ffmpeg_locator import MISSING_MESSAGE, find_ffmpeg
 
 
 def _open_browser(url: str) -> None:
@@ -34,12 +34,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "serve":
-        if shutil.which("ffmpeg") is None:
-            print(
-                "captionforge: no se encontro 'ffmpeg' en el PATH. Instalalo antes de continuar "
-                "(https://ffmpeg.org/download.html).",
-                file=sys.stderr,
-            )
+        if find_ffmpeg() is None:
+            print(f"captionforge: {MISSING_MESSAGE}", file=sys.stderr)
             sys.exit(1)
 
         settings = Settings(default_model_size=args.model, port=args.port)

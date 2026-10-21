@@ -17,7 +17,13 @@ Nothing leaves your machine.
 ## Requirements
 
 - Python 3.10+
-- [ffmpeg](https://ffmpeg.org/download.html) on your `PATH`
+- ffmpeg: **nothing to install** - `pip install` brings its own build (via
+  [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg)), with the
+  `subtitles` filter (libass) that burning captions needs. Tested on Windows
+  and Linux. To use your own build instead, set `CAPTIONFORGE_FFMPEG` to its
+  path; if neither is available, `ffmpeg` on your `PATH` is used.
+- Linux note: on Ubuntu/Debian, `python3 -m venv` may need
+  `sudo apt install python3-venv` first.
 
 ## Install & run
 

@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from .ffmpeg_locator import with_ffmpeg_path
 from .ffmpeg_utils import build_burn_subtitles_cmd, build_extract_audio_cmd, resolve_style
 from .jobs import InvalidTransitionError, JobStatus, JobStore, UnknownJobError
 from .models import assert_model_fits, download_model_with_progress, is_model_cached
@@ -86,7 +87,7 @@ async def _run_ffmpeg(
     need it, and has no natural "total duration" of its own to compare against).
     """
     process = await asyncio.create_subprocess_exec(
-        *cmd,
+        *with_ffmpeg_path(cmd),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
     )

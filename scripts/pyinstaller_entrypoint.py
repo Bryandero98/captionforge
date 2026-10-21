@@ -10,7 +10,6 @@ not cover.
 
 from __future__ import annotations
 
-import shutil
 import sys
 import webbrowser
 from threading import Timer
@@ -19,16 +18,12 @@ import uvicorn
 
 from captionforge.app import create_app
 from captionforge.config import Settings
+from captionforge.ffmpeg_locator import MISSING_MESSAGE, find_ffmpeg
 
 
 def main() -> None:
-    if shutil.which("ffmpeg") is None:
-        print(
-            "captionforge: 'ffmpeg' was not found on PATH. Install it first "
-            "(https://ffmpeg.org/download.html) - this build does not bundle "
-            "it yet, see the README.",
-            file=sys.stderr,
-        )
+    if find_ffmpeg() is None:
+        print(f"captionforge: {MISSING_MESSAGE}", file=sys.stderr)
         input("Press Enter to exit...")
         sys.exit(1)
 

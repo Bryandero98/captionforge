@@ -18,7 +18,13 @@ sale de tu máquina.
 ## Requisitos
 
 - Python 3.10+
-- [ffmpeg](https://ffmpeg.org/download.html) en tu `PATH`
+- ffmpeg: **no hay que instalar nada** - `pip install` trae el suyo (con
+  [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg)), con el filtro
+  `subtitles` (libass) que necesita el quemado de subtítulos. Probado en
+  Windows y Linux. Para usar tu propio ffmpeg, define `CAPTIONFORGE_FFMPEG`
+  con su ruta; si no hay ninguno, se usa el `ffmpeg` de tu `PATH`.
+- Nota para Linux: en Ubuntu/Debian, `python3 -m venv` puede requerir antes
+  `sudo apt install python3-venv`.
 
 ## Instalación y uso
 
