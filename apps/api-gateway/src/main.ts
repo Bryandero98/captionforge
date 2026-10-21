@@ -7,12 +7,14 @@ import { HttpException, type LogLevel } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import multipart from "@fastify/multipart";
+import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyRequest } from "fastify";
 
 import { AppModule } from "./app.module.js";
 import { type AppConfig, loadConfig } from "./config/config.js";
 import { clientKey } from "./security/client-key.js";
+import { evaluate } from "./security/request-guard.js";
 
 export async function createApp(
   config: AppConfig,
@@ -25,6 +27,9 @@ export async function createApp(
     new FastifyAdapter({ bodyLimit: 4 * 1024 * 1024, trustProxy: config.security.trustProxy }),
     { logger: options.logger ?? ["error", "warn", "log"] },
   );
+  // La guardia va PRIMERO: los ganchos corren en orden de registro, y ni el CORS ni el límite de uso ni el
+  // procesado del cuerpo deben ocurrir para una petición que ya se sabe ajena.
+  await registerBrowserGuard(app, config);
   await app.register(multipart, {
     limits: {
       files: 1,
@@ -37,6 +42,49 @@ export async function createApp(
   await registerRateLimit(app, config);
   app.enableShutdownHooks();
   return app;
+}
+
+/**
+ * Defensa frente a páginas ajenas (H10): Host, Origin y Sec-Fetch-Site (ver request-guard.ts), CORS con lista
+ * cerrada y cabeceras de seguridad. Sin ALLOWED_ORIGINS no se registra CORS: el API solo responde a su propio origen.
+ */
+async function registerBrowserGuard(app: NestFastifyApplication, config: AppConfig): Promise<void> {
+  const { allowedOrigins, allowedHosts } = config.security;
+  const fastify = app.getHttpAdapter().getInstance();
+
+  fastify.addHook("onRequest", async (request, reply) => {
+    const verdict = evaluate(
+      {
+        method: request.method,
+        path: request.url,
+        host: request.headers.host,
+        origin: request.headers.origin,
+        secFetchSite: request.headers["sec-fetch-site"] as string | undefined,
+      },
+      { allowedOrigins, allowedHosts },
+    );
+    if (verdict === null) return;
+    // Misma forma que las excepciones de Nest, para que los clientes vean un solo formato de error.
+    const error = verdict.status === 421 ? "Misdirected Request" : "Forbidden";
+    return reply.code(verdict.status).send({ statusCode: verdict.status, message: verdict.message, error });
+  });
+
+  if (allowedOrigins.length > 0) {
+    await app.register(cors, {
+      origin: allowedOrigins,
+      methods: ["GET", "HEAD", "POST", "PUT", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "If-Match", "Authorization", "X-API-Key", "Range"],
+      exposedHeaders: ["ETag", "Content-Disposition", "Content-Range", "Content-Length", "Accept-Ranges", "Retry-After"],
+      credentials: false, // el API no usa cookies: nunca se piden credenciales cross-origin
+      maxAge: 600,
+    });
+  }
+
+  fastify.addHook("onSend", async (_request, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
+  });
 }
 
 /**
