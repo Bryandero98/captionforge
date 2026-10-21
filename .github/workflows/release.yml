@@ -6,6 +6,9 @@ on:
 
 jobs:
   build-and-publish:
+    defaults:
+      run:
+        working-directory: legacy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,4 +37,5 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          packages-dir: legacy/dist/
           password: ${{ secrets.PYPI_API_TOKEN }}
