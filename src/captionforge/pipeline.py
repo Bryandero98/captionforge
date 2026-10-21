@@ -9,6 +9,7 @@ that also has to keep serving the SSE progress stream while they run.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import tempfile
@@ -72,11 +73,48 @@ def _ffmpeg_error_detail(stderr: str, max_lines: int = 4, max_chars: int = 400) 
     return " / ".join(real_lines[-max_lines:])[:max_chars]
 
 
+# ffmpeg normally writes a progress line a couple of times a second, so a long
+# stretch of silence on stderr means it is hung, not busy. The limits below are
+# deliberately generous - they exist to stop a stuck process from holding the
+# single job slot forever, not to cap legitimate work: the first burn on a fresh
+# Windows install can build libass's font cache for minutes without printing
+# anything, and a multi-hour video can take hours in total.
+FFMPEG_STALL_TIMEOUT_SECONDS = 300.0
+FFMPEG_TOTAL_TIMEOUT_SECONDS = 6 * 3600.0
+
+# How long a process gets to exit after terminate() before it is killed outright.
+_STOP_GRACE_SECONDS = 3.0
+
+
+class FfmpegTimeoutError(RuntimeError):
+    """Raised when ffmpeg is killed for exceeding the stall or total time limit."""
+
+
+async def _stop_process(process: asyncio.subprocess.Process) -> None:
+    """Makes sure a child is gone and reaped: terminate(), then kill() if it ignores that.
+
+    A no-op when the process already exited, so it is safe to call from a `finally`
+    on every path - including the ones where the awaiting task is cancelled.
+    """
+    if process.returncode is not None:
+        return
+    for stop in (process.terminate, process.kill):
+        with contextlib.suppress(ProcessLookupError):
+            stop()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_STOP_GRACE_SECONDS)
+            return
+        except asyncio.TimeoutError:
+            continue
+
+
 async def _run_ffmpeg(
     cmd: list[str],
     *,
     on_progress: Callable[[float], None] | None = None,
     total_duration: float | None = None,
+    stall_timeout: float = FFMPEG_STALL_TIMEOUT_SECONDS,
+    total_timeout: float | None = FFMPEG_TOTAL_TIMEOUT_SECONDS,
 ) -> None:
     """Runs an ffmpeg command, optionally reporting fractional progress as it encodes.
 
@@ -85,6 +123,12 @@ async def _run_ffmpeg(
     this parameter existed (the audio-extraction call in
     run_transcription_job doesn't pass them: that step is fast enough not to
     need it, and has no natural "total duration" of its own to compare against).
+
+    The child never outlives this call: whatever ends it early - a timeout, an
+    exception from `on_progress` (e.g. the job was superseded mid-encode), or
+    the task being cancelled - the `finally` below stops it. Without that, an
+    abandoned ffmpeg keeps running with its stderr unread until the pipe
+    fills, then hangs forever holding the output file open.
     """
     process = await asyncio.create_subprocess_exec(
         *with_ffmpeg_path(cmd),
@@ -93,30 +137,52 @@ async def _run_ffmpeg(
     )
     assert process.stderr is not None  # guaranteed by stderr=PIPE above; narrows the type for mypy
 
-    stderr_chunks: list[bytes] = []
-    tail = b""
-    while True:
-        chunk = await process.stderr.read(4096)
-        if not chunk:
-            break
-        stderr_chunks.append(chunk)
-        if on_progress and total_duration:
-            tail += chunk
-            matches = _FFMPEG_TIME_RE.findall(tail)
-            if matches:
-                hours, minutes, secs, frac = matches[-1]
-                elapsed = int(hours) * 3600 + int(minutes) * 60 + int(secs) + int(frac) / 10 ** len(frac)
-                on_progress(min(elapsed / total_duration, 1.0))
-            tail = tail[-64:]  # a time= update is short and always recent; bounds tail's growth
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + total_timeout if total_timeout is not None else None
 
-    returncode = await process.wait()
-    if returncode != 0:
-        stderr = b"".join(stderr_chunks).decode(errors="replace")
-        detail = _ffmpeg_error_detail(stderr)
-        message = f"ffmpeg fallo (codigo {returncode})"
-        if detail:
-            message += f": {detail}"
-        raise RuntimeError(message)
+    def _total_timeout_error() -> FfmpegTimeoutError:
+        return FfmpegTimeoutError(f"ffmpeg superó el tiempo máximo ({total_timeout:.0f} s) y se canceló.")
+
+    try:
+        stderr_chunks: list[bytes] = []
+        tail = b""
+        while True:
+            wait = stall_timeout
+            if deadline is not None:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise _total_timeout_error()
+                wait = min(stall_timeout, remaining)
+            try:
+                chunk = await asyncio.wait_for(process.stderr.read(4096), timeout=wait)
+            except asyncio.TimeoutError:
+                if deadline is not None and loop.time() >= deadline:
+                    raise _total_timeout_error() from None
+                raise FfmpegTimeoutError(
+                    f"ffmpeg sin actividad durante {stall_timeout:.0f} s; se canceló."
+                ) from None
+            if not chunk:
+                break
+            stderr_chunks.append(chunk)
+            if on_progress and total_duration:
+                tail += chunk
+                matches = _FFMPEG_TIME_RE.findall(tail)
+                if matches:
+                    hours, minutes, secs, frac = matches[-1]
+                    elapsed = int(hours) * 3600 + int(minutes) * 60 + int(secs) + int(frac) / 10 ** len(frac)
+                    on_progress(min(elapsed / total_duration, 1.0))
+                tail = tail[-64:]  # a time= update is short and always recent; bounds tail's growth
+
+        returncode = await process.wait()
+        if returncode != 0:
+            stderr = b"".join(stderr_chunks).decode(errors="replace")
+            detail = _ffmpeg_error_detail(stderr)
+            message = f"ffmpeg fallo (codigo {returncode})"
+            if detail:
+                message += f": {detail}"
+            raise RuntimeError(message)
+    finally:
+        await _stop_process(process)
 
 
 def _transcribe_sync(
