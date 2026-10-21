@@ -1,0 +1,20 @@
+# Mantiene al día lo que está fijado por SHA o por versión de imagen (H9): sin esto, fijar las acciones
+# congelaría también sus correcciones de seguridad. Un PR semanal por ecosistema, agrupado.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /apps/ai-worker
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(docker)"

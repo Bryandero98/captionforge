@@ -4,18 +4,27 @@ on:
   release:
     types: [published]
 
+# Solo lectura por defecto; la publicación necesita su propio permiso, concedido únicamente al job que publica.
+permissions:
+  contents: read
+
 jobs:
   build-and-publish:
     defaults:
       run:
         working-directory: legacy
     runs-on: ubuntu-latest
+    # Trusted Publishing (OIDC): PyPI valida la identidad de este workflow y no hay token de larga vida que
+    # robar. El publicador se registra en PyPI (proyecto > Publishing) con este repositorio, el workflow
+    # release.yml y el entorno 'pypi'.
+    environment: pypi
     permissions:
       contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
@@ -35,7 +44,6 @@ jobs:
           fi
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
           packages-dir: legacy/dist/
-          password: ${{ secrets.PYPI_API_TOKEN }}
