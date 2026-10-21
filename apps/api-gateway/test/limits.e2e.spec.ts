@@ -39,6 +39,8 @@ async function start(security: Partial<AppConfig["security"]>): Promise<{ base: 
         maxEventStreams: 0,
         maxEventStreamsPerClient: 0,
         eventStreamMaxMs: 0,
+        allowedOrigins: [],
+        allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
         ...security,
       },
     },
