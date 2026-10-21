@@ -25,5 +25,8 @@
     "workflows:check": "node tools/check-workflows.mjs",
     "workflows:test": "node --test tools/check-workflows.test.mjs",
     "compose:check": "docker compose config --quiet && docker compose --profile app config --quiet"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
   }
 }

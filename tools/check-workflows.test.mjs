@@ -42,6 +42,41 @@ test("exige acciones fijadas por SHA completo (se admiten acciones locales y com
   assert.deepEqual(checkWorkflow("x.yml", step("./.github/actions/local")), []);
 });
 
+test("no se burla con YAML válido: comillas, formato de una línea, comentarios en columna 0 y alias", () => {
+  const job = (body) => `name: X\non: push\n${body}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n`;
+  const evasions = {
+    "valor entre comillas": job('permissions:\n  contents: "write"\n'),
+    "mapa de una línea": job('permissions: { contents: write }\n'),
+    "mapa de una línea con comillas": job('permissions: {contents: "write"}\n'),
+    "comentario en columna 0 dentro del bloque": job("permissions:\n# comentario\n  contents: write\n"),
+    "alias": `name: X\non: push\nx-p: &p\n  contents: write\npermissions: *p\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n`,
+    "write-all entre comillas": job('permissions: "write-all"\n'),
+  };
+  for (const [name, text] of Object.entries(evasions)) {
+    assert.ok(checkWorkflow("x.yml", text).length >= 1, `debía detectar: ${name}`);
+  }
+});
+
+test("las acciones sin fijar se detectan en cualquier forma de YAML y en workflows reutilizables", () => {
+  const base = "permissions:\n  contents: read\n";
+  const withSteps = (steps) => `name: X\non: push\n${base}jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n${steps}\n`;
+  assert.ok(checkWorkflow("x.yml", withSteps("      - { uses: actions/checkout@main }")).length >= 1);
+  assert.ok(checkWorkflow("x.yml", withSteps('      - uses: "actions/checkout@v4"')).length >= 1);
+  assert.ok(checkWorkflow("x.yml", withSteps("      - uses: docker://alpine:latest")).length >= 1);
+  assert.deepEqual(checkWorkflow("x.yml", withSteps(`      - uses: docker://alpine@sha256:${"a".repeat(64)}`)), []);
+  const reusable = `name: X\non: push\n${base}jobs:\n  a:\n    uses: org/repo/.github/workflows/w.yml@main\n`;
+  assert.ok(checkWorkflow("x.yml", reusable).length >= 1);
+});
+
+test("un job no puede escalar a write-all (la escritura puntual sí se permite)", () => {
+  const text = `name: X\non: push\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n    permissions: write-all\n    steps:\n      - run: echo\n`;
+  assert.ok(checkWorkflow("x.yml", text).length >= 1);
+});
+
+test("un YAML que no se puede leer es un incumplimiento, no un pase", () => {
+  assert.ok(checkWorkflow("x.yml", "name: [sin cerrar\n").length >= 1);
+});
+
 test("los workflows reales cumplen (permissions global de solo lectura y acciones fijadas por SHA)", () => {
   const folder = fileURLToPath(new URL("../.github/workflows/", import.meta.url));
   const files = readdirSync(folder).filter((name) => /\.ya?ml$/.test(name));
