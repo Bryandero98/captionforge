@@ -1,41 +1,26 @@
-# Contributing
+# Cómo contribuir
 
-## Setup
+El repositorio tiene dos partes con flujos distintos:
 
-```sh
-python -m venv .venv
-source .venv/Scripts/activate   # or .venv/bin/activate on Linux/macOS
-pip install -e ".[dev]"
-```
+- **Paquete heredado** (`legacy/`, el que se publica en PyPI): ver [legacy/CONTRIBUTING.md](legacy/CONTRIBUTING.md).
+- **Monorepo nuevo** (`packages/`, `docker/`, `tools/`, `apps/`): esta guía.
 
-## Before opening a PR
+## Antes de abrir un PR en el monorepo
 
 ```sh
-ruff check .
-ruff format --check .
-mypy src
-pytest
+npm install
+npm run contracts:check      # lo generado coincide con los esquemas
+npm run contracts:test       # Ajv y Pydantic aceptan y rechazan lo mismo
+npm run compose:check        # el compose es válido con y sin el perfil app
+npm run infra:up && npm run infra:verify && npm run smoke   # si tocaste docker/ o los contratos
+npm run infra:down
 ```
 
-## What's actually tested, and what isn't
+## Reglas
 
-- **Automated (pytest)**: `.srt`/`.vtt`/`.ass` timestamp/format edge cases
-  (including karaoke `\k` tags and ASS override-block escaping), ffmpeg
-  `argv` construction (including Windows path escaping for the
-  `subtitles=` filter), the job state machine (including the
-  concurrent-job guard), the API layer with Whisper mocked out, and -
-  `tests/test_pipeline.py` - `pipeline.py` itself against a REAL ffmpeg
-  (audio extraction, plain and karaoke burns) and a real fixture video,
-  with only Whisper stubbed. That last file exists because a real bug (a
-  dropped import causing a `NameError`) once reached a live browser check
-  without pytest ever running the actual code path - don't mock
-  `run_transcription_job`/`run_burn_job` themselves without also keeping
-  at least one test that executes them for real.
-- **Deliberately manual**: actual transcription accuracy, actual burned-in
-  caption visual/timing quality, and cross-platform ffmpeg quirks beyond
-  what the `argv` tests already cover. Run
-  `python scripts/smoke_test_pipeline.py <a real short video> --hardsub`
-  and look at the result - a passing test suite alone doesn't mean the
-  pipeline actually works, only that nothing regressed. If you touch
-  anything under `pipeline.py`, `translate.py`, or `ffmpeg_utils.py`, run
-  the smoke script against a real video before opening the PR.
+- **Los esquemas son la fuente de verdad.** Cambia `packages/contracts/schemas/*.json`, añade un
+  ejemplo válido y uno inválido en `examples/`, ejecuta `npm run contracts:gen` y sube también lo
+  generado. Un cambio incompatible crea `*.v2.json`; no se edita un `v1` publicado.
+- **Una decisión importante, un ADR** en `docs/adr/` (siguiente número libre).
+- **Secretos nunca en git.** Van en `.env` (ignorado); `.env.example` solo lista los nombres.
+- Una prueba que falla primero, y luego el arreglo.

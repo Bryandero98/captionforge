@@ -1,0 +1,81 @@
+# Arquitectura
+
+CaptionForge se separa en dos procesos que no comparten disco ni memoria: un **API Gateway** que
+atiende a las personas usuarias y un **AI Worker** que hace el trabajo pesado (Whisper, ffmpeg,
+traducción). Se hablan por una cola (Redis/BullMQ) y por un almacenamiento de objetos (S3); el
+contrato de los mensajes vive en [`packages/contracts`](../packages/contracts).
+
+```mermaid
+flowchart LR
+  U[Cliente web] -->|1. sube el video| API[API Gateway<br/>NestJS + Prisma]
+  API -->|2. guarda jobs/ID/input.ext| S3[(Almacenamiento S3)]
+  API -->|3. fila Job| PG[(PostgreSQL)]
+  API -->|4. encola transcribe / burn| R[(Redis + BullMQ)]
+  R -->|5. entrega el trabajo| W[AI Worker<br/>Python]
+  W -->|6. lee y escribe artefactos| S3
+  W -->|7. actualiza estado| PG
+  W -.->|progreso| R
+  API -.->|cancelación<br/>captionforge:cancel| R
+  API -->|8. progreso y descargas| U
+```
+
+## Quién puede qué
+
+| Actor | PostgreSQL | S3 | Redis |
+|---|---|---|---|
+| Superusuario del contenedor (`POSTGRES_USER`) | administración; solo lo ve la tarea `pg-roles` | cuenta root: solo la ve `s3-init` | — |
+| Dueño del esquema (`cf_owner`, sin superusuario) | DDL; solo lo usa `prisma migrate deploy` (servicio `migrate`) | — | — |
+| API Gateway (`cf_api`) | SELECT, INSERT, UPDATE, DELETE; sin DDL | leer, escribir (incl. multiparte) y borrar bajo `jobs/*` | encolar, escuchar eventos, publicar cancelaciones |
+| AI Worker (`cf_worker`) | SELECT; UPDATE solo de columnas concretas de `Job` | leer y escribir bajo `jobs/*`; no borra | consumir, reportar progreso, escuchar cancelaciones |
+
+Un rol comprometido no puede borrar tablas, ni leer otros usuarios de la base, ni salir de
+`jobs/` en el bucket. [`docker/verify-infra.sh`](../docker/verify-infra.sh) lo comprueba.
+
+## Contratos
+
+Cada mensaje es un esquema JSON versionado (`*.v1.json`); de ahí se generan los tipos TypeScript
+y los modelos Pydantic. Los archivos se nombran con `bucket` + `objectKey` (nunca con URLs, ver
+[ADR 0002](adr/0002-object-key-en-lugar-de-url.md)).
+
+| Mensaje | Sentido | Cola / canal |
+|---|---|---|
+| `transcribe-job` / `transcribe-result` | API → worker / worker → API | `captionforge.transcribe` |
+| `burn-job` / `burn-result` | API → worker / worker → API | `captionforge.burn` |
+| `job-progress` | worker → API | progreso del trabajo de BullMQ |
+| `job-error` | worker → API | `failedReason` del trabajo |
+| `cancel-message` | API → worker | canal Redis `captionforge:cancel` |
+
+Reglas de la cola: el `jobId` del contrato es el `jobId` de BullMQ (encolar dos veces no
+procesa dos veces), `attempts: 1` (un fallo se informa, no se repite en silencio) y el trabajo de
+quemado lleva el `etag` de `segments.json` para detectar que los subtítulos cambiaron mientras
+tanto (`SEGMENTS_CHANGED`).
+
+## Reglas del worker
+
+Detalladas y verificadas con BullMQ real en [ADR 0006](adr/0006-reglas-del-worker.md):
+
+1. Whisper y ffmpeg corren **fuera del bucle de eventos** (hilo o subproceso); si no, el candado
+   del trabajo no se renueva y BullMQ lo marca `stalled`.
+2. La cancelación es cooperativa: llega por Redis pub/sub y se traduce en la señal de aborto del
+   trabajo en curso.
+3. Todo subproceso tiene tiempo máximo y se termina en un `try/finally` (heredado de la
+   corrección del paquete `legacy`).
+4. El payload se valida en modo estricto (sin coerciones) aunque el API ya lo haya validado.
+
+## Desarrollo local y despliegue
+
+El compose declara los cinco servicios, pero `api-gateway` y `ai-worker` están en el perfil
+`app`: en desarrollo se ejecutan nativos contra la infraestructura dockerizada
+([ADR 0007](adr/0007-desarrollo-local-y-perfil-app.md)). Toda la infraestructura cabe en ~125 MB
+de RAM.
+
+## Fases
+
+| Fase | Contenido | Estado |
+|---|---|---|
+| 0 | Paquete actual a `legacy/`, PR #6 y #7 fusionados | Hecha |
+| 1 | Monorepo, contratos, compose, roles mínimos, smoke test | Hecha |
+| 2 | API Gateway NestJS + Prisma (incluye la migración que concede UPDATE por columna a `cf_worker`) | Pendiente |
+| 3 | AI Worker Python (modelo cargado una vez, reutiliza los módulos de `legacy`) | Pendiente |
+| 4 | Flujo de quemado y adaptación del cliente web | Pendiente |
+| 5 | Endurecimiento, observabilidad y despliegue | Pendiente |

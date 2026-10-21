@@ -1,0 +1,96 @@
+name: Monorepo
+
+# Contratos, infraestructura y smoke test de la reescritura distribuida. El paquete heredado
+# (legacy/) tiene su propio workflow (ci.yml).
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monorepo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Contratos (esquemas, generadores, paridad Node/Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Python 3.13: la misma versión con la que se generan y se comprueban los modelos Pydantic.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: npm ci
+
+      - name: Entorno Python del contrato
+        run: |
+          python -m venv packages/contracts/.venv
+          packages/contracts/.venv/bin/python -m pip install -r packages/contracts/requirements-dev.txt
+
+      - name: Los archivos generados están al día
+        run: npm run contracts:check
+
+      - name: Pruebas Node (Ajv estricto) y Python (Pydantic estricto) con los mismos ejemplos
+        run: npm run contracts:test
+
+  infra:
+    name: Infraestructura (compose, permisos mínimos, smoke BullMQ)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: npm ci
+
+      - name: Generar .env con secretos aleatorios (solo para esta ejecución)
+        run: |
+          for v in POSTGRES_PASSWORD CF_OWNER_DB_PASSWORD CF_API_DB_PASSWORD CF_WORKER_DB_PASSWORD REDIS_PASSWORD \
+                   S3_ROOT_PASSWORD S3_API_SECRET_KEY S3_WORKER_SECRET_KEY; do
+            echo "$v=$(openssl rand -hex 16)" >> .env
+          done
+
+      - name: Validar docker-compose.yml (infraestructura y perfil app)
+        run: npm run compose:check
+
+      - name: Levantar la infraestructura
+        run: npm run infra:up
+
+      - name: Verificar permisos (Postgres, Redis, S3)
+        run: npm run infra:verify
+
+      - name: Entorno Python del smoke test
+        run: |
+          python -m venv tools/smoke/.venv
+          tools/smoke/.venv/bin/python -m pip install -r tools/smoke/requirements.txt
+
+      - name: Smoke test Node -> Redis -> Python
+        run: npm run smoke
+
+      - name: Registros de los contenedores (si algo falló)
+        if: failure()
+        run: docker compose logs --no-color --tail 80
+
+      - name: Apagar
+        if: always()
+        run: docker compose down -v
