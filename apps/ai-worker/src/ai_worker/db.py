@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 import psycopg
@@ -34,6 +35,9 @@ class JobRepository:
             self._conn = None
 
     def _execute_sync(self, sql: str, params: tuple[Any, ...]) -> int:
+        return self._run(lambda conn: conn.execute(sql, params).rowcount)
+
+    def _run(self, action: Callable[[psycopg.Connection], Any]) -> Any:
         with self._lock:
             for attempt in range(1, _ATTEMPTS + 1):
                 try:
@@ -51,7 +55,7 @@ class JobRepository:
                             keepalives_count=3,
                             tcp_user_timeout=30000,
                         )
-                    return self._conn.execute(sql, params).rowcount
+                    return action(self._conn)
                 except psycopg.OperationalError:
                     # La conexión se cayó (reinicio de PostgreSQL, red): se reconecta y se reintenta con espera
                     # creciente. Un reinicio de unos segundos no debe costar el resultado de horas de cómputo.
@@ -65,6 +69,18 @@ class JobRepository:
 
     async def _execute(self, sql: str, *params: Any) -> int:
         return await asyncio.to_thread(self._execute_sync, sql, params)
+
+    async def live_job_ids(self, job_ids: list[str], max_age_seconds: float) -> set[str]:
+        """De `job_ids`, los que siguen RUNNING con un latido de hace menos de `max_age_seconds`."""
+        rows = await asyncio.to_thread(
+            self._run,
+            lambda conn: conn.execute(
+                f"""SELECT id::text FROM \"Job\" WHERE id::text = ANY(%s) AND status = 'RUNNING'
+                      AND \"updatedAt\" > {_NOW} - make_interval(secs => %s)""",
+                (job_ids, max_age_seconds),
+            ).fetchall(),
+        )
+        return {row[0] for row in rows}
 
     async def claim(self, job_id: str) -> bool:
         """QUEUED -> RUNNING. False si el trabajo ya no está en cola (p. ej. lo canceló la API)."""

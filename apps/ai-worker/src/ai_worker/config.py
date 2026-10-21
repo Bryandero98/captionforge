@@ -40,6 +40,9 @@ class WorkerConfig:
     # Latido del trabajo en curso: el recolector del API cierra los RUNNING sin cambios durante 20 min, y hay
     # etapas largas que no informan progreso (descargar 4 GiB, traducir miles de segmentos).
     heartbeat_seconds: float = 60.0
+    # Al recibir SIGTERM se deja este tiempo al trabajo en curso; pasado, se cierra como fallido. Debe ser menor que
+    # el stop_grace_period del contenedor, o Docker mata el proceso antes de poder escribir el estado.
+    shutdown_grace_seconds: float = 45.0
     ffmpeg_stall_timeout: float = 300.0
     ffmpeg_total_timeout: float = 6 * 3600.0
 
@@ -84,6 +87,7 @@ class WorkerConfig:
             lock_duration_ms=int(number("LOCK_DURATION_MS", 60_000, integer=True)),
             stalled_interval_ms=int(number("STALLED_INTERVAL_MS", 30_000, integer=True)),
             heartbeat_seconds=number("HEARTBEAT_SECONDS", 60.0),
+            shutdown_grace_seconds=number("SHUTDOWN_GRACE_SECONDS", 45.0),
             ffmpeg_stall_timeout=number("FFMPEG_STALL_TIMEOUT_SECONDS", 300.0),
             ffmpeg_total_timeout=number("FFMPEG_TOTAL_TIMEOUT_SECONDS", 6 * 3600.0),
         )

@@ -65,6 +65,10 @@ class AiWorker:
         self._workers: list[Worker] = []
         self._cancel_task: asyncio.Task[None] | None = None
         self._cancel_events: dict[str, threading.Event] = {}
+        # Apagado: `_stopping` deja de aceptar trabajo nuevo; `_force_stop` (creado en start, dentro del bucle)
+        # corta el trabajo en curso cuando se acaba el plazo de gracia.
+        self._stopping = False
+        self._force_stop: asyncio.Event | None = None
         # Whisper y ffmpeg usan toda la CPU: un trabajo a la vez por proceso, de cualquier cola.
         self._slot: asyncio.Semaphore | None = None
 
@@ -113,6 +117,11 @@ class AiWorker:
         self._cancel_events[job_id] = cancel
         try:
             async with self._slot:
+                if self._stopping:
+                    # Esperaba el hueco cuando empezó el apagado: no se arranca horas de cómputo para matarlas enseguida.
+                    failure = JobFailure("INTERNAL", "El worker se apagó antes de empezar el trabajo; vuelve a lanzarlo.")
+                    await self.repo.fail(job_id, failure.code, failure.message)
+                    raise Exception(failure_reason(job_id, failure))
                 return await self._execute(job, job_id, payload, signal, run, ranges, cancel)
         finally:
             self._cancel_events.pop(job_id, None)
@@ -148,14 +157,18 @@ class AiWorker:
         runner = asyncio.create_task(run(payload, progress, cancel))
         aborted = asyncio.create_task(signal.wait())
         heartbeat = asyncio.create_task(self._heartbeat(job_id, cancel))
+        forced = asyncio.create_task(self._force_stop.wait()) if self._force_stop is not None else None
         try:
-            await asyncio.wait({runner, aborted}, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait({runner, aborted, *([forced] if forced else [])}, return_when=asyncio.FIRST_COMPLETED)
             if not runner.done():
                 # Cancelación: se avisa al hilo de Whisper y se cancela la tarea (mata a ffmpeg).
                 cancel.set()
                 runner.cancel()
                 with contextlib.suppress(asyncio.CancelledError, JobCancelled, Exception):
                     await runner
+                if forced is not None and forced.done() and not aborted.done():
+                    # No lo pidió la persona usuaria: el worker se apaga. Es un fallo, no una cancelación.
+                    raise JobFailure("INTERNAL", "El worker se apagó antes de terminar el trabajo; vuelve a lanzarlo.")
                 raise JobCancelled()
             result = runner.result()
         except (JobCancelled, asyncio.CancelledError):
@@ -168,6 +181,8 @@ class AiWorker:
         finally:
             aborted.cancel()
             heartbeat.cancel()
+            if forced is not None:
+                forced.cancel()
 
         if not await self.repo.complete(job_id, result):
             # La fila ya no estaba RUNNING (la cerró el recolector o la API mientras trabajábamos): los
@@ -279,6 +294,7 @@ class AiWorker:
         return worker
 
     async def start(self) -> None:
+        self._force_stop = asyncio.Event()
         self._workers = [
             self._new_worker(self.config.queue_name, self.process),
             self._new_worker(self.config.burn_queue_name, self.process_burn),
@@ -291,9 +307,21 @@ class AiWorker:
         log.info("worker listo (colas %s y %s)", self.config.queue_name, self.config.burn_queue_name)
 
     async def stop(self) -> None:
-        """Cierre ordenado: deja terminar el trabajo en curso (stop_grace_period del contenedor)."""
-        for worker in self._workers:
-            await worker.close()
+        """Cierre ordenado: no toma trabajo nuevo, deja terminar el que está en curso hasta
+        `shutdown_grace_seconds` y, pasado el plazo, lo corta y lo cierra como fallido (con su mensaje y sin
+        dejar archivos). `Worker.close()` espera sin límite, y Docker mata el proceso a los 60 s: sin plazo, la
+        fila quedaba RUNNING y /work con restos."""
+        self._stopping = True
+        closing = asyncio.gather(*(worker.close() for worker in self._workers), return_exceptions=True)
+        try:
+            await asyncio.wait_for(asyncio.shield(closing), timeout=self.config.shutdown_grace_seconds)
+        except asyncio.TimeoutError:
+            log.warning("plazo de apagado agotado (%.0f s); se corta el trabajo en curso", self.config.shutdown_grace_seconds)
+            if self._force_stop is not None:
+                self._force_stop.set()
+            # El corte es cooperativo (hilo de Whisper, ffmpeg): se le da un margen corto para escribir el estado.
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(closing), timeout=10)
         if self._cancel_task is not None:
             self._cancel_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
