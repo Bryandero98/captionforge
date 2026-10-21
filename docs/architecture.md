@@ -61,6 +61,12 @@ Detalladas y verificadas con BullMQ real en [ADR 0006](adr/0006-reglas-del-worke
 3. Todo subproceso tiene tiempo máximo y se termina en un `try/finally` (heredado de la
    corrección del paquete `legacy`).
 4. El payload se valida en modo estricto (sin coerciones) aunque el API ya lo haya validado.
+5. Un solo trabajo pesado a la vez por proceso, aunque haya una cola por tipo (transcribir y
+   quemar comparten el mismo hueco). Se escala con más réplicas, no con más concurrencia.
+6. El estado del trabajo se escribe con transiciones condicionales (`UPDATE ... WHERE status = ...`):
+   el API que cancela y el worker que toma el trabajo compiten con la misma condición y gana uno solo.
+7. El quemado lee `segments.json` con `If-Match`: si los subtítulos se editaron después de pedir el
+   quemado, falla con `SEGMENTS_CHANGED` en lugar de quemar algo que nadie aprobó.
 
 ## Desarrollo local y despliegue
 
@@ -76,6 +82,7 @@ de RAM.
 | 0 | Paquete actual a `legacy/`, PR #6 y #7 fusionados | Hecha |
 | 1 | Monorepo, contratos, compose, roles mínimos, smoke test | Hecha |
 | 2 | API Gateway NestJS + Prisma (incluye la migración que concede UPDATE por columna a `cf_worker`) | Hecha |
-| 3 | AI Worker Python (modelo cargado una vez, reutiliza los módulos de `legacy`) | Pendiente |
-| 4 | Flujo de quemado y adaptación del cliente web | Pendiente |
-| 5 | Endurecimiento, observabilidad y despliegue | Pendiente |
+| 3 | AI Worker Python (modelo cargado una vez, reutiliza los módulos de `legacy`, [ADR 0009](adr/0009-worker-reutiliza-el-paquete-heredado.md)) | Hecha |
+| 4a | Flujo de quemado: edición de subtítulos, cola `burn`, descarga con `Range` | Hecha |
+| 4b | Adaptación del cliente web al nuevo API | Pendiente |
+| 5 | Endurecimiento (autenticación, límites de uso, recolector de trabajos huérfanos), observabilidad y despliegue | Pendiente |

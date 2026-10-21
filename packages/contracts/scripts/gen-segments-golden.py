@@ -55,6 +55,6 @@ out = {
         for t, a, b in REDISTRIBUTE_CASES
     ],
 }
-with open("packages/contracts/examples/segments-golden.json", "w", encoding="utf-8") as handle:
+with open("packages/contracts/examples/segments-golden.json", "w", encoding="utf-8", newline="\n") as handle:
     handle.write(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
 print(len(out["srt"]), "casos SRT,", len(out["redistribute"]), "casos de reparto")
