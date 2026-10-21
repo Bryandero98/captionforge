@@ -77,21 +77,25 @@ def find_ffmpeg() -> str | None:
 # archivos que sube cualquiera, y un fallo en un decodificador no debe regalarle los secretos del worker.
 _FFMPEG_ENV_ALLOWED = frozenset(
     {
-        "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC",  # Windows y busqueda de ejecutables
+        "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "PROGRAMDATA", "WINDIR", "COMSPEC",  # Windows y busqueda de ejecutables
         "TEMP", "TMP", "TMPDIR",
         "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA",  # cache de fontconfig
         "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_DATA_DIRS",
         "FONTCONFIG_FILE", "FONTCONFIG_PATH",
-        "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
         "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ",
     }
 )
 
 
 def ffmpeg_env() -> dict[str, str]:
-    """Entorno minimo para el subproceso de ffmpeg: solo lo de `_FFMPEG_ENV_ALLOWED` (lista blanca)."""
-    allowed = {name.upper() for name in _FFMPEG_ENV_ALLOWED}
-    return {name: value for name, value in os.environ.items() if name.upper() in allowed}
+    """Entorno minimo para el subproceso de ffmpeg: solo lo de `_FFMPEG_ENV_ALLOWED` (lista blanca).
+
+    Limite conocido: protege contra la herencia accidental, no contra un ffmpeg ya comprometido que corra con
+    el mismo usuario (podria leer /proc/<padre>/environ). Eso exige otro usuario o contenedor para ffmpeg.
+    """
+    # Windows guarda los nombres en mayusculas y no distingue; en Linux/macOS si, y "path" no es "PATH".
+    fold = (lambda name: name.upper()) if os.name == "nt" else (lambda name: name)
+    return {name: value for name, value in os.environ.items() if fold(name) in _FFMPEG_ENV_ALLOWED}
 
 
 def with_ffmpeg_path(cmd: list[str]) -> list[str]:

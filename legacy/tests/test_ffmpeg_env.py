@@ -48,6 +48,21 @@ def test_pipeline_ffmpeg_does_not_inherit_secrets(secrets_in_environment, monkey
     assert _leaked(dump) == []
 
 
+def test_child_still_receives_what_it_needs_to_start(secrets_in_environment, monkeypatch, tmp_path):
+    dump = tmp_path / "env.json"
+    monkeypatch.setenv("PATH", "/ruta/de/prueba" if sys.platform != "win32" else __import__("os").environ["PATH"])
+    monkeypatch.setattr(pipeline, "with_ffmpeg_path", lambda cmd: cmd)
+
+    asyncio.run(pipeline._run_ffmpeg([sys.executable, "-c", _DUMP_ENV, str(dump)]))
+
+    child = json.loads(dump.read_text())
+    assert "PATH" in child
+    if sys.platform == "win32":
+        assert "SYSTEMROOT" in child  # sin ella Python/ffmpeg no arrancan en Windows
+        # sin SYSTEMDRIVE/PROGRAMDATA Windows crea cachés en una carpeta literal "%SystemDrive%" dentro del cwd
+        assert "SYSTEMDRIVE" in child and "PROGRAMDATA" in child
+
+
 def test_waveform_ffmpeg_does_not_inherit_secrets(secrets_in_environment, monkeypatch, tmp_path):
     dump = tmp_path / "env.json"
     monkeypatch.setattr(waveform, "with_ffmpeg_path", lambda cmd: [sys.executable, "-c", _DUMP_ENV, str(dump)])
@@ -72,6 +87,21 @@ class TestFfmpegEnv:
         assert env["TMPDIR"] == "/tmp/trabajo"
         assert env["FONTCONFIG_PATH"] == "/etc/fonts"
         assert env["LANG"] == "C.UTF-8"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="en Windows los nombres no distinguen mayusculas")
+    def test_names_are_case_sensitive_outside_windows(self, monkeypatch):
+        monkeypatch.setenv("path", "/otra")
+        monkeypatch.setenv("home", "/otra")
+
+        env = ffmpeg_locator.ffmpeg_env()
+
+        assert "path" not in env and "home" not in env
+
+    def test_does_not_pass_library_search_paths(self, monkeypatch):
+        monkeypatch.setenv("LD_LIBRARY_PATH", "/escribible")
+        monkeypatch.setenv("DYLD_LIBRARY_PATH", "/escribible")
+
+        assert not {"LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"} & set(ffmpeg_locator.ffmpeg_env())
 
     def test_drops_everything_else(self, secrets_in_environment, monkeypatch):
         monkeypatch.setenv("ALGO_RARO", "x")
