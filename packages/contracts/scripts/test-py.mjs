@@ -9,4 +9,5 @@ const result = spawnSync(contractsPython(), ["-m", "pytest", "python-tests", "-q
   // Que importar los modelos generados no deje __pycache__ dentro de generated/.
   env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
 });
+if (result.error) console.error(`No se pudo ejecutar Python (${contractsPython()}): ${result.error.message}`);
 process.exit(result.status ?? 1);

@@ -8,7 +8,13 @@
  * Error estructurado que el worker guarda en PostgreSQL (y serializa en failedReason).
  */
 export interface JobError {
-  schemaVersion: 1;
+  /**
+   * Siempre 1 en este esquema.
+   */
+  schemaVersion: number;
+  /**
+   * UUID en minúsculas con guiones (la forma que produce randomUUID() y uuid() de Prisma).
+   */
   jobId: string;
   errorCode:
     | "FFMPEG_FAILED"

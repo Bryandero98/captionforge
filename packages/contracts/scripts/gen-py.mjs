@@ -65,8 +65,9 @@ export function generatePython(outDir) {
       ],
       { encoding: "utf8" },
     );
-    if (result.status !== 0) {
-      throw new Error(`datamodel-codegen falló en ${name}:\n${result.stderr || result.stdout}`);
+    if (result.error || result.status !== 0) {
+      const causa = result.error ? String(result.error) : result.stderr || result.stdout;
+      throw new Error(`datamodel-codegen falló en ${name}:\n${causa}`);
     }
     exports.push({ module, title: schema.title });
   }

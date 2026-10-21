@@ -8,7 +8,13 @@
  * returnvalue del trabajo de quemado de subtítulos.
  */
 export interface BurnResult {
-  schemaVersion: 1;
+  /**
+   * Siempre 1 en este esquema.
+   */
+  schemaVersion: number;
+  /**
+   * UUID en minúsculas con guiones (la forma que produce randomUUID() y uuid() de Prisma).
+   */
   jobId: string;
   /**
    * false si se pidió karaoke pero ningún segmento conservaba tiempos por palabra.

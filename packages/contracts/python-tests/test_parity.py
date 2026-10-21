@@ -38,6 +38,17 @@ def _examples(kind: str) -> list[Path]:
     return sorted((EXAMPLES / kind).glob("*.json"))
 
 
+def test_every_message_schema_has_valid_and_invalid_examples() -> None:
+    # Si faltara la carpeta de ejemplos, las pruebas parametrizadas quedarían vacías y pytest
+    # saldría en verde sin probar nada: esto lo impide (igual que hace el lado Node).
+    schemas = sorted(p.stem for p in SCHEMAS.glob("*.json") if not p.name.startswith("common."))
+    assert len(schemas) >= 7
+    for schema in schemas:
+        for kind in ("valid", "invalid"):
+            found = [e for e in _examples(kind) if _schema_name(e) == schema]
+            assert found, f"{schema}: falta al menos un ejemplo en examples/{kind}"
+
+
 def _normalize(value):
     """Pydantic serializa fechas como ...Z sin ceros de milisegundos: se compara por instante."""
     if isinstance(value, dict):

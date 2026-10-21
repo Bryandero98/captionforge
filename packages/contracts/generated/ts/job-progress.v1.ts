@@ -8,7 +8,10 @@
  * Valor que el worker pasa a job.updateProgress() y refleja en PostgreSQL.
  */
 export interface JobProgress {
-  schemaVersion: 1;
+  /**
+   * Siempre 1 en este esquema.
+   */
+  schemaVersion: number;
   stage:
     | "downloading_input"
     | "extracting_audio"

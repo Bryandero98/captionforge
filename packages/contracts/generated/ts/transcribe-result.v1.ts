@@ -8,7 +8,13 @@
  * returnvalue del trabajo de transcripción.
  */
 export interface TranscribeResult {
-  schemaVersion: 1;
+  /**
+   * Siempre 1 en este esquema.
+   */
+  schemaVersion: number;
+  /**
+   * UUID en minúsculas con guiones (la forma que produce randomUUID() y uuid() de Prisma).
+   */
   jobId: string;
   /**
    * Código ISO 639-1 (o 639-3 de tres letras, como los que acepta Whisper).

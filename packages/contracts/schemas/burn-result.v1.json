@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "jobId", "usedKaraoke", "artifacts"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "description": "Siempre 1 en este esquema.", "type": "integer", "minimum": 1, "maximum": 1 },
     "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
     "usedKaraoke": {
       "description": "false si se pidió karaoke pero ningún segmento conservaba tiempos por palabra.",

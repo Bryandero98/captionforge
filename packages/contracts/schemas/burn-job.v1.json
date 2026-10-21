@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "jobId", "requestedAt", "input", "segments", "outputPrefix", "options"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "description": "Siempre 1 en este esquema.", "type": "integer", "minimum": 1, "maximum": 1 },
     "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
     "requestedAt": { "$ref": "common.v1.json#/$defs/IsoDateTime" },
     "input": { "$ref": "common.v1.json#/$defs/ObjectRef" },

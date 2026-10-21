@@ -4,14 +4,19 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Literal
-from uuid import UUID
+from typing import Annotated
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
-class IsoDateTime(RootModel[AwareDatetime]):
-    root: AwareDatetime
+class IsoDateTime(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            description='Fecha y hora ISO 8601 con zona obligatoria (Z o ±hh:mm); sin segundos intercalares. Se define solo por patrón (sin format: date-time) para que Ajv y Pydantic acepten exactamente lo mismo: Pydantic no puede aplicar un patrón a un datetime.',
+            pattern='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$',
+        ),
+    ]
 
 
 class ObjectPrefix(RootModel[str]):
@@ -130,8 +135,16 @@ class BurnResult(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    schemaVersion: Literal[1]
-    jobId: UUID
+    schemaVersion: Annotated[
+        int, Field(description='Siempre 1 en este esquema.', ge=1, le=1)
+    ]
+    jobId: Annotated[
+        str,
+        Field(
+            description='UUID en minúsculas con guiones (la forma que produce randomUUID() y uuid() de Prisma).',
+            pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        ),
+    ]
     usedKaraoke: Annotated[
         bool,
         Field(

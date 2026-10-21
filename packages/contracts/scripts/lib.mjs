@@ -1,6 +1,5 @@
 // Utilidades compartidas por los generadores y las pruebas del contrato.
-import { readdirSync, readFileSync } from "node:fs";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,7 +27,10 @@ export function pythonModuleName(schemaName) {
 
 /** true si el módulo actual es el script que se ejecutó (no un import). */
 export function isMain(moduleUrl) {
-  return process.argv[1] !== undefined && fileURLToPath(moduleUrl) === resolve(process.argv[1]);
+  if (process.argv[1] === undefined) return false;
+  // realpath en ambos lados: con enlaces simbólicos (macOS /var, workspaces) o distinta mayúscula de
+  // unidad en Windows las rutas no coincidirían y el script saldría en silencio con código 0.
+  return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(resolve(process.argv[1]));
 }
 
 /** Python del venv del contrato (o CONTRACTS_PYTHON). Falla con un mensaje claro si no existe. */

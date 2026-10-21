@@ -43,3 +43,13 @@ La paridad se prueba con **los mismos ejemplos** (`examples/valid` e `invalid`) 
   regulares (Rust) que no lo soporta, y Ajv (JavaScript) sí; un patrón que solo funcione en uno rompe
   la paridad.
 - Los cambios incompatibles crean `*.v2.json`; un `v1` publicado no se edita.
+- Los patrones usan `[0-9]` y no `\d`: en Pydantic (motor Rust) `\d` acepta dígitos Unicode y en
+  JavaScript no. Las fechas (`IsoDateTime`) se definen solo por patrón, sin `format: date-time`,
+  porque Pydantic no puede aplicar un patrón a un `datetime`; el worker las parsea si las necesita.
+- `schemaVersion` es un entero acotado (`minimum` = `maximum` = 1) y no un `const`: con `const`, el
+  `Literal[1]` de Pydantic acepta `true`.
+- Asimetría conocida y aceptada: Ajv recibe números ya parseados por JavaScript, que no distingue
+  `1024.0` de `1024`; Pydantic (JSON estricto) rechaza `1024.0` para un entero. No importa en la
+  práctica: `JSON.stringify` nunca emite `1024.0`, y el lado estricto es el del worker.
+- Revisión independiente: los casos de divergencia medidos (UUID sin guiones o con llaves, `true`
+  como versión, fecha con zona `+01`, segundo intercalar) están ahora como ejemplos inválidos.

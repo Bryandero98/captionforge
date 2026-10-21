@@ -8,8 +8,17 @@
  * Payload de la cola captionforge.burn: quema subtítulos ya aprobados sobre el video original.
  */
 export interface BurnJob {
-  schemaVersion: 1;
+  /**
+   * Siempre 1 en este esquema.
+   */
+  schemaVersion: number;
+  /**
+   * UUID en minúsculas con guiones (la forma que produce randomUUID() y uuid() de Prisma).
+   */
   jobId: string;
+  /**
+   * Fecha y hora ISO 8601 con zona obligatoria (Z o ±hh:mm); sin segundos intercalares. Se define solo por patrón (sin format: date-time) para que Ajv y Pydantic acepten exactamente lo mismo: Pydantic no puede aplicar un patrón a un datetime.
+   */
   requestedAt: string;
   input: ObjectRef;
   segments: VersionedObjectRef;
