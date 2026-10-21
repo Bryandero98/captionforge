@@ -38,8 +38,11 @@ cerrada (`apps/api-gateway/src/security/request-guard.ts`, gancho `onRequest` de
    segunda línea por si algún cliente omite `Origin`. Las lecturas (`GET`, `HEAD`) no se bloquean por esta señal:
    un enlace de descarga desde otra página es legítimo.
 
-`/health` queda exento de las tres: los sondeos del orquestador llegan con el `Host` del pod o del balanceador y
-no exponen datos.
+`/health` solo queda exento para los **sondeos reales**: `GET` o `HEAD` sin `Origin` y sin `Sec-Fetch-Site`
+`cross-site`/`same-site`. Los sondeos del orquestador llegan con el `Host` del pod o del balanceador. Una página
+ajena con `<img src=".../health">` sí envía esas señales, así que recibe 403 antes de que se ejecute `SELECT 1` ni
+los pings a Redis y S3; además `/health` tiene su propio contador de uso (600 por minuto y cliente) en lugar de
+quedar fuera del límite.
 
 **CORS** (`@fastify/cors`) se registra **solo si `ALLOWED_ORIGINS` no está vacío**, con la misma lista, métodos
 `GET, HEAD, POST, PUT, OPTIONS`, cabeceras `Content-Type, If-Match, Authorization, X-API-Key, Range`, sin
@@ -53,6 +56,10 @@ la suya, `Cache-Control: no-store`.
 
 La guardia se registra **antes** que multipart, CORS y el límite de uso: una petición ya identificada como ajena
 no debe consumir cuota ni procesar su cuerpo.
+
+Las respuestas 403 y 421 llevan `connection: close`: el cuerpo de la petición rechazada no se lee y la conexión no
+se reutiliza. Los mensajes de error son fijos y no reflejan el `Host` ni el `Origin` recibidos. Al arrancar, el API
+registra la política efectiva (hosts y orígenes aceptados) para que un error de configuración se vea en el log.
 
 ## Alternativas consideradas
 
@@ -80,13 +87,18 @@ no debe consumir cuota ni procesar su cuerpo.
   puerto). El compose lo deja explícito en una variable.
 - **Cliente web (fase 4b):** al servirse desde otro origen (p. ej. `http://localhost:5173` en desarrollo) hay que
   añadirlo a `ALLOWED_ORIGINS`. Servido por el propio API, no hace falta.
-- **Detrás de un proxy:** `Host` es el que llega al API. Si el proxy lo reescribe, hay que listar ese nombre; con
+- **Detrás de un proxy:** el proxy debe **reenviar el `Host` original** (en nginx, `proxy_set_header Host $host`).
+  La guardia lee únicamente `Host`: no usa `X-Forwarded-Host`, porque cualquier cliente puede enviarlo y se
+  convertiría en una vía para eludir la comprobación. Si el proxy lo reescribe, hay que listar ese nombre; con
   `TRUST_PROXY` en `true` la IP del cliente sale de `X-Forwarded-For` y se puede falsificar (ver ADR 0010), pero
   esta guardia no depende de ella.
 - **Cuando llegue la autenticación de personas usuarias con cookies (fase 5b)** la premisa de esta decisión
   cambia: las cookies serán `SameSite=Lax` o `Strict`, `HttpOnly` y `Secure`, y las peticiones que modifican
   llevarán además un token anti-CSRF (o exigirán una cabecera propia, que fuerza el preflight). La comprobación de
   `Origin` de esta guardia se mantiene como defensa en profundidad.
+- **Acceso a redes privadas:** el API no responde `Access-Control-Allow-Private-Network`. Los navegadores que
+  aplican Private Network Access bloquean que una página pública llegue a `127.0.0.1` en el preflight; no se
+  habilita a propósito y no hace falta para el cliente web, que se sirve desde un origen listado.
 - **Pruebas:** la función `evaluate` se prueba de forma exhaustiva (`test/request-guard.spec.ts`) y el
   comportamiento completo contra el API real (`test/origin.e2e.spec.ts`): un POST multipart con `Origin` ajeno
   devolvía 202 y ahora 403 sin crear el trabajo.

@@ -119,6 +119,45 @@ describe("CSRF: un POST de otra página no llega a crear trabajos", () => {
   });
 });
 
+describe("respuestas de la guardia", () => {
+  it("el 403 y el 421 cierran la conexión: el cuerpo sin leer no deja un keep-alive abierto", async () => {
+    const { port } = await start();
+    const forbidden = await send(port, "POST", "/v1/jobs/transcribe", { origin: "http://evil.example" });
+    const misdirected = await send(port, "GET", `/v1/jobs/${randomUUID()}`, { host: "evil.example" });
+    expect(forbidden.headers.connection).toBe("close");
+    expect(misdirected.headers.connection).toBe("close");
+    expect(JSON.parse(forbidden.body)).toEqual({ statusCode: 403, message: "Origen no permitido.", error: "Forbidden" });
+  });
+
+  it("el mensaje de error no refleja el Host ni el Origin recibidos", async () => {
+    const { port } = await start();
+    const reply = await send(port, "GET", `/v1/jobs/${randomUUID()}`, { host: "<script>alert(1)</script>.example" });
+    expect(reply.body).not.toContain("script");
+  });
+});
+
+describe("/health y el navegador", () => {
+  it("un sondeo (sin Origin ni Sec-Fetch-Site) responde con cualquier Host", async () => {
+    const { port } = await start();
+    expect((await send(port, "GET", "/health", { host: "10.9.8.7:3000" })).status).toBe(200);
+  });
+
+  it("<img src=/health> desde otra página (Sec-Fetch-Site: cross-site) o con Origin ajeno se rechaza antes de tocar la base de datos", async () => {
+    const { port, prisma } = await start();
+    const query = vi.spyOn(prisma, "$queryRaw");
+    expect((await send(port, "GET", "/health", { "sec-fetch-site": "cross-site" })).status).toBe(403);
+    expect((await send(port, "GET", "/health", { origin: "http://evil.example" })).status).toBe(403);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("el cliente web autorizado puede consultarlo con CORS", async () => {
+    const { port } = await start({ allowedOrigins: [WEB] });
+    const reply = await send(port, "GET", "/health", { origin: WEB });
+    expect(reply.status).toBe(200);
+    expect(reply.headers["access-control-allow-origin"]).toBe(WEB);
+  });
+});
+
 describe("DNS rebinding: Host ajeno", () => {
   it("421 con un Host que no está en ALLOWED_HOSTS, también con lecturas", async () => {
     const { port } = await start();

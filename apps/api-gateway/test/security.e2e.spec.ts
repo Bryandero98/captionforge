@@ -82,6 +82,18 @@ describe("clave de API (API_KEY)", () => {
 });
 
 describe("límite de uso", () => {
+  it("/health tiene su propio contador con un tope alto (600 por minuto): ya no es una vía libre para martillear la base de datos", async () => {
+    const base = await start({ rateLimitPerMinute: 5, uploadRateLimitPerMinute: 0 });
+    const codes: number[] = [];
+    for (let batch = 0; batch < 13; batch++) {
+      codes.push(...(await Promise.all(Array.from({ length: 50 }, () => fetch(`${base}/health`).then((r) => r.status)))));
+    }
+    expect(codes.filter((code) => code === 200).length).toBe(600);
+    expect(codes.filter((code) => code === 429).length).toBe(50);
+    // El contador general de la persona usuaria no se gastó con los sondeos.
+    expect((await fetch(`${base}/v1/jobs/00000000-0000-4000-8000-000000000000`)).status).toBe(404);
+  });
+
   it("responde 429 con mensaje en español al pasar el máximo por minuto, y /health no cuenta", async () => {
     const base = await start({ rateLimitPerMinute: 5 });
     const path = `${base}/v1/jobs/00000000-0000-4000-8000-000000000000`;

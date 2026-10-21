@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluate, hostnameOf, type RequestInfo } from "../src/security/request-guard.js";
+import { describePolicy, evaluate, hostnameOf, type RequestInfo } from "../src/security/request-guard.js";
 
 const policy = { allowedOrigins: ["http://localhost:5173"], allowedHosts: ["localhost", "127.0.0.1", "[::1]"] };
 const request = (overrides: Partial<RequestInfo> = {}): RequestInfo => ({
@@ -38,8 +38,25 @@ describe("evaluate: Host (anti DNS rebinding)", () => {
     (host) => expect(evaluate(request({ host }), policy)).toMatchObject({ status: 421 }),
   );
 
-  it("/health queda exento (los sondeos del orquestador usan otro Host)", () => {
-    expect(evaluate(request({ method: "GET", path: "/health", host: "10.0.0.5:3000", origin: "http://evil.example" }), policy)).toBeNull();
+  it("/health queda exento para los sondeos del orquestador (GET o HEAD sin Origin, con cualquier Host)", () => {
+    for (const method of ["GET", "HEAD"]) {
+      expect(evaluate(request({ method, path: "/health", host: "10.0.0.5:3000" }), policy), method).toBeNull();
+    }
+    expect(evaluate(request({ method: "GET", path: "/health?x=1", host: "10.0.0.5:3000" }), policy)).toBeNull();
+    expect(evaluate(request({ method: "GET", path: "/health", host: "10.0.0.5:3000", secFetchSite: "none" }), policy)).toBeNull();
+  });
+
+  it("/health NO queda exento para el navegador: un sondeo no lleva Origin ni Sec-Fetch-Site de otro sitio", () => {
+    // <img src="http://127.0.0.1:3000/health"> desde una página ajena: cada petición ejecuta SELECT 1 y pings a Redis y S3.
+    expect(evaluate(request({ method: "GET", path: "/health", secFetchSite: "cross-site" }), policy)).toMatchObject({ status: 403 });
+    expect(evaluate(request({ method: "GET", path: "/health", secFetchSite: "same-site" }), policy)).toMatchObject({ status: 403 });
+    expect(evaluate(request({ method: "GET", path: "/health", origin: "http://evil.example" }), policy)).toMatchObject({ status: 403 });
+    // Con DNS rebinding el Host es el del atacante: también 421.
+    expect(evaluate(request({ method: "GET", path: "/health", host: "evil.example", origin: "http://evil.example" }), policy)).toMatchObject({ status: 421 });
+  });
+
+  it("el cliente web autorizado sí puede consultar /health (Origin permitido)", () => {
+    expect(evaluate(request({ method: "GET", path: "/health", origin: "http://localhost:5173", secFetchSite: "same-site" }), policy)).toBeNull();
   });
 });
 
@@ -94,5 +111,12 @@ describe("evaluate: Sec-Fetch-Site", () => {
   it("un origen permitido pasa aunque sea cross-site (el cliente web en otro puerto o dominio)", () => {
     expect(evaluate(request({ origin: "http://localhost:5173", secFetchSite: "same-site" }), policy)).toBeNull();
     expect(evaluate(request({ origin: "http://localhost:5173", secFetchSite: "cross-site" }), policy)).toBeNull();
+  });
+});
+
+describe("describePolicy", () => {
+  it("resume en una línea qué hosts y orígenes se aceptan, para el registro de arranque", () => {
+    expect(describePolicy(policy)).toBe("hosts: localhost, 127.0.0.1, [::1]; orígenes de navegador: http://localhost:5173");
+    expect(describePolicy({ allowedHosts: ["localhost"], allowedOrigins: [] })).toBe("hosts: localhost; orígenes de navegador: ninguno (solo mismo origen)");
   });
 });

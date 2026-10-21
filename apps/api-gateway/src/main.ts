@@ -3,7 +3,7 @@ import "reflect-metadata";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-import { HttpException, type LogLevel } from "@nestjs/common";
+import { HttpException, Logger, type LogLevel } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import multipart from "@fastify/multipart";
@@ -14,7 +14,7 @@ import type { FastifyRequest } from "fastify";
 import { AppModule } from "./app.module.js";
 import { type AppConfig, loadConfig } from "./config/config.js";
 import { clientKey } from "./security/client-key.js";
-import { evaluate } from "./security/request-guard.js";
+import { describePolicy, evaluate } from "./security/request-guard.js";
 
 export async function createApp(
   config: AppConfig,
@@ -66,7 +66,8 @@ async function registerBrowserGuard(app: NestFastifyApplication, config: AppConf
     if (verdict === null) return;
     // Misma forma que las excepciones de Nest, para que los clientes vean un solo formato de error.
     const error = verdict.status === 421 ? "Misdirected Request" : "Forbidden";
-    return reply.code(verdict.status).send({ statusCode: verdict.status, message: verdict.message, error });
+    // `connection: close`: el cuerpo de la petición rechazada no se lee, así que la conexión no se reutiliza.
+    return reply.code(verdict.status).header("connection", "close").send({ statusCode: verdict.status, message: verdict.message, error });
   });
 
   if (allowedOrigins.length > 0) {
@@ -97,6 +98,10 @@ const isUpload = (request: FastifyRequest): boolean => {
   return request.method === "POST" && (route === "/v1/jobs/transcribe" || route === "/v1/jobs/:id/burn");
 };
 
+/** /health tiene contador propio y holgado: ya no es una vía libre para martillear la base de datos, Redis y S3. */
+const HEALTH_LIMIT_PER_MINUTE = 600;
+const isHealth = (request: FastifyRequest): boolean => request.routeOptions?.url === "/health";
+
 /**
  * Límite de peticiones por IP. Las subidas tienen su propio tope y su propio contador: subir un video
  * es lo caro (ancho de banda, S3, cola), y un cliente que consulta el estado cada segundo no debe
@@ -106,13 +111,17 @@ const isUpload = (request: FastifyRequest): boolean => {
 async function registerRateLimit(app: NestFastifyApplication, config: AppConfig): Promise<void> {
   const { rateLimitPerMinute, uploadRateLimitPerMinute } = config.security;
   if (rateLimitPerMinute === 0 && uploadRateLimitPerMinute === 0) return;
-  const limitFor = (request: FastifyRequest): number => (isUpload(request) ? uploadRateLimitPerMinute : rateLimitPerMinute);
+  const limitFor = (request: FastifyRequest): number => {
+    if (isHealth(request)) return rateLimitPerMinute === 0 ? 0 : HEALTH_LIMIT_PER_MINUTE;
+    return isUpload(request) ? uploadRateLimitPerMinute : rateLimitPerMinute;
+  };
+  const bucketOf = (request: FastifyRequest): string => (isHealth(request) ? "salud" : isUpload(request) ? "subida" : "api");
   await app.register(rateLimit, {
     global: true,
     timeWindow: "1 minute",
     max: (request) => limitFor(request),
-    keyGenerator: (request) => `${isUpload(request) ? "subida" : "api"}:${clientKey(request.ip)}`,
-    allowList: (request) => request.url.split("?")[0] === "/health" || limitFor(request) === 0,
+    keyGenerator: (request) => `${bucketOf(request)}:${clientKey(request.ip)}`,
+    allowList: (request) => limitFor(request) === 0,
     // HttpException: Nest lo responde como un 429 normal en lugar de registrarlo como error interno.
     errorResponseBuilder: (_request, context) =>
       new HttpException(`Demasiadas peticiones. Inténtalo de nuevo en ${Math.ceil(context.ttl / 1000)} s.`, 429),
@@ -123,6 +132,8 @@ async function bootstrap(): Promise<void> {
   const config = loadConfig();
   const app = await createApp(config);
   await app.listen(config.port, config.host);
+  // La política efectiva queda en el registro: un ALLOWED_HOSTS o ALLOWED_ORIGINS mal puesto se ve al arrancar.
+  new Logger("Seguridad").log(`Política de navegador activa — ${describePolicy(config.security)}`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

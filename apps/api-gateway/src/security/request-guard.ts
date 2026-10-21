@@ -68,9 +68,22 @@ function normalizeOrigin(origin: string): string | undefined {
   }
 }
 
+/** Resumen de una línea de lo que se acepta, para el registro de arranque: la política efectiva queda a la vista. */
+export function describePolicy(policy: Policy): string {
+  const origins = policy.allowedOrigins.length > 0 ? policy.allowedOrigins.join(", ") : "ninguno (solo mismo origen)";
+  return `hosts: ${policy.allowedHosts.join(", ")}; orígenes de navegador: ${origins}`;
+}
+
 export function evaluate(info: RequestInfo, policy: Policy): Verdict {
-  // Los sondeos de salud del orquestador llegan con el Host del pod o del balanceador.
-  if (info.path.split("?")[0] === "/health") return null;
+  const site = info.secFetchSite?.toLowerCase();
+  const fromAnotherSite = site === "cross-site" || site === "same-site";
+  const method = info.method.toUpperCase();
+
+  // Los sondeos de salud del orquestador llegan con el Host del pod o del balanceador. Solo se eximen los
+  // sondeos reales (GET o HEAD sin Origin ni marca de otro sitio): una página ajena con <img src="…/health">
+  // sí envía Sec-Fetch-Site y no debe poder lanzar consultas a la base de datos, Redis y S3.
+  const isHealth = info.path.split("?")[0] === "/health";
+  if (isHealth && info.origin === undefined && !fromAnotherSite && (method === "GET" || method === "HEAD")) return null;
 
   const hostname = hostnameOf(info.host);
   if (hostname === undefined || !policy.allowedHosts.includes(hostname)) {
@@ -83,8 +96,8 @@ export function evaluate(info: RequestInfo, policy: Policy): Verdict {
     return allowed ? null : { status: 403, message: "Origen no permitido." };
   }
 
-  const site = info.secFetchSite?.toLowerCase();
-  if (!SAFE_METHODS.has(info.method.toUpperCase()) && (site === "cross-site" || site === "same-site")) {
+  // Las lecturas de otro sitio (enlaces, descargas) pasan; las que modifican y /health no.
+  if ((isHealth || !SAFE_METHODS.has(method)) && fromAnotherSite) {
     return { status: 403, message: "Petición de otro sitio no permitida." };
   }
   return null;
