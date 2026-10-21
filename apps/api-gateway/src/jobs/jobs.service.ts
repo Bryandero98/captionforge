@@ -10,12 +10,13 @@ import {
 import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 
-import type { TranscribeJob } from "@captionforge/contracts/types";
+import type { BurnJob, TranscribeJob } from "@captionforge/contracts/types";
 import { ContractViolation, assertContract } from "../contracts/validators.js";
 import { Prisma, type Job, type JobStatus } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { QueueService } from "../queue/queue.service.js";
 import { StorageService } from "../storage/storage.service.js";
+import { type Segment, SegmentsError, applyEdits, parseEdits, parseSegments, segmentsToSrt } from "./segments.js";
 
 export const ALLOWED_CONTENT_TYPES = [
   "video/mp4",
@@ -40,6 +41,8 @@ export interface TranscriptionUpload {
 export interface JobView {
   id: string;
   kind: Job["kind"];
+  /** Solo en los trabajos de quemado: la transcripción de la que parten. */
+  parentJobId: string | null;
   status: JobStatus;
   stage: string | null;
   percent: number;
@@ -58,6 +61,7 @@ export function toView(job: Job): JobView {
   return {
     id: job.id,
     kind: job.kind,
+    parentJobId: job.parentJobId,
     status: job.status,
     stage: job.stage,
     percent: job.percent,
@@ -80,7 +84,21 @@ function cleanFilename(raw: string): string {
   return base.slice(0, 255);
 }
 
-const ARTIFACT_SUFFIX: Record<string, string> = { srt: ".srt", segments: ".segments.json", waveform: ".waveform.json" };
+const ARTIFACT_SUFFIX: Record<string, string> = {
+  srt: ".srt",
+  segments: ".segments.json",
+  waveform: ".waveform.json",
+  video: ".captioned.mp4",
+};
+
+/** Artefactos que existen en el resultado de cada tipo de trabajo. */
+const ARTIFACTS_BY_KIND: Record<Job["kind"], readonly string[]> = {
+  TRANSCRIBE: ["srt", "segments", "waveform"],
+  BURN: ["video"],
+};
+
+const MAX_SEGMENTS_BYTES = 32 * 1024 * 1024;
+const BURN_STYLES = ["modern", "tiktok", "youtube", "minimal"] as const;
 
 /** Nombre de descarga: el del video original con la extensión del artefacto (sin su extensión de video). */
 export function downloadName(originalFilename: string, artifact: string): string {
@@ -171,24 +189,154 @@ export class JobsService {
     try {
       await this.queue.enqueueTranscribe(payload);
     } catch (error) {
-      this.logger.error(`No se pudo encolar el trabajo ${id}: ${(error as Error).message}`);
-      // Compensación, cada paso por separado: que falle uno (p. ej. la base de datos también está
-      // caída) no debe impedir los demás ni cambiar la respuesta, que siempre es 503.
-      await this.prisma.job
-        .updateMany({
-          where: { id, status: "QUEUED" },
-          data: {
-            status: "FAILED",
-            errorCode: "INTERNAL",
-            errorMessage: "No se pudo encolar el trabajo.",
-            finishedAt: new Date(),
-          },
-        })
-        .catch((e: unknown) => this.logger.error(`No se pudo marcar fallido el trabajo ${id}: ${(e as Error).message}`));
-      await this.storage.delete(inputKey).catch(() => undefined);
-      throw new ServiceUnavailableException("La cola no está disponible. Inténtalo de nuevo en un momento.");
+      await this.failEnqueue(id, error, [inputKey]);
     }
     return toView(job);
+  }
+
+  /** Compensación al fallar el encolado, paso a paso: que falle uno (p. ej. la base también está caída)
+   *  no impide los demás ni cambia la respuesta, que siempre es 503. */
+  private async failEnqueue(id: string, error: unknown, objectsToDelete: string[]): Promise<never> {
+    this.logger.error(`No se pudo encolar el trabajo ${id}: ${(error as Error).message}`);
+    await this.prisma.job
+      .updateMany({
+        where: { id, status: "QUEUED" },
+        data: { status: "FAILED", errorCode: "INTERNAL", errorMessage: "No se pudo encolar el trabajo.", finishedAt: new Date() },
+      })
+      .catch((e: unknown) => this.logger.error(`No se pudo marcar fallido el trabajo ${id}: ${(e as Error).message}`));
+    for (const key of objectsToDelete) await this.storage.delete(key).catch(() => undefined);
+    throw new ServiceUnavailableException("La cola no está disponible. Inténtalo de nuevo en un momento.");
+  }
+
+  /** La transcripción terminada de la que cuelgan los subtítulos; 409 si todavía no hay nada que editar o quemar. */
+  private async completedTranscription(id: string): Promise<{ job: Job; segmentsKey: string }> {
+    const job = await this.require(id);
+    if (job.kind !== "TRANSCRIBE") throw new ConflictException("Solo las transcripciones tienen subtítulos.");
+    if (job.status !== "COMPLETED") throw new ConflictException("La transcripción todavía no terminó.");
+    const key = (job.result as { artifacts?: { segments?: { objectKey?: unknown } } } | null)?.artifacts?.segments?.objectKey;
+    if (typeof key !== "string" || !key.startsWith(job.outputPrefix) || key.includes("..")) {
+      throw new ConflictException("La transcripción no tiene subtítulos disponibles.");
+    }
+    return { job, segmentsKey: key };
+  }
+
+  private async readSegments(key: string): Promise<{ segments: Segment[]; etag: string }> {
+    const stored = await this.storage.getBuffer(key, MAX_SEGMENTS_BYTES);
+    if (!stored) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
+    try {
+      return { segments: parseSegments(JSON.parse(stored.body.toString("utf-8"))), etag: stored.etag };
+    } catch (error) {
+      this.logger.error(`segments.json ilegible (${key}): ${(error as Error).message}`);
+      throw new ConflictException("Los subtítulos guardados no se pueden leer.");
+    }
+  }
+
+  async getSegments(id: string): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
+    const { segmentsKey } = await this.completedTranscription(id);
+    const { segments, etag } = await this.readSegments(segmentsKey);
+    return { segments: segments.map((segment, index) => ({ index, ...segment })), etag };
+  }
+
+  /**
+   * Aplica ediciones parciales (texto y/o tiempos por índice) y reescribe segments.json y output.srt.
+   * Si el cuerpo trae `etag`, se rechaza con 409 cuando los subtítulos cambiaron desde que se leyeron.
+   * Cambiar los subtítulos invalida los quemados que ya estén en cola (el worker lo detecta por el ETag).
+   */
+  async updateSegments(id: string, body: unknown): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
+    let parsed: ReturnType<typeof parseEdits>;
+    try {
+      parsed = parseEdits(body);
+    } catch (error) {
+      if (error instanceof SegmentsError) throw new BadRequestException(error.message);
+      throw error;
+    }
+    const { job, segmentsKey } = await this.completedTranscription(id);
+    const current = await this.readSegments(segmentsKey);
+    if (parsed.etag !== undefined && parsed.etag !== current.etag) {
+      throw new ConflictException("Los subtítulos cambiaron desde que los leíste. Vuelve a cargarlos.");
+    }
+    let updated: Segment[];
+    try {
+      updated = applyEdits(current.segments, parsed.edits);
+    } catch (error) {
+      if (error instanceof SegmentsError) throw new BadRequestException(error.message);
+      throw error;
+    }
+
+    const { etag } = await this.storage.putBuffer(segmentsKey, Buffer.from(JSON.stringify(updated)), "application/json");
+    const srtKey = (job.result as { artifacts?: { srt?: unknown } } | null)?.artifacts?.srt;
+    if (typeof srtKey === "string" && srtKey.startsWith(job.outputPrefix) && !srtKey.includes("..")) {
+      await this.storage.putBuffer(srtKey, Buffer.from(segmentsToSrt(updated)), "application/x-subrip");
+    }
+    // El ETag nuevo queda en el resultado: es el que se pasará al worker en el próximo quemado.
+    const result = job.result as { artifacts: { segments: Record<string, unknown> } } & Record<string, unknown>;
+    result.artifacts.segments = { ...result.artifacts.segments, etag };
+    await this.prisma.job.update({ where: { id }, data: { result: result as unknown as Prisma.InputJsonValue } });
+    return { segments: updated.map((segment, index) => ({ index, ...segment })), etag };
+  }
+
+  /** Pide el quemado de los subtítulos APROBADOS (los actuales) sobre el video original. */
+  async createBurn(parentId: string, rawOptions: unknown): Promise<JobView> {
+    const options = this.parseBurnOptions(rawOptions);
+    const { job: parent, segmentsKey } = await this.completedTranscription(parentId);
+    const head = await this.storage.head(segmentsKey);
+    if (!head) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
+
+    const id = randomUUID();
+    const outputPrefix = `jobs/${id}/out/`;
+    const payload: BurnJob = {
+      schemaVersion: 1,
+      jobId: id,
+      requestedAt: new Date().toISOString(),
+      input: { bucket: parent.inputBucket, objectKey: parent.inputKey },
+      segments: { bucket: this.storage.bucket, objectKey: segmentsKey, etag: head.etag },
+      outputPrefix,
+      options,
+    };
+    try {
+      assertContract("burn-job.v1", payload);
+    } catch (error) {
+      if (error instanceof ContractViolation) throw new BadRequestException(error.message);
+      throw error;
+    }
+
+    const job = await this.prisma.job.create({
+      data: {
+        id,
+        kind: "BURN",
+        parentJobId: parent.id,
+        inputBucket: parent.inputBucket,
+        inputKey: parent.inputKey,
+        originalFilename: parent.originalFilename,
+        contentType: parent.contentType,
+        sizeBytes: parent.sizeBytes,
+        outputPrefix,
+        options: options as unknown as Prisma.InputJsonValue,
+      },
+    });
+    try {
+      await this.queue.enqueueBurn(payload);
+    } catch (error) {
+      await this.failEnqueue(id, error, []); // el video de entrada es de la transcripción: no se borra
+    }
+    return toView(job);
+  }
+
+  private parseBurnOptions(raw: unknown): BurnJob["options"] {
+    const value = raw ?? {};
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new BadRequestException("Las opciones deben ser un objeto JSON.");
+    }
+    const given = value as Record<string, unknown>;
+    const unknown = Object.keys(given).filter((key) => key !== "style" && key !== "karaoke");
+    if (unknown.length > 0) throw new BadRequestException(`Opciones desconocidas: ${unknown.join(", ")}.`);
+    const style = given.style ?? "modern";
+    const karaoke = given.karaoke ?? false;
+    if (typeof style !== "string" || !(BURN_STYLES as readonly string[]).includes(style)) {
+      throw new BadRequestException(`style debe ser uno de: ${BURN_STYLES.join(", ")}.`);
+    }
+    if (typeof karaoke !== "boolean") throw new BadRequestException("karaoke debe ser verdadero o falso.");
+    return { style: style as BurnJob["options"]["style"], karaoke };
   }
 
   async get(id: string): Promise<JobView> {
@@ -216,7 +364,7 @@ export class JobsService {
     if (cancelled.count === 1) {
       // Ganó el API: el worker, si llega a recibirlo, ve que ya no está QUEUED y lo omite. Quitarlo
       // de la cola es solo limpieza, por eso un fallo aquí no se propaga.
-      await this.queue.removeIfWaiting(id).catch((e: unknown) =>
+      await this.queue.removeIfWaiting(job.kind, id).catch((e: unknown) =>
         this.logger.warn(`No se pudo quitar ${id} de la cola: ${(e as Error).message}`),
       );
       return toView(await this.require(id));
@@ -238,6 +386,7 @@ export class JobsService {
   async artifactKey(id: string, name: string): Promise<{ key: string; filename: string } | null> {
     const job = await this.require(id);
     if (job.status !== "COMPLETED") return null;
+    if (!ARTIFACTS_BY_KIND[job.kind].includes(name)) return null;
     const artifacts = (job.result as { artifacts?: Record<string, unknown> } | null)?.artifacts;
     const entry = artifacts?.[name];
     const key = typeof entry === "string" ? entry : (entry as { objectKey?: unknown } | undefined)?.objectKey;

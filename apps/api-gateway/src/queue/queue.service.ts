@@ -2,23 +2,24 @@ import { Inject, Injectable, type OnModuleDestroy } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 
-import type { TranscribeJob } from "@captionforge/contracts/types";
+import type { BurnJob, TranscribeJob } from "@captionforge/contracts/types";
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { assertContract } from "../contracts/validators.js";
+import type { JobKind } from "../generated/prisma/client.js";
 import { CANCEL_CHANNEL, QUEUES } from "./names.js";
 
 @Injectable()
 export class QueueService implements OnModuleDestroy {
   private readonly transcribe: Queue;
+  private readonly burn: Queue;
   private readonly publisher: Redis;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
     const connection = { host: config.redis.host, port: config.redis.port, password: config.redis.password };
     // attempts: 1 (ADR 0006): un fallo se informa con un código del contrato, no se repite en silencio.
-    this.transcribe = new Queue(QUEUES.transcribe, {
-      connection,
-      defaultJobOptions: { attempts: 1, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86_400 } },
-    });
+    const defaultJobOptions = { attempts: 1, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86_400 } };
+    this.transcribe = new Queue(QUEUES.transcribe, { connection, defaultJobOptions });
+    this.burn = new Queue(QUEUES.burn, { connection, defaultJobOptions });
     this.publisher = new Redis(connection);
   }
 
@@ -28,9 +29,14 @@ export class QueueService implements OnModuleDestroy {
     await this.transcribe.add("transcribe", payload, { jobId: payload.jobId });
   }
 
+  async enqueueBurn(payload: BurnJob): Promise<void> {
+    assertContract("burn-job.v1", payload);
+    await this.burn.add("burn", payload, { jobId: payload.jobId });
+  }
+
   /** Quita el trabajo de la cola si todavía no empezó. true = se quitó (nadie lo había tomado). */
-  async removeIfWaiting(jobId: string): Promise<boolean> {
-    const job = await this.transcribe.getJob(jobId);
+  async removeIfWaiting(kind: JobKind, jobId: string): Promise<boolean> {
+    const job = await (kind === "BURN" ? this.burn : this.transcribe).getJob(jobId);
     if (!job) return false;
     const state = await job.getState();
     if (state !== "waiting" && state !== "delayed" && state !== "prioritized") return false;
@@ -54,7 +60,7 @@ export class QueueService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.transcribe.close();
+    await Promise.all([this.transcribe.close(), this.burn.close()]);
     this.publisher.disconnect();
   }
 }

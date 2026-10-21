@@ -17,8 +17,9 @@ export async function createApp(
 ): Promise<NestFastifyApplication> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(config),
-    // bodyLimit solo afecta a los cuerpos JSON; las subidas van por multipart y tienen su propio límite.
-    new FastifyAdapter({ bodyLimit: 1024 * 1024 }),
+    // bodyLimit solo afecta a los cuerpos JSON (ediciones de subtítulos, opciones de quemado); las
+    // subidas van por multipart y tienen su propio límite.
+    new FastifyAdapter({ bodyLimit: 4 * 1024 * 1024 }),
     { logger: options.logger ?? ["error", "warn", "log"] },
   );
   await app.register(multipart, {

@@ -1,7 +1,9 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -14,7 +16,18 @@ export interface StoredObject {
   body: Readable;
   contentType: string | undefined;
   contentLength: number | undefined;
+  /** Solo en respuestas parciales (Range): "bytes inicio-fin/total". */
+  contentRange: string | undefined;
+  etag: string | undefined;
 }
+
+/** Los ETag de S3 llegan entre comillas; el contrato los usa sin ellas. */
+const cleanEtag = (etag: string | undefined): string | undefined => etag?.replace(/^"|"$/g, "");
+
+const isMissing = (error: unknown): boolean => {
+  const name = (error as { name?: string }).name;
+  return name === "NoSuchKey" || name === "NotFound";
+};
 
 @Injectable()
 export class StorageService {
@@ -78,14 +91,52 @@ export class StorageService {
     return { sizeBytes };
   }
 
-  async getStream(key: string): Promise<StoredObject | null> {
+  /** `range` es el valor de la cabecera Range del cliente ("bytes=0-1023"); S3 lo valida. */
+  async getStream(key: string, range?: string): Promise<StoredObject | null> {
     try {
-      const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
-      return { body: out.Body as Readable, contentType: out.ContentType, contentLength: out.ContentLength };
+      const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: range }));
+      return {
+        body: out.Body as Readable,
+        contentType: out.ContentType,
+        contentLength: out.ContentLength,
+        contentRange: out.ContentRange,
+        etag: cleanEtag(out.ETag),
+      };
     } catch (error) {
-      if ((error as { name?: string }).name === "NoSuchKey") return null;
+      if (isMissing(error)) return null;
       throw error;
     }
+  }
+
+  async head(key: string): Promise<{ etag: string; size: number } | null> {
+    try {
+      const out = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return { etag: cleanEtag(out.ETag) ?? "", size: out.ContentLength ?? 0 };
+    } catch (error) {
+      if (isMissing(error)) return null;
+      throw error;
+    }
+  }
+
+  /** Lee un objeto pequeño entero (p. ej. segments.json). Rechaza los que pasan de `maxBytes` sin leerlos. */
+  async getBuffer(key: string, maxBytes: number): Promise<{ body: Buffer; etag: string } | null> {
+    try {
+      const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      if ((out.ContentLength ?? 0) > maxBytes) {
+        (out.Body as Readable).destroy();
+        throw new PayloadTooLargeException(`El objeto supera ${maxBytes} bytes.`);
+      }
+      return { body: Buffer.from(await out.Body!.transformToByteArray()), etag: cleanEtag(out.ETag) ?? "" };
+    } catch (error) {
+      if (isMissing(error)) return null;
+      throw error;
+    }
+  }
+
+  /** Escribe un objeto pequeño y devuelve su ETag. */
+  async putBuffer(key: string, body: Buffer, contentType: string): Promise<{ etag: string }> {
+    const out = await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+    return { etag: cleanEtag(out.ETag) ?? "" };
   }
 
   async delete(key: string): Promise<void> {

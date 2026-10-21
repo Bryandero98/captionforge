@@ -1,11 +1,14 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   HttpCode,
+  HttpException,
   NotFoundException,
   Param,
   Post,
+  Put,
   Req,
   Res,
   Sse,
@@ -19,7 +22,7 @@ import { StorageService } from "../storage/storage.service.js";
 import { JobIdPipe } from "./job-id.pipe.js";
 import { JobsService, contentDisposition, isTerminal, toView, type JobView } from "./jobs.service.js";
 
-const ARTIFACTS = ["srt", "segments", "waveform"] as const;
+const ARTIFACTS = ["srt", "segments", "waveform", "video"] as const;
 const POLL_MS = 1000;
 const HEARTBEAT_MS = 15_000;
 
@@ -126,10 +129,33 @@ export class JobsController {
     });
   }
 
+  /** Los subtítulos actuales de una transcripción terminada, con el `etag` que se pasa al editarlos. */
+  @Get(":id/segments")
+  segments(@Param("id", JobIdPipe) id: string): Promise<unknown> {
+    return this.jobs.getSegments(id);
+  }
+
+  /**
+   * Edita texto y/o tiempos por índice: { "segments": [ { "index": 0, "text": "..." } ], "etag": "..." }.
+   * El `etag` es opcional; si se manda y los subtítulos cambiaron, responde 409.
+   */
+  @Put(":id/segments")
+  updateSegments(@Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<unknown> {
+    return this.jobs.updateSegments(id, body);
+  }
+
+  /** Quema los subtítulos actuales sobre el video: { "style": "modern", "karaoke": false } (ambos opcionales). */
+  @Post(":id/burn")
+  @HttpCode(202)
+  burn(@Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
+    return this.jobs.createBurn(id, body);
+  }
+
   @Get(":id/artifacts/:name")
   async artifact(
     @Param("id", JobIdPipe) id: string,
     @Param("name") name: string,
+    @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     if (!(ARTIFACTS as readonly string[]).includes(name)) {
@@ -137,10 +163,20 @@ export class JobsController {
     }
     const artifact = await this.jobs.artifactKey(id, name);
     if (!artifact) throw new NotFoundException("Ese artefacto todavía no existe.");
-    const object = await this.storage.getStream(artifact.key);
+    // Range: los navegadores lo piden para reproducir y saltar dentro de un video sin bajarlo entero.
+    const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
+    let object;
+    try {
+      object = await this.storage.getStream(artifact.key, range);
+    } catch (error) {
+      if ((error as { name?: string }).name === "InvalidRange") throw new HttpException("Rango no satisfacible.", 416);
+      throw error;
+    }
     if (!object) throw new NotFoundException("Ese artefacto ya no está disponible.");
 
     reply.header("Content-Type", object.contentType ?? "application/octet-stream");
+    reply.header("Accept-Ranges", "bytes");
+    if (object.contentRange) reply.status(206).header("Content-Range", object.contentRange);
     if (object.contentLength !== undefined) reply.header("Content-Length", object.contentLength);
     reply.header("Content-Disposition", contentDisposition(artifact.filename));
     reply.header("X-Content-Type-Options", "nosniff");
