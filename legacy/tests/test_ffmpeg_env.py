@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -50,7 +51,7 @@ def test_pipeline_ffmpeg_does_not_inherit_secrets(secrets_in_environment, monkey
 
 def test_child_still_receives_what_it_needs_to_start(secrets_in_environment, monkeypatch, tmp_path):
     dump = tmp_path / "env.json"
-    monkeypatch.setenv("PATH", "/ruta/de/prueba" if sys.platform != "win32" else __import__("os").environ["PATH"])
+    monkeypatch.setenv("PATH", os.environ["PATH"])
     monkeypatch.setattr(pipeline, "with_ffmpeg_path", lambda cmd: cmd)
 
     asyncio.run(pipeline._run_ffmpeg([sys.executable, "-c", _DUMP_ENV, str(dump)]))
@@ -59,15 +60,17 @@ def test_child_still_receives_what_it_needs_to_start(secrets_in_environment, mon
     assert "PATH" in child
     if sys.platform == "win32":
         assert "SYSTEMROOT" in child  # sin ella Python/ffmpeg no arrancan en Windows
-        # sin SYSTEMDRIVE/PROGRAMDATA Windows crea cachés en una carpeta literal "%SystemDrive%" dentro del cwd
+        # sin SYSTEMDRIVE/PROGRAMDATA Windows crea cachés en una carpeta "%SystemDrive%" dentro del cwd
         assert "SYSTEMDRIVE" in child and "PROGRAMDATA" in child
 
 
 def test_waveform_ffmpeg_does_not_inherit_secrets(secrets_in_environment, monkeypatch, tmp_path):
     dump = tmp_path / "env.json"
-    monkeypatch.setattr(waveform, "with_ffmpeg_path", lambda cmd: [sys.executable, "-c", _DUMP_ENV, str(dump)])
+    fake = [sys.executable, "-c", _DUMP_ENV, str(dump)]
+    monkeypatch.setattr(waveform, "with_ffmpeg_path", lambda cmd: fake)
 
-    waveform.compute_waveform_peaks(tmp_path / "video.mp4")  # el falso no emite audio; solo importa su entorno
+    # El ffmpeg falso no emite audio: lo único que importa es el entorno con el que lo lanzan.
+    waveform.compute_waveform_peaks(tmp_path / "video.mp4")
 
     assert _leaked(dump) == []
 

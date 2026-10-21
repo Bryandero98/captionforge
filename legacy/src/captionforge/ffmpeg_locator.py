@@ -77,12 +77,32 @@ def find_ffmpeg() -> str | None:
 # archivos que sube cualquiera, y un fallo en un decodificador no debe regalarle los secretos del worker.
 _FFMPEG_ENV_ALLOWED = frozenset(
     {
-        "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "PROGRAMDATA", "WINDIR", "COMSPEC",  # Windows y busqueda de ejecutables
-        "TEMP", "TMP", "TMPDIR",
-        "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA",  # cache de fontconfig
-        "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_DATA_DIRS",
-        "FONTCONFIG_FILE", "FONTCONFIG_PATH",
-        "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ",
+        # Windows y busqueda de ejecutables
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "PROGRAMDATA",
+        "WINDIR",
+        "COMSPEC",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "HOME",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",  # cache de fontconfig
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_DATA_DIRS",
+        "FONTCONFIG_FILE",
+        "FONTCONFIG_PATH",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
     }
 )
 
