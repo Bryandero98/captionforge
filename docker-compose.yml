@@ -48,7 +48,7 @@ x-api-build: &api-build
 services:
   postgres:
     <<: *hardening
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-captionforge}
@@ -70,7 +70,7 @@ services:
   # volumen de datos ya exista (un script initdb solo corre con el volumen vacío).
   pg-roles:
     <<: *hardening
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: "no"
     depends_on:
       postgres:
