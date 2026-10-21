@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/cancel-message.v1.json",
+  "title": "CancelMessage",
+  "description": "Mensaje Pub/Sub del canal Redis captionforge:cancel (NestJS publica, el worker cancela y mata a ffmpeg).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" }
+  }
+}

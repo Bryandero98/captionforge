@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "jobId": "3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10",
+  "requestedAt": "ayer",
+  "input": {
+    "bucket": "captionforge",
+    "objectKey": "jobs/3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10/input.mp4",
+    "originalFilename": "entrevista.mp4",
+    "contentType": "video/mp4",
+    "sizeBytes": 734003200
+  },
+  "outputPrefix": "jobs/3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10/out/",
+  "options": {
+    "modelSize": "small",
+    "sourceLanguage": null,
+    "translateTo": "en"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/burn-job.v1.json",
+  "title": "BurnJob",
+  "description": "Payload de la cola captionforge.burn: quema subtítulos ya aprobados sobre el video original.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "requestedAt", "input", "segments", "outputPrefix", "options"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
+    "requestedAt": { "$ref": "common.v1.json#/$defs/IsoDateTime" },
+    "input": { "$ref": "common.v1.json#/$defs/ObjectRef" },
+    "segments": {
+      "description": "segments.json aprobado; el worker falla con SEGMENTS_CHANGED si su ETag ya no coincide.",
+      "$ref": "common.v1.json#/$defs/VersionedObjectRef"
+    },
+    "outputPrefix": { "$ref": "common.v1.json#/$defs/ObjectPrefix" },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["style", "karaoke"],
+      "properties": {
+        "style": { "$ref": "common.v1.json#/$defs/StylePreset" },
+        "karaoke": { "type": "boolean" }
+      }
+    }
+  }
+}

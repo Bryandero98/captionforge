@@ -1,0 +1,25 @@
+{
+  "name": "captionforge-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CaptionForge: arquitectura distribuida (API Gateway NestJS + AI Worker Python + Redis/BullMQ + PostgreSQL + S3).",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/api-gateway",
+    "packages/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "contracts:gen": "npm run gen -w @captionforge/contracts",
+    "contracts:check": "npm run check -w @captionforge/contracts",
+    "contracts:test": "npm test -w @captionforge/contracts && npm run test:py -w @captionforge/contracts",
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f --tail=100",
+    "infra:verify": "bash docker/verify-infra.sh",
+    "smoke": "node tools/smoke/run.mjs",
+    "compose:check": "docker compose config --quiet && docker compose --profile app config --quiet"
+  }
+}

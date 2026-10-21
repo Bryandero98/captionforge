@@ -1,0 +1,17 @@
+# AUTO-GENERADO desde packages/contracts. NO EDITAR A MANO.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "captionforge-contracts"
+version = "1.0.0"
+description = "Modelos Pydantic del contrato API Gateway <-> AI Worker de CaptionForge."
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.7"]
+
+[tool.setuptools]
+packages = ["captionforge_contracts"]
+
+[tool.setuptools.package-data]
+captionforge_contracts = ["py.typed"]

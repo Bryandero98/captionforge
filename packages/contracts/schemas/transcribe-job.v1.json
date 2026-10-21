@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/transcribe-job.v1.json",
+  "title": "TranscribeJob",
+  "description": "Payload de la cola captionforge.transcribe (NestJS lo encola, el worker Python lo consume).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "requestedAt", "input", "outputPrefix", "options"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
+    "requestedAt": { "$ref": "common.v1.json#/$defs/IsoDateTime" },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket", "objectKey", "originalFilename", "contentType", "sizeBytes"],
+      "properties": {
+        "bucket": { "$ref": "common.v1.json#/$defs/Bucket" },
+        "objectKey": { "$ref": "common.v1.json#/$defs/ObjectKey" },
+        "originalFilename": {
+          "description": "Solo informativo (nombre que subió el usuario); nunca se usa para construir rutas.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[^/\\\\]+$"
+        },
+        "contentType": {
+          "type": "string",
+          "enum": [
+            "video/mp4",
+            "video/quicktime",
+            "video/x-matroska",
+            "video/webm",
+            "video/x-msvideo"
+          ]
+        },
+        "sizeBytes": { "type": "integer", "minimum": 1, "maximum": 107374182400 }
+      }
+    },
+    "outputPrefix": { "$ref": "common.v1.json#/$defs/ObjectPrefix" },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelSize", "sourceLanguage", "translateTo"],
+      "properties": {
+        "modelSize": { "$ref": "common.v1.json#/$defs/ModelSize" },
+        "sourceLanguage": {
+          "description": "null = autodetectar.",
+          "anyOf": [{ "$ref": "common.v1.json#/$defs/LanguageCode" }, { "type": "null" }]
+        },
+        "translateTo": {
+          "description": "null = sin traducción.",
+          "anyOf": [{ "$ref": "common.v1.json#/$defs/LanguageCode" }, { "type": "null" }]
+        }
+      }
+    }
+  }
+}

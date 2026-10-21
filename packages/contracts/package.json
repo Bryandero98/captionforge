@@ -1,0 +1,20 @@
+{
+  "name": "@captionforge/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Contrato de datos entre el API Gateway (NestJS) y el AI Worker (Python): JSON Schema como fuente de verdad, con tipos TypeScript y modelos Pydantic generados.",
+  "scripts": {
+    "gen:ts": "node scripts/gen-ts.mjs",
+    "gen:py": "node scripts/gen-py.mjs",
+    "gen": "node scripts/gen-ts.mjs && node scripts/gen-py.mjs",
+    "check": "node scripts/check-generated.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:py": "node scripts/test-py.mjs"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "json-schema-to-typescript": "^15.0.4"
+  }
+}

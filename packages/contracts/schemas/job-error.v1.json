@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/job-error.v1.json",
+  "title": "JobError",
+  "description": "Error estructurado que el worker guarda en PostgreSQL (y serializa en failedReason).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "errorCode", "message"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
+    "errorCode": { "$ref": "common.v1.json#/$defs/ErrorCode" },
+    "message": {
+      "description": "Texto legible para el usuario; sin rutas internas ni credenciales.",
+      "type": "string",
+      "maxLength": 500
+    }
+  }
+}

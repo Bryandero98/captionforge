@@ -1,0 +1,10 @@
+# Solo para regenerar los modelos Pydantic y probar el contrato desde Python.
+# El AI Worker consume los modelos ya generados (generated/python), no necesita esto.
+#
+# Versiones exactas a propósito: black e isort dan formato al código generado, así que
+# cambiar de versión cambiaría los archivos y rompería `npm run contracts:check`.
+datamodel-code-generator==0.86.0
+black==26.10.1
+isort==8.0.1
+pydantic>=2.7
+pytest>=8

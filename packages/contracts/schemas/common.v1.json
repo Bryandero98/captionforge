@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/common.v1.json",
+  "title": "Common",
+  "description": "Tipos compartidos por los demás esquemas del contrato. No se envía por sí solo.",
+  "$defs": {
+    "Uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "IsoDateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Bucket": {
+      "description": "Nombre de bucket S3: 3-63 caracteres, minúsculas, dígitos, punto o guion.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "ObjectKey": {
+      "description": "Clave dentro de jobs/<jobId>/. Solo [A-Za-z0-9_-] por segmento y un punto de extensión opcional en el último: no admite '..', barras iniciales ni rutas absolutas (sin lookahead, para que Pydantic y Ajv validen igual).",
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^jobs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/([A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(\\.[A-Za-z0-9]+)?$"
+    },
+    "ObjectPrefix": {
+      "description": "Prefijo de salida: jobs/<jobId>/ seguido de carpetas opcionales; siempre termina en '/'.",
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^jobs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/([A-Za-z0-9_-]+/)*$"
+    },
+    "ObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket", "objectKey"],
+      "properties": {
+        "bucket": { "$ref": "#/$defs/Bucket" },
+        "objectKey": { "$ref": "#/$defs/ObjectKey" }
+      }
+    },
+    "VersionedObjectRef": {
+      "description": "Referencia con ETag: el worker verifica que el objeto no cambió desde que se aprobó.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket", "objectKey", "etag"],
+      "properties": {
+        "bucket": { "$ref": "#/$defs/Bucket" },
+        "objectKey": { "$ref": "#/$defs/ObjectKey" },
+        "etag": { "type": "string", "pattern": "^[0-9a-f]{32}(-[0-9]+)?$" }
+      }
+    },
+    "LanguageCode": {
+      "description": "Código ISO 639-1 (o 639-3 de tres letras, como los que acepta Whisper).",
+      "type": "string",
+      "pattern": "^[a-z]{2,3}$"
+    },
+    "ModelSize": {
+      "type": "string",
+      "enum": ["base", "small", "medium"]
+    },
+    "StylePreset": {
+      "type": "string",
+      "enum": ["modern", "tiktok", "youtube", "minimal"]
+    },
+    "Stage": {
+      "type": "string",
+      "enum": [
+        "downloading_input",
+        "extracting_audio",
+        "downloading_model",
+        "transcribing",
+        "translating",
+        "uploading",
+        "burning"
+      ]
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "FFMPEG_FAILED",
+        "FFMPEG_TIMEOUT",
+        "MODEL_DOWNLOAD_FAILED",
+        "OUT_OF_DISK",
+        "INPUT_NOT_FOUND",
+        "SEGMENTS_CHANGED",
+        "CANCELLED",
+        "INTERNAL"
+      ]
+    }
+  }
+}
