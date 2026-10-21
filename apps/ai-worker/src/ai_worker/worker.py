@@ -1,27 +1,32 @@
 """Consumidor de BullMQ: valida el payload, ejecuta el pipeline y deja el resultado en PostgreSQL.
 
-Reglas (ADR 0006): concurrencia 1, nada pesado en el bucle de eventos, cancelación cooperativa por
-Redis pub/sub, validación estricta del payload, sin reintentos automáticos.
+Reglas (ADR 0006): un solo trabajo pesado a la vez en el proceso, nada pesado en el bucle de
+eventos, cancelación cooperativa por Redis pub/sub, validación estricta del payload, sin
+reintentos automáticos. Hay una cola por tipo de trabajo (transcribir y quemar) y las dos
+comparten el mismo hueco de ejecución.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import re
 import threading
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import redis.asyncio as aioredis
 from bullmq import Worker
-from captionforge_contracts import CancelMessage, JobError, TranscribeJob
+from captionforge_contracts import BurnJob, CancelMessage, JobError, TranscribeJob
 
+from .burn import BurnRunner
 from .config import WorkerConfig
 from .db import JobRepository
 from .errors import JobCancelled, JobFailure, classify
 from .models import ModelProvider
-from .progress import Progress
+from .progress import BURN_STAGE_RANGES, STAGE_RANGES, Progress
 from .storage import Storage
 from .transcribe import TranscribeRunner
 
@@ -55,19 +60,35 @@ class AiWorker:
         self.repo = repo or JobRepository(config.database_url)
         self.storage = storage or Storage(config)
         self.models = models or ModelProvider()
-        self.runner = TranscribeRunner(config, self.storage, self.models)
-        self._worker: Worker | None = None
+        self.transcriber = TranscribeRunner(config, self.storage, self.models)
+        self.burner = BurnRunner(config, self.storage)
+        self._workers: list[Worker] = []
         self._cancel_task: asyncio.Task[None] | None = None
         self._cancel_events: dict[str, threading.Event] = {}
+        # Whisper y ffmpeg usan toda la CPU: un trabajo a la vez por proceso, de cualquier cola.
+        self._slot: asyncio.Semaphore | None = None
 
     # ------------------------------------------------------------------ trabajo
     async def process(self, job: Any, token: str, signal: Any) -> dict[str, Any]:
+        """Procesador de la cola de transcripción."""
+        return await self._process(job, signal, TranscribeJob, self.transcriber.run, STAGE_RANGES)
+
+    async def process_burn(self, job: Any, token: str, signal: Any) -> dict[str, Any]:
+        """Procesador de la cola de quemado."""
+        return await self._process(job, signal, BurnJob, self.burner.run, BURN_STAGE_RANGES)
+
+    async def _process(
+        self,
+        job: Any,
+        signal: Any,
+        model_type: Any,
+        run: Callable[[Any, Progress, threading.Event], Awaitable[dict[str, Any]]],
+        ranges: dict[str, tuple[float, float]],
+    ) -> dict[str, Any]:
         job_id = str(job.id)
         try:
             # model_validate_json + strict: sin coerciones, igual de estricto que Ajv en el API.
-            import json
-
-            payload = TranscribeJob.model_validate_json(json.dumps(job.data), strict=True)
+            payload = model_type.model_validate_json(json.dumps(job.data), strict=True)
         except Exception as error:  # noqa: BLE001
             log.error("payload inválido en el trabajo %s: %s", job_id, type(error).__name__)
             failure = JobFailure("INTERNAL", f"Payload inválido: {type(error).__name__}")
@@ -78,24 +99,37 @@ class AiWorker:
             await self.repo.fail(job_id, failure.code, failure.message)
             raise Exception(failure_reason(job_id, failure))
 
-        # El evento se registra ANTES del claim: el API publica la cancelación en cuanto ve el trabajo
-        # RUNNING, y un mensaje que llegara entre el claim y el registro se perdería.
+        if self._slot is None:
+            self._slot = asyncio.Semaphore(1)
+        # El evento de cancelación se registra ANTES de esperar el hueco y de tomar el trabajo: el API
+        # publica la cancelación en cuanto lo ve RUNNING, y un mensaje que llegara entre el claim y el
+        # registro se perdería.
         cancel = threading.Event()
         self._cancel_events[job_id] = cancel
         try:
-            claimed = await self.repo.claim(job_id)
-        except BaseException:
+            async with self._slot:
+                return await self._execute(job, job_id, payload, signal, run, ranges, cancel)
+        finally:
             self._cancel_events.pop(job_id, None)
-            raise
-        if not claimed:
-            self._cancel_events.pop(job_id, None)
+
+    async def _execute(
+        self,
+        job: Any,
+        job_id: str,
+        payload: Any,
+        signal: Any,
+        run: Callable[[Any, Progress, threading.Event], Awaitable[dict[str, Any]]],
+        ranges: dict[str, tuple[float, float]],
+        cancel: threading.Event,
+    ) -> dict[str, Any]:
+        if not await self.repo.claim(job_id):
             # Ya no estaba QUEUED: la API lo canceló mientras esperaba, o es una reentrega. No se procesa.
             log.info("trabajo %s ya no está en cola; se omite", job_id)
             failure = JobFailure("CANCELLED", "El trabajo ya no estaba pendiente.")
             raise Exception(failure_reason(job_id, failure))
 
-        progress = Progress(self.repo, job_id, asyncio.get_running_loop(), sink=job)
-        runner = asyncio.create_task(self.runner.run(payload, progress, cancel))
+        progress = Progress(self.repo, job_id, asyncio.get_running_loop(), sink=job, ranges=ranges)
+        runner = asyncio.create_task(run(payload, progress, cancel))
         aborted = asyncio.create_task(signal.wait())
         try:
             await asyncio.wait({runner, aborted}, return_when=asyncio.FIRST_COMPLETED)
@@ -116,7 +150,6 @@ class AiWorker:
             raise Exception(failure_reason(job_id, failure)) from error
         finally:
             aborted.cancel()
-            self._cancel_events.pop(job_id, None)
 
         await self.repo.complete(job_id, result)
         return result
@@ -142,8 +175,8 @@ class AiWorker:
                     log.warning("mensaje de cancelación ignorado (malformado)")
                     continue
                 job_id = str(cancel.jobId)
-                if self._worker is not None:
-                    self._worker.cancelJob(job_id, "cancelled")
+                for worker in self._workers:
+                    worker.cancelJob(job_id, "cancelled")  # False si el trabajo no es de esa cola
                 event = self._cancel_events.get(job_id)
                 if event is not None:
                     event.set()
@@ -161,10 +194,10 @@ class AiWorker:
             self.repo.fail(job_id, "INTERNAL", "El trabajo se interrumpió inesperadamente.")
         )
 
-    async def start(self) -> None:
-        self._worker = Worker(
-            self.config.queue_name,
-            self.process,
+    def _new_worker(self, queue_name: str, processor: Callable[..., Awaitable[dict[str, Any]]]) -> Worker:
+        worker = Worker(
+            queue_name,
+            processor,
             {
                 "connection": self.config.redis_connection,
                 "concurrency": self.config.concurrency,
@@ -173,16 +206,23 @@ class AiWorker:
                 "maxStalledCount": 0,
             },
         )
-        self._worker.on("failed", self._on_failed)
+        worker.on("failed", self._on_failed)
+        return worker
+
+    async def start(self) -> None:
+        self._workers = [
+            self._new_worker(self.config.queue_name, self.process),
+            self._new_worker(self.config.burn_queue_name, self.process_burn),
+        ]
         subscribed = asyncio.Event()
         self._cancel_task = asyncio.create_task(self._listen_for_cancellations(subscribed))
         await subscribed.wait()
-        log.info("worker listo (cola %s)", self.config.queue_name)
+        log.info("worker listo (colas %s y %s)", self.config.queue_name, self.config.burn_queue_name)
 
     async def stop(self) -> None:
         """Cierre ordenado: deja terminar el trabajo en curso (stop_grace_period del contenedor)."""
-        if self._worker is not None:
-            await self._worker.close()
+        for worker in self._workers:
+            await worker.close()
         if self._cancel_task is not None:
             self._cancel_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

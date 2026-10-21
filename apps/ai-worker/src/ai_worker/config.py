@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 TRANSCRIBE_QUEUE = "captionforge.transcribe"
+BURN_QUEUE = "captionforge.burn"
 CANCEL_CHANNEL = "captionforge:cancel"
 
 
@@ -28,6 +29,7 @@ class WorkerConfig:
     s3_secret_key: str
     work_dir: Path
     queue_name: str = TRANSCRIBE_QUEUE
+    burn_queue_name: str = BURN_QUEUE
     cancel_channel: str = CANCEL_CHANNEL
     concurrency: int = 1
     # El candado se renueva cada mitad de este tiempo; Whisper y ffmpeg corren fuera del bucle de

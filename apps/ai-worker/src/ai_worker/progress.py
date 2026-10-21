@@ -24,6 +24,13 @@ STAGE_RANGES: dict[str, tuple[float, float]] = {
     "uploading": (90.0, 99.0),
 }
 
+# El quemado tiene sus propias etapas: el ffmpeg de codificación es casi todo el trabajo.
+BURN_STAGE_RANGES: dict[str, tuple[float, float]] = {
+    "downloading_input": (0.0, 5.0),
+    "burning": (5.0, 96.0),
+    "uploading": (96.0, 99.0),
+}
+
 
 class ProgressSink(Protocol):
     async def updateProgress(self, progress: dict[str, Any]) -> Any: ...  # noqa: N802 - nombre de bullmq.Job
@@ -39,7 +46,9 @@ class Progress:
         loop: asyncio.AbstractEventLoop,
         sink: ProgressSink | None = None,
         min_interval: float = 1.0,
+        ranges: dict[str, tuple[float, float]] | None = None,
     ) -> None:
+        self._ranges = STAGE_RANGES if ranges is None else ranges
         self._repo = repo
         self._job_id = job_id
         self._loop = loop
@@ -49,9 +58,8 @@ class Progress:
         self._last_at = 0.0
         self._last_percent = 0.0
 
-    @staticmethod
-    def scale(stage: str, fraction: float) -> float:
-        low, high = STAGE_RANGES[stage]
+    def scale(self, stage: str, fraction: float) -> float:
+        low, high = self._ranges[stage]
         return low + (high - low) * min(max(fraction, 0.0), 1.0)
 
     async def report(self, stage: str, fraction: float, message: str) -> None:

@@ -9,7 +9,7 @@ import time
 import uuid
 
 from bullmq import Queue
-from captionforge_contracts import TranscribeResult
+from captionforge_contracts import BurnResult, TranscribeResult
 
 import redis.asyncio as aioredis
 
@@ -24,7 +24,9 @@ TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 def isolated(config):  # noqa: ANN001
     """Cola y canal únicos por prueba: ninguna ve los trabajos ni las cancelaciones de otra."""
     tag = uuid.uuid4().hex[:8]
-    return dataclasses.replace(config, queue_name=f"cf.test.{tag}", cancel_channel=f"cf:test:cancel:{tag}")
+    return dataclasses.replace(
+        config, queue_name=f"cf.test.{tag}", burn_queue_name=f"cf.test.burn.{tag}", cancel_channel=f"cf:test:cancel:{tag}"
+    )
 
 
 async def wait_for(api_db, job_id: str, *, until, timeout: float = 60.0) -> dict:  # noqa: ANN001
@@ -38,9 +40,9 @@ async def wait_for(api_db, job_id: str, *, until, timeout: float = 60.0) -> dict
     raise AssertionError(f"tiempo agotado esperando al trabajo; último estado: {row}")
 
 
-async def enqueue(config, payload: dict, data: dict | None = None) -> Queue:  # noqa: ANN001
-    queue = Queue(config.queue_name, {"connection": config.redis_connection})
-    await queue.add("transcribe", payload if data is None else data, {"jobId": payload["jobId"], "attempts": 1})
+async def enqueue(config, payload: dict, data: dict | None = None, *, burn: bool = False) -> Queue:  # noqa: ANN001
+    queue = Queue(config.burn_queue_name if burn else config.queue_name, {"connection": config.redis_connection})
+    await queue.add("burn" if burn else "transcribe", payload if data is None else data, {"jobId": payload["jobId"], "attempts": 1})
     return queue
 
 
@@ -172,3 +174,71 @@ def test_two_jobs_run_one_at_a_time_and_both_complete(config, new_job, api_db, f
     rows = asyncio.run(go())
     assert [r["status"] for r in rows] == ["COMPLETED", "COMPLETED"]
     assert fake_models.loads == 1, "el modelo se carga una vez por proceso, no por trabajo"
+
+
+def test_burn_job_completes_through_its_own_queue(config, new_burn_job, api_db, fake_models) -> None:  # noqa: ANN001
+    cfg = isolated(config)
+    job_id, payload, _ = new_burn_job(karaoke=True)
+
+    async def go() -> dict:
+        worker = AiWorker(cfg, models=fake_models)
+        await worker.start()
+        queue = await enqueue(cfg, payload, burn=True)
+        try:
+            return await wait_for(api_db, job_id, until=lambda r: r["status"] in TERMINAL)
+        finally:
+            await queue.close()
+            await worker.stop()
+
+    row = asyncio.run(go())
+    assert row["status"] == "COMPLETED" and row["percent"] == 100
+    BurnResult.model_validate_json(json.dumps(row["result"]), strict=True)
+    assert row["result"]["usedKaraoke"] is True and row["result"]["artifacts"]["video"].endswith("/captioned.mp4")
+    assert fake_models.whisper.calls == 0, "el quemado no toca el modelo"
+
+
+def test_segments_changed_is_reported_to_the_user_with_its_code(config, new_burn_job, api_db, fake_models, storage, tmp_path) -> None:  # noqa: ANN001
+    cfg = isolated(config)
+    job_id, payload, _ = new_burn_job()
+    edited = tmp_path / "otra.json"
+    edited.write_text("[]")
+    storage.upload_file(edited, payload["segments"]["objectKey"], "application/json")
+
+    async def go() -> dict:
+        worker = AiWorker(cfg, models=fake_models)
+        await worker.start()
+        queue = await enqueue(cfg, payload, burn=True)
+        try:
+            return await wait_for(api_db, job_id, until=lambda r: r["status"] in TERMINAL)
+        finally:
+            await queue.close()
+            await worker.stop()
+
+    row = asyncio.run(go())
+    assert (row["status"], row["errorCode"]) == ("FAILED", "SEGMENTS_CHANGED")
+
+
+def test_a_transcription_and_a_burn_never_run_at_the_same_time(config, new_job, new_burn_job, api_db) -> None:  # noqa: ANN001
+    cfg = isolated(config)
+    slow = ModelProvider(loader=lambda s: (FakeWhisper(delay=0.6, segments=5), "cpu"), is_cached=lambda s: True)
+    transcribe_id, transcribe_payload = new_job()
+    burn_id, burn_payload, _ = new_burn_job()
+
+    async def go() -> tuple[dict, dict]:
+        worker = AiWorker(cfg, models=slow)
+        await worker.start()
+        queues = [await enqueue(cfg, transcribe_payload), await enqueue(cfg, burn_payload, burn=True)]
+        try:
+            return (
+                await wait_for(api_db, transcribe_id, until=lambda r: r["status"] in TERMINAL),
+                await wait_for(api_db, burn_id, until=lambda r: r["status"] in TERMINAL),
+            )
+        finally:
+            for queue in queues:
+                await queue.close()
+            await worker.stop()
+
+    transcribed, burned = asyncio.run(go())
+    assert transcribed["status"] == burned["status"] == "COMPLETED"
+    first, second = sorted((transcribed, burned), key=lambda r: r["startedAt"])
+    assert second["startedAt"] >= first["finishedAt"], "los dos trabajos se solaparon: falta el hueco único (ADR 0006)"

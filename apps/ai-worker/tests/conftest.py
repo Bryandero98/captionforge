@@ -4,6 +4,7 @@ ejecución no aporta nada al contrato que se prueba aquí."""
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
@@ -84,6 +85,70 @@ def new_job(api_db, storage: Storage, config: WorkerConfig):
     yield make
     for job_id in created:
         api_db.execute('DELETE FROM "Job" WHERE id = %s', (job_id,))
+
+
+def sample_segments(words: bool = True) -> list[dict]:
+    """segments.json como lo deja la transcripción: lista de segmentos, con tiempos por palabra o sin ellos."""
+    segments = []
+    for i in range(3):
+        start = i * 0.8
+        segment = {"start": start, "end": start + 0.7, "text": f" Hola {i}", "words": None}
+        if words:
+            segment["words"] = [
+                {"start": start, "end": start + 0.3, "text": " Hola", "probability": 0.9},
+                {"start": start + 0.3, "end": start + 0.7, "text": f" {i}", "probability": 0.9},
+            ]
+        segments.append(segment)
+    return segments
+
+
+@pytest.fixture
+def new_burn_job(api_db, storage: Storage, config: WorkerConfig, new_job, tmp_path):
+    """Crea un trabajo de quemado como lo haría el API: transcripción padre con su video y su
+    segments.json en S3, y la fila BURN en estado QUEUED. Devuelve (id, payload, etag)."""
+    created: list[str] = []
+
+    def make(
+        *,
+        segments: list[dict] | None = None,
+        raw_segments: bytes | None = None,
+        karaoke: bool = False,
+        style: str = "modern",
+        upload_video: bool = True,
+        upload_segments: bool = True,
+    ) -> tuple[str, dict, str]:
+        parent_id, parent_payload = new_job(upload_input=upload_video)
+        burn_id = str(uuid.uuid4())
+        segments_key = f"{parent_payload['outputPrefix']}segments.json"
+        etag = "0" * 32
+        if upload_segments:
+            body = raw_segments if raw_segments is not None else json.dumps(sample_segments() if segments is None else segments).encode()
+            path = tmp_path / f"{burn_id}.json"
+            path.write_bytes(body)
+            etag = storage.upload_file(path, segments_key, "application/json")
+        output_prefix = f"jobs/{burn_id}/out/"
+        options = {"style": style, "karaoke": karaoke}
+        api_db.execute(
+            """INSERT INTO "Job" (id, kind, "parentJobId", "inputBucket", "inputKey", "originalFilename", "contentType",
+                 "sizeBytes", "outputPrefix", options, "updatedAt")
+               VALUES (%s, 'BURN', %s, %s, %s, 'entrevista.mp4', 'video/mp4', %s, %s, %s::jsonb, now())""",
+            (burn_id, parent_id, config.s3_bucket, parent_payload["input"]["objectKey"], CLIP.stat().st_size, output_prefix, json.dumps(options)),
+        )
+        created.append(burn_id)
+        payload = {
+            "schemaVersion": 1,
+            "jobId": burn_id,
+            "requestedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "input": {k: parent_payload["input"][k] for k in ("bucket", "objectKey")},
+            "segments": {"bucket": config.s3_bucket, "objectKey": segments_key, "etag": etag},
+            "outputPrefix": output_prefix,
+            "options": options,
+        }
+        return burn_id, payload, etag
+
+    yield make
+    for burn_id in created:
+        api_db.execute('DELETE FROM "Job" WHERE id = %s', (burn_id,))
 
 
 def job_row(api_db, job_id: str) -> dict:
