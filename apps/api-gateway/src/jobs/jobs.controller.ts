@@ -20,6 +20,7 @@ import {
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { Observable } from "rxjs";
 
+import { clientKey } from "../security/client-key.js";
 import { ConnectionLimits } from "../security/connection-limits.js";
 import { StorageService } from "../storage/storage.service.js";
 import { JobIdPipe } from "./job-id.pipe.js";
@@ -47,11 +48,13 @@ export class JobsController {
     if (!req.isMultipart()) throw new UnsupportedMediaTypeException("Se esperaba multipart/form-data.");
 
     // Cada subida retiene ~15 MiB de partes en memoria: sin tope, unas cuantas a la vez agotan el contenedor.
-    const slot = this.limits.uploads.tryAcquire();
+    const slot = this.limits.uploads.tryAcquire(clientKey(req.ip));
     if ("denied" in slot) {
       // El cuerpo no se ha leído: se cierra la conexión en vez de dejar al cliente enviándolo a nadie.
       reply.header("retry-after", "10").header("connection", "close");
-      throw new ServiceUnavailableException("Hay demasiadas subidas en curso; reintenta en unos segundos.");
+      throw slot.denied === "key"
+        ? new HttpException("Ya tienes demasiadas subidas en curso; espera a que termine alguna.", HttpStatus.TOO_MANY_REQUESTS)
+        : new ServiceUnavailableException("Hay demasiadas subidas en curso; reintenta en unos segundos.");
     }
     try {
       return await this.receiveUpload(req);
@@ -111,13 +114,17 @@ export class JobsController {
     // Cada flujo hace una consulta por segundo mientras el trabajo no termine, y uno en cola puede esperar
     // horas: el límite por minuto cuenta aperturas, no flujos vivos. Se reserva el hueco antes de consultar.
     const { eventStreamMaxMs } = this.limits;
-    const slot = this.limits.eventStreams.tryAcquire(req.ip, eventStreamMaxMs > 0 ? eventStreamMaxMs + 10_000 : undefined);
+    // El vencimiento es solo una red de seguridad; el hueco se libera al cerrarse la conexión, al fallar y al completarse.
+    const slot = this.limits.eventStreams.tryAcquire(clientKey(req.ip), eventStreamMaxMs > 0 ? eventStreamMaxMs + 60_000 : undefined);
     if ("denied" in slot) {
       reply.header("retry-after", "30");
       throw slot.denied === "key"
         ? new HttpException("Demasiados flujos de eventos abiertos desde esta dirección.", HttpStatus.TOO_MANY_REQUESTS)
         : new ServiceUnavailableException("El servidor tiene demasiados flujos de eventos abiertos.");
     }
+    // Si el cliente corta mientras se consulta el trabajo, Nest no llega a suscribirse al Observable y su limpieza
+    // nunca corre: el cierre de la conexión es la única señal fiable.
+    reply.raw.once("close", slot.release);
     try {
       // Antes de abrir el flujo: una vez enviadas las cabeceras 200 ya no se puede responder 404.
       await this.jobs.get(id);

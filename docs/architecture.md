@@ -93,22 +93,21 @@ de RAM.
 
 ## Seguimiento conocido (revisión independiente, 2026-10-21)
 
-Hallazgos de la revisión que **no** se corrigieron en esta rama. Ninguno bloquea el uso local; los
-tres primeros son requisito antes de exponer el servicio a Internet.
+Rama `fix/security-hardening`: **corregidos** H2 (memoria de las subidas: tope total y por cliente, ritmo mínimo,
+partes de 5 MiB), H4 (tope y duración máxima de los flujos SSE), H7 (ffmpeg con entorno mínimo), el apagado
+ordenado del worker y la limpieza de `/work` al arrancar (ver [ADR 0010](adr/0010-endurecimiento-del-api-y-trabajos-huerfanos.md)).
+Siguen abiertos:
 
 | Id | Riesgo | Qué falta |
 |---|---|---|
-| H2 | El API puede quedarse sin memoria con subidas concurrentes (`Upload` con `queueSize: 3` y partes de 8 MiB, ~24-32 MiB por subida frente al límite del contenedor) | Tope de subidas simultáneas o menos paralelismo por subida; límite de memoria y prueba de carga |
-| H4 | SSE sin tope de conexiones vivas ni de duración (una consulta por segundo y conexión mientras el trabajo no sea terminal) | Máximo de conexiones por cliente y duración, o sondeo compartido |
-| H7 | ffmpeg hereda `DATABASE_URL`, `S3_SECRET_KEY` y `REDIS_PASSWORD`; el contenedor no está endurecido | `env=` mínimo en los subprocesos de `legacy`, usuario sin privilegios, `read_only`, `cap_drop` |
+| H7b | El entorno mínimo evita la herencia accidental de secretos, **no** un ffmpeg ya comprometido que corra con el mismo usuario (podría leer `/proc/<padre>/environ`) | Ejecutar ffmpeg con otro usuario, o en otro contenedor, con `no-new-privileges` y seccomp |
 | H9 | CI/CD: workflows sin bloque `permissions`, publicación a PyPI con token de larga vida, imagen sin dependencias fijadas por resumen | `permissions` mínimos, publicación por entorno protegido o Trusted Publishing, versiones fijadas |
 | H10 | Sin `API_KEY`, una página externa puede lanzar POST contra un API local (CSRF) o usar DNS rebinding | Comprobar `Host`/`Origin` y cabeceras de seguridad (helmet); `API_KEY` obligatoria fuera de desarrollo |
+| F1 | La imagen del worker (`python:3.12-slim`) no trae fuentes ni configuración de fontconfig, y `check_image.py` no prueba ningún quemado | Prueba de humo del quemado dentro de la imagen e instalar una fuente |
 
-Además: el apagado ordenado del worker (terminar o devolver el trabajo en curso al recibir SIGTERM) y
-la limpieza de `/work` al arrancar siguen sin hacerse, y el paquete `legacy` de PyPI conserva el
-riesgo que ya se corrigió en la imagen del worker (PyAV 19 con faster-whisper 1.2.1 sin fijar:
-`av==18.1.0` en `apps/ai-worker/constraints.txt`).
+Además: el paquete `legacy` de PyPI conserva el riesgo que ya se corrigió en la imagen del worker (PyAV 19 con
+faster-whisper 1.2.1 sin fijar: `av==18.1.0` en `apps/ai-worker/constraints.txt`).
 
-H5 (lista HLS disfrazada de video) se investigó y **no es explotable** con ffmpeg 7.1: el worker
-guarda la entrada como `input.bin` y la whitelist por defecto de un archivo local bloquea http;
-queda una prueba de regresión (`apps/ai-worker/tests/test_ssrf.py`).
+H5 (lista HLS disfrazada de video) se investigó y **no es explotable** con ffmpeg 7.1: el worker guarda la entrada
+como `input.bin` y la whitelist por defecto de un archivo local bloquea http; queda una prueba de regresión
+(`apps/ai-worker/tests/test_ssrf.py`).

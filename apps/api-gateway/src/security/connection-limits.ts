@@ -11,8 +11,8 @@ export class ConnectionLimits {
   readonly eventStreamMaxMs: number;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
-    const { maxConcurrentUploads, maxEventStreams, maxEventStreamsPerClient, eventStreamMaxMs } = config.security;
-    this.uploads = new ConcurrencyLimiter({ total: maxConcurrentUploads, perKey: 0 });
+    const { maxConcurrentUploads, maxConcurrentUploadsPerClient, maxEventStreams, maxEventStreamsPerClient, eventStreamMaxMs } = config.security;
+    this.uploads = new ConcurrencyLimiter({ total: maxConcurrentUploads, perKey: maxConcurrentUploadsPerClient });
     this.eventStreams = new ConcurrencyLimiter({ total: maxEventStreams, perKey: maxEventStreamsPerClient });
     this.eventStreamMaxMs = eventStreamMaxMs;
   }

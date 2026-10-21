@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { clientKey } from "../src/security/client-key.js";
 import { ConcurrencyLimiter } from "../src/security/concurrency-limiter.js";
 
 const acquire = (limiter: ConcurrencyLimiter, key?: string, ttl?: number) => limiter.tryAcquire(key, ttl);
@@ -48,5 +49,17 @@ describe("ConcurrencyLimiter", () => {
   it("0 significa sin límite", () => {
     const limiter = new ConcurrencyLimiter({ total: 0, perKey: 0 });
     for (let i = 0; i < 500; i++) expect("release" in acquire(limiter, "k")).toBe(true);
+  });
+});
+
+describe("clientKey", () => {
+  it("agrupa IPv6 por /64: rotar la parte baja de la dirección no da una clave nueva", () => {
+    expect(clientKey("2001:db8:1:2:aaaa::1")).toBe(clientKey("2001:db8:1:2:bbbb:cccc:dddd:2"));
+    expect(clientKey("2001:db8:1:2::1")).not.toBe(clientKey("2001:db8:1:3::1"));
+  });
+
+  it("deja las direcciones IPv4 tal cual y desenvuelve las IPv4 mapeadas en IPv6", () => {
+    expect(clientKey("203.0.113.7")).toBe("203.0.113.7");
+    expect(clientKey("::ffff:203.0.113.7")).toBe("203.0.113.7");
   });
 });

@@ -10,7 +10,7 @@ const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
 async function start(security: Partial<typeof baseConfig.security>): Promise<string> {
   const app = await createApp(
-    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { apiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, trustProxy: false, maxConcurrentUploads: 0, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, ...security } },
+    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { apiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, trustProxy: false, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0, uploadRateWindowMs: 30_000, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, ...security } },
     { logger: ["error"] },
   );
   await app.listen(0, "127.0.0.1");
@@ -129,7 +129,7 @@ describe("límite de uso", () => {
 describe("configuración", () => {
   it("los valores por defecto activan los límites y dejan la clave sin configurar", () => {
     const env = { ...process.env } as Record<string, string | undefined>;
-    for (const name of ["API_KEY", "RATE_LIMIT_PER_MINUTE", "UPLOAD_RATE_LIMIT_PER_MINUTE", "REAPER_INTERVAL_SECONDS", "TRUST_PROXY", "MAX_CONCURRENT_UPLOADS", "MAX_EVENT_STREAMS", "MAX_EVENT_STREAMS_PER_CLIENT", "EVENT_STREAM_MAX_SECONDS"]) delete env[name];
+    for (const name of ["API_KEY", "RATE_LIMIT_PER_MINUTE", "UPLOAD_RATE_LIMIT_PER_MINUTE", "REAPER_INTERVAL_SECONDS", "TRUST_PROXY", "MAX_CONCURRENT_UPLOADS", "MAX_CONCURRENT_UPLOADS_PER_CLIENT", "UPLOAD_MIN_BYTES_PER_SECOND", "UPLOAD_RATE_WINDOW_SECONDS", "MAX_EVENT_STREAMS", "MAX_EVENT_STREAMS_PER_CLIENT", "EVENT_STREAM_MAX_SECONDS"]) delete env[name];
     const config = loadConfig(env);
     expect(config.security).toEqual({
       apiKey: undefined,
@@ -137,6 +137,9 @@ describe("configuración", () => {
       uploadRateLimitPerMinute: 10,
       trustProxy: false,
       maxConcurrentUploads: 4,
+      maxConcurrentUploadsPerClient: 2,
+      uploadMinBytesPerSecond: 16_384,
+      uploadRateWindowMs: 30_000,
       maxEventStreams: 200,
       maxEventStreamsPerClient: 10,
       eventStreamMaxMs: 1_800_000,
@@ -145,9 +148,22 @@ describe("configuración", () => {
   });
 
   it.each([
+    ["true", true],
+    ["false", false],
+    ["", false],
+    ["10.0.0.0/8, 192.168.1.5", ["10.0.0.0/8", "192.168.1.5"]],
+  ])("TRUST_PROXY=%j se interpreta como %j (booleano o lista de redes)", (raw, expected) => {
+    expect(loadConfig({ ...process.env, TRUST_PROXY: raw }).security.trustProxy).toEqual(expected);
+  });
+
+  it.each([
     ["RATE_LIMIT_PER_MINUTE", "-1"],
     ["UPLOAD_RATE_LIMIT_PER_MINUTE", "diez"],
     ["MAX_CONCURRENT_UPLOADS", "-2"],
+    ["EVENT_STREAM_MAX_SECONDS", "100000"],
+    ["TRUST_PROXY", "no-es-una-red"],
+    ["TRUST_PROXY", "2"],
+    ["UPLOAD_RATE_WINDOW_SECONDS", "0"],
     ["MAX_EVENT_STREAMS_PER_CLIENT", "muchos"],
     ["JOB_STALE_MINUTES", "0"],
     ["REAPER_INTERVAL_SECONDS", "1.5"],

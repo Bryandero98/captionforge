@@ -45,8 +45,13 @@ mínimo de S3, y cola de 2) y un flujo SSE hace una consulta por segundo mientra
 ser horas. `MAX_CONCURRENT_UPLOADS`=4 (503 + Retry-After al pasarse), `MAX_EVENT_STREAMS`=200 en total (503) y
 `MAX_EVENT_STREAMS_PER_CLIENT`=10 (429), y `EVENT_STREAM_MAX_SECONDS`=1800 tras los que el servidor cierra el flujo
 y `EventSource` reconecta solo. Cada hueco tiene vencimiento propio, así que un `release` que no llegue nunca
-no lo pierde para siempre. Medido: subir 48, 96 o 192 MiB hace crecer el RSS ~80-92 MiB, es decir, un sobrecoste
-fijo y no el archivo retenido.
+no lo pierde para siempre. Medido con 4 subidas concurrentes de 64 MiB tras calentar: el RSS crece ~104-115 MiB (con la
+configuración anterior, cola 3 y partes de 8 MiB, 133-178 MiB); subir 48, 96 o 192 MiB una sola vez da un
+sobrecoste fijo de ~80-92 MiB, no el archivo retenido. Se añaden: tope por cliente (`MAX_CONCURRENT_UPLOADS_PER_CLIENT`=2,
+429) y ritmo mínimo de subida (`UPLOAD_MIN_BYTES_PER_SECOND`=16384 medido por ventanas de
+`UPLOAD_RATE_WINDOW_SECONDS`=30, 408), porque sin ellos un cliente lento retiene una plaza indefinidamente. Los
+límites por cliente agrupan IPv6 por /64, y `TRUST_PROXY` admite `false`, `true` o una lista de IP/CIDR (el
+modo numérico de Fastify 5.12 devuelve la IP del socket y no se admite).
 
 **Conexiones**: `DB_POOL_MAX` (10) fija el pool del adaptador; el valor se reparte entre las réplicas
 dentro de las 20 conexiones de `cf_api`.
