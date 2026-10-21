@@ -1,0 +1,462 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  PayloadTooLargeException,
+  ServiceUnavailableException,
+  UnsupportedMediaTypeException,
+} from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import type { Readable } from "node:stream";
+
+import type { BurnJob, TranscribeJob } from "@captionforge/contracts/types";
+import { ContractViolation, assertContract } from "../contracts/validators.js";
+import { Prisma, type Job, type JobStatus } from "../generated/prisma/client.js";
+import { PrismaService } from "../prisma/prisma.service.js";
+import { QueueService } from "../queue/queue.service.js";
+import { StorageService } from "../storage/storage.service.js";
+import { type Segment, SegmentsError, applyEdits, parseEdits, parseSegments, segmentsToSrt } from "./segments.js";
+
+export const ALLOWED_CONTENT_TYPES = [
+  "video/mp4",
+  "video/quicktime",
+  "video/x-matroska",
+  "video/webm",
+  "video/x-msvideo",
+] as const;
+
+const TERMINAL: readonly JobStatus[] = ["COMPLETED", "FAILED", "CANCELLED"];
+
+export const isTerminal = (status: JobStatus): boolean => TERMINAL.includes(status);
+
+export interface TranscriptionUpload {
+  stream: Readable;
+  filename: string;
+  mimetype: string;
+  options: unknown;
+}
+
+/** Lo que el API devuelve de un trabajo (sin bucket ni claves internas del almacenamiento). */
+export interface JobView {
+  id: string;
+  kind: Job["kind"];
+  /** Solo en los trabajos de quemado: la transcripción de la que parten. */
+  parentJobId: string | null;
+  status: JobStatus;
+  stage: string | null;
+  percent: number;
+  message: string | null;
+  originalFilename: string;
+  sizeBytes: number;
+  options: unknown;
+  error: { code: string; message: string | null } | null;
+  result: unknown;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export function toView(job: Job): JobView {
+  return {
+    id: job.id,
+    kind: job.kind,
+    parentJobId: job.parentJobId,
+    status: job.status,
+    stage: job.stage,
+    percent: job.percent,
+    message: job.message,
+    originalFilename: job.originalFilename,
+    sizeBytes: Number(job.sizeBytes), // el máximo del contrato (100 GiB) cabe en un número seguro
+    options: job.options,
+    error: job.errorCode ? { code: job.errorCode, message: job.errorMessage } : null,
+    result: publicResult(job.result),
+    createdAt: job.createdAt.toISOString(),
+    startedAt: job.startedAt?.toISOString() ?? null,
+    finishedAt: job.finishedAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * El resultado del worker, sin bucket, claves ni ETag internos (ADR 0002): los artefactos se piden por
+ * nombre en /artifacts/:name y los subtítulos, con su etag, en /segments.
+ */
+export function publicResult(result: unknown): unknown {
+  if (result === null || typeof result !== "object") return result ?? null;
+  const { artifacts, ...rest } = result as { artifacts?: Record<string, unknown> } & Record<string, unknown>;
+  return { ...rest, artifacts: artifacts ? Object.keys(artifacts) : [] };
+}
+
+/** El nombre del usuario es solo informativo: se queda con el último segmento y lo acota. */
+function cleanFilename(raw: string): string {
+  const base = raw.split(/[\\/]/).pop()?.trim() ?? "";
+  if (!base) throw new BadRequestException("El archivo no tiene nombre.");
+  return base.slice(0, 255);
+}
+
+const ARTIFACT_SUFFIX: Record<string, string> = {
+  srt: ".srt",
+  segments: ".segments.json",
+  waveform: ".waveform.json",
+  video: ".captioned.mp4",
+};
+
+/** Artefactos que existen en el resultado de cada tipo de trabajo. */
+const ARTIFACTS_BY_KIND: Record<Job["kind"], readonly string[]> = {
+  TRANSCRIBE: ["srt", "segments", "waveform"],
+  BURN: ["video"],
+};
+
+const MAX_SEGMENTS_BYTES = 32 * 1024 * 1024;
+const BURN_STYLES = ["modern", "tiktok", "youtube", "minimal"] as const;
+
+/** Nombre de descarga: el del video original con la extensión del artefacto (sin su extensión de video). */
+export function downloadName(originalFilename: string, artifact: string): string {
+  const stem = originalFilename.replace(/\.[A-Za-z0-9]{1,10}$/, "") || "captionforge";
+  return `${stem}${ARTIFACT_SUFFIX[artifact] ?? ""}`;
+}
+
+/** Content-Disposition seguro: sin comillas ni saltos de línea y con el nombre real en UTF-8 (RFC 6266). */
+export function contentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]|["\\%;]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
+}
+
+function extensionOf(filename: string): string {
+  const match = /\.([A-Za-z0-9]{1,10})$/.exec(filename);
+  return match?.[1] ? `.${match[1].toLowerCase()}` : "";
+}
+
+@Injectable()
+export class JobsService {
+  private readonly logger = new Logger(JobsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+    private readonly queue: QueueService,
+  ) {}
+
+  async createTranscription(upload: TranscriptionUpload): Promise<JobView> {
+    if (!(ALLOWED_CONTENT_TYPES as readonly string[]).includes(upload.mimetype)) {
+      throw new UnsupportedMediaTypeException(`Tipo de archivo no admitido: ${upload.mimetype}`);
+    }
+    const options = this.parseOptions(upload.options);
+    const originalFilename = cleanFilename(upload.filename);
+
+    const id = randomUUID();
+    const inputKey = `jobs/${id}/input${extensionOf(originalFilename)}`;
+    const outputPrefix = `jobs/${id}/out/`;
+
+    // Se valida contra el contrato ANTES de subir: unas opciones inválidas con un video de 4 GiB
+    // gastaban todo el ancho de banda y el almacenamiento para responder 400 al final.
+    try {
+      assertContract("transcribe-job.v1", {
+        schemaVersion: 1,
+        jobId: id,
+        requestedAt: new Date().toISOString(),
+        input: { bucket: this.storage.bucket, objectKey: inputKey, originalFilename, contentType: upload.mimetype, sizeBytes: 1 },
+        outputPrefix,
+        options,
+      });
+    } catch (error) {
+      if (error instanceof ContractViolation) throw new BadRequestException(error.message);
+      throw error;
+    }
+
+    const { sizeBytes } = await this.storage.putStream(inputKey, upload.stream, upload.mimetype);
+    if (sizeBytes === 0) {
+      await this.storage.delete(inputKey).catch(() => undefined);
+      throw new BadRequestException("El archivo está vacío.");
+    }
+
+    const payload: TranscribeJob = {
+      schemaVersion: 1,
+      jobId: id,
+      requestedAt: new Date().toISOString(),
+      input: {
+        bucket: this.storage.bucket,
+        objectKey: inputKey,
+        originalFilename,
+        contentType: upload.mimetype as TranscribeJob["input"]["contentType"],
+        sizeBytes,
+      },
+      outputPrefix,
+      options,
+    };
+    try {
+      assertContract("transcribe-job.v1", payload);
+    } catch (error) {
+      await this.storage.delete(inputKey).catch(() => undefined);
+      if (error instanceof ContractViolation) throw new BadRequestException(error.message);
+      throw error;
+    }
+
+    let job: Job;
+    try {
+      job = await this.prisma.job.create({
+        data: {
+          id,
+          kind: "TRANSCRIBE",
+          inputBucket: payload.input.bucket,
+          inputKey,
+          originalFilename,
+          contentType: upload.mimetype,
+          sizeBytes: BigInt(sizeBytes),
+          outputPrefix,
+          options: options as unknown as Prisma.InputJsonValue,
+        },
+      });
+    } catch (error) {
+      await this.storage.delete(inputKey).catch(() => undefined);
+      throw error;
+    }
+
+    try {
+      await this.queue.enqueueTranscribe(payload);
+    } catch (error) {
+      await this.failEnqueue(id, error, [inputKey]);
+    }
+    return toView(job);
+  }
+
+  /** Compensación al fallar el encolado, paso a paso: que falle uno (p. ej. la base también está caída)
+   *  no impide los demás ni cambia la respuesta, que siempre es 503. */
+  private async failEnqueue(id: string, error: unknown, objectsToDelete: string[]): Promise<never> {
+    this.logger.error(`No se pudo encolar el trabajo ${id}: ${(error as Error).message}`);
+    const closed = await this.prisma.job
+      .updateMany({
+        where: { id, status: "QUEUED" },
+        data: { status: "FAILED", errorCode: "INTERNAL", errorMessage: "No se pudo encolar el trabajo.", finishedAt: new Date() },
+      })
+      .then((r) => r.count)
+      .catch((e: unknown) => {
+        this.logger.error(`No se pudo marcar fallido el trabajo ${id}: ${(e as Error).message}`);
+        return 0;
+      });
+    // Si el fallo fue ambiguo (el comando llegó a Redis) y un worker ya tomó el trabajo, la fila no está QUEUED:
+    // borrar su entrada lo haría fallar a mitad de camino.
+    if (closed === 1) for (const key of objectsToDelete) await this.storage.delete(key).catch(() => undefined);
+    throw new ServiceUnavailableException("La cola no está disponible. Inténtalo de nuevo en un momento.");
+  }
+
+  /** La transcripción terminada de la que cuelgan los subtítulos; 409 si todavía no hay nada que editar o quemar. */
+  private async completedTranscription(id: string): Promise<{ job: Job; segmentsKey: string }> {
+    const job = await this.require(id);
+    if (job.kind !== "TRANSCRIBE") throw new ConflictException("Solo las transcripciones tienen subtítulos.");
+    if (job.status !== "COMPLETED") throw new ConflictException("La transcripción todavía no terminó.");
+    const key = (job.result as { artifacts?: { segments?: { objectKey?: unknown } } } | null)?.artifacts?.segments?.objectKey;
+    if (typeof key !== "string" || !key.startsWith(job.outputPrefix) || key.includes("..")) {
+      throw new ConflictException("La transcripción no tiene subtítulos disponibles.");
+    }
+    return { job, segmentsKey: key };
+  }
+
+  private async readSegments(key: string): Promise<{ segments: Segment[]; etag: string }> {
+    const stored = await this.storage.getBuffer(key, MAX_SEGMENTS_BYTES).catch((error: unknown) => {
+      if (error instanceof PayloadTooLargeException) throw new ConflictException("Los subtítulos guardados son demasiado grandes para editarlos.");
+      throw error;
+    });
+    if (!stored) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
+    try {
+      return { segments: parseSegments(JSON.parse(stored.body.toString("utf-8"))), etag: stored.etag };
+    } catch (error) {
+      this.logger.error(`segments.json ilegible (${key}): ${(error as Error).message}`);
+      throw new ConflictException("Los subtítulos guardados no se pueden leer.");
+    }
+  }
+
+  async getSegments(id: string): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
+    const { segmentsKey } = await this.completedTranscription(id);
+    const { segments, etag } = await this.readSegments(segmentsKey);
+    return { segments: segments.map((segment, index) => ({ index, ...segment })), etag };
+  }
+
+  /**
+   * Aplica ediciones parciales (texto y/o tiempos por índice) y reescribe segments.json y output.srt.
+   * Si el cuerpo trae `etag`, se rechaza con 409 cuando los subtítulos cambiaron desde que se leyeron.
+   * Cambiar los subtítulos invalida los quemados que ya estén en cola (el worker lo detecta por el ETag).
+   */
+  async updateSegments(id: string, body: unknown): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
+    let parsed: ReturnType<typeof parseEdits>;
+    try {
+      parsed = parseEdits(body);
+    } catch (error) {
+      if (error instanceof SegmentsError) throw new BadRequestException(error.message);
+      throw error;
+    }
+    const { job, segmentsKey } = await this.completedTranscription(id);
+    const current = await this.readSegments(segmentsKey);
+    if (parsed.etag !== undefined && parsed.etag !== current.etag) {
+      throw new ConflictException("Los subtítulos cambiaron desde que los leíste. Vuelve a cargarlos.");
+    }
+    let updated: Segment[];
+    try {
+      updated = applyEdits(current.segments, parsed.edits);
+    } catch (error) {
+      if (error instanceof SegmentsError) throw new BadRequestException(error.message);
+      throw error;
+    }
+
+    const serialized = Buffer.from(JSON.stringify(updated));
+    if (serialized.length > MAX_SEGMENTS_BYTES) throw new BadRequestException("Las ediciones hacen los subtítulos demasiado grandes.");
+    const { etag } = await this.storage.putBuffer(segmentsKey, serialized, "application/json");
+    const srtKey = (job.result as { artifacts?: { srt?: unknown } } | null)?.artifacts?.srt;
+    if (typeof srtKey === "string" && srtKey.startsWith(job.outputPrefix) && !srtKey.includes("..")) {
+      await this.storage.putBuffer(srtKey, Buffer.from(segmentsToSrt(updated)), "application/x-subrip");
+    }
+    // El ETag nuevo queda en el resultado: es el que se pasará al worker en el próximo quemado.
+    const result = job.result as { artifacts: { segments: Record<string, unknown> } } & Record<string, unknown>;
+    result.artifacts.segments = { ...result.artifacts.segments, etag };
+    await this.prisma.job.update({ where: { id }, data: { result: result as unknown as Prisma.InputJsonValue } });
+    return { segments: updated.map((segment, index) => ({ index, ...segment })), etag };
+  }
+
+  /** Pide el quemado de los subtítulos APROBADOS (los actuales) sobre el video original. */
+  async createBurn(parentId: string, rawOptions: unknown): Promise<JobView> {
+    const options = this.parseBurnOptions(rawOptions);
+    const { job: parent, segmentsKey } = await this.completedTranscription(parentId);
+    const head = await this.storage.head(segmentsKey);
+    if (!head) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
+
+    const active = await this.prisma.job.count({
+      where: { kind: "BURN", parentJobId: parent.id, status: { in: ["QUEUED", "RUNNING"] } },
+    });
+    if (active > 0) throw new ConflictException("Ya hay un quemado en curso para esta transcripción. Espera a que termine o cancélalo.");
+
+    const id = randomUUID();
+    const outputPrefix = `jobs/${id}/out/`;
+    const payload: BurnJob = {
+      schemaVersion: 1,
+      jobId: id,
+      requestedAt: new Date().toISOString(),
+      input: { bucket: parent.inputBucket, objectKey: parent.inputKey },
+      segments: { bucket: this.storage.bucket, objectKey: segmentsKey, etag: head.etag },
+      outputPrefix,
+      options,
+    };
+    try {
+      assertContract("burn-job.v1", payload);
+    } catch (error) {
+      if (error instanceof ContractViolation) throw new BadRequestException(error.message);
+      throw error;
+    }
+
+    const job = await this.prisma.job.create({
+      data: {
+        id,
+        kind: "BURN",
+        parentJobId: parent.id,
+        inputBucket: parent.inputBucket,
+        inputKey: parent.inputKey,
+        originalFilename: parent.originalFilename,
+        contentType: parent.contentType,
+        sizeBytes: parent.sizeBytes,
+        outputPrefix,
+        options: options as unknown as Prisma.InputJsonValue,
+      },
+    });
+    try {
+      await this.queue.enqueueBurn(payload);
+    } catch (error) {
+      await this.failEnqueue(id, error, []); // el video de entrada es de la transcripción: no se borra
+    }
+    return toView(job);
+  }
+
+  private parseBurnOptions(raw: unknown): BurnJob["options"] {
+    const value = raw ?? {};
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new BadRequestException("Las opciones deben ser un objeto JSON.");
+    }
+    const given = value as Record<string, unknown>;
+    const unknown = Object.keys(given).filter((key) => key !== "style" && key !== "karaoke");
+    if (unknown.length > 0) throw new BadRequestException(`Opciones desconocidas: ${unknown.join(", ")}.`);
+    const style = given.style ?? "modern";
+    const karaoke = given.karaoke ?? false;
+    if (typeof style !== "string" || !(BURN_STYLES as readonly string[]).includes(style)) {
+      throw new BadRequestException(`style debe ser uno de: ${BURN_STYLES.join(", ")}.`);
+    }
+    if (typeof karaoke !== "boolean") throw new BadRequestException("karaoke debe ser verdadero o falso.");
+    return { style: style as BurnJob["options"]["style"], karaoke };
+  }
+
+  async get(id: string): Promise<JobView> {
+    return toView(await this.require(id));
+  }
+
+  /** Para el stream de eventos: undefined = no existe. */
+  async find(id: string): Promise<Job | null> {
+    return this.prisma.job.findUnique({ where: { id } });
+  }
+
+  async cancel(id: string): Promise<JobView> {
+    const job = await this.require(id);
+    if (isTerminal(job.status)) {
+      throw new ConflictException(`El trabajo ya terminó (${job.status}).`);
+    }
+    // La transición QUEUED -> CANCELLED es la que decide la carrera con el worker: su `claim` es la
+    // misma comparación (UPDATE ... WHERE status = 'QUEUED'), así que solo uno de los dos gana. Antes
+    // se quitaba el trabajo de la cola y luego se actualizaba la fila: si el worker lo tomaba entre
+    // ambos pasos, la fila quedaba CANCELLED mientras el video se procesaba entero.
+    const cancelled = await this.prisma.job.updateMany({
+      where: { id, status: "QUEUED" },
+      data: { status: "CANCELLED", errorCode: "CANCELLED", errorMessage: "Cancelado por el usuario.", finishedAt: new Date() },
+    });
+    if (cancelled.count === 1) {
+      // Ganó el API: el worker, si llega a recibirlo, ve que ya no está QUEUED y lo omite. Quitarlo
+      // de la cola es solo limpieza, por eso un fallo aquí no se propaga.
+      await this.queue.removeIfWaiting(job.kind, id).catch((e: unknown) =>
+        this.logger.warn(`No se pudo quitar ${id} de la cola: ${(e as Error).message}`),
+      );
+      return toView(await this.require(id));
+    }
+    // Perdió: el worker ya lo tomó (o terminó entre la lectura y aquí). Se relee y se avisa al worker.
+    const current = await this.require(id);
+    if (isTerminal(current.status)) {
+      throw new ConflictException(`El trabajo ya terminó (${current.status}).`);
+    }
+    const receivers = await this.queue.requestCancel(id).catch((error: unknown) => {
+      this.logger.error(`No se pudo publicar la cancelación de ${id}: ${(error as Error).message}`);
+      throw new ServiceUnavailableException("No se pudo avisar al worker. Inténtalo de nuevo en un momento.");
+    });
+    if (receivers === 0) {
+      // Pub/sub no guarda historial: sin ningún worker escuchando, el aviso se pierde.
+      this.logger.warn(`La cancelación de ${id} no la recibió ningún worker.`);
+      throw new ServiceUnavailableException("Ningún worker está escuchando; la cancelación no se pudo entregar.");
+    }
+    return toView(current);
+  }
+
+  /**
+   * Devuelve la clave de un artefacto del resultado, o null si el trabajo aún no lo tiene.
+   * El resultado lo escribe el worker; aun así solo se sirven claves bajo el prefijo de salida de
+   * este trabajo, para que un resultado corrupto no pueda exponer objetos de otro trabajo.
+   */
+  async artifactKey(id: string, name: string): Promise<{ key: string; filename: string } | null> {
+    const job = await this.require(id);
+    if (job.status !== "COMPLETED") return null;
+    if (!ARTIFACTS_BY_KIND[job.kind].includes(name)) return null;
+    const artifacts = (job.result as { artifacts?: Record<string, unknown> } | null)?.artifacts;
+    const entry = artifacts?.[name];
+    const key = typeof entry === "string" ? entry : (entry as { objectKey?: unknown } | undefined)?.objectKey;
+    if (typeof key !== "string" || !key.startsWith(job.outputPrefix) || key.includes("..")) return null;
+    return { key, filename: downloadName(job.originalFilename, name) };
+  }
+
+  private async require(id: string): Promise<Job> {
+    const job = await this.prisma.job.findUnique({ where: { id } });
+    if (!job) throw new NotFoundException("No existe ese trabajo.");
+    return job;
+  }
+
+  private parseOptions(raw: unknown): TranscribeJob["options"] {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new BadRequestException('El campo "options" debe ser un objeto JSON.');
+    }
+    const given = raw as Record<string, unknown>;
+    // Los valores por defecto se aplican aquí; claves desconocidas las rechaza el contrato.
+    return { modelSize: "small", sourceLanguage: null, translateTo: null, ...given } as TranscribeJob["options"];
+  }
+}

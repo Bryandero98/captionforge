@@ -1,0 +1,9 @@
+* text=auto
+
+# Fin de línea LF siempre: estos archivos se ejecutan en contenedores Linux, y los generados
+# se comparan byte a byte en `npm run contracts:check` (en Windows también).
+*.sh               text eol=lf
+*.sql              text eol=lf
+docker-compose*.yml text eol=lf
+Dockerfile         text eol=lf
+packages/contracts/** text eol=lf

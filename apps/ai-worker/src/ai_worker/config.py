@@ -1,0 +1,89 @@
+"""Configuración del worker, leída del entorno y validada al arrancar."""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+TRANSCRIBE_QUEUE = "captionforge.transcribe"
+BURN_QUEUE = "captionforge.burn"
+CANCEL_CHANNEL = "captionforge:cancel"
+
+
+class ConfigError(ValueError):
+    """Falta o es inválida una variable de entorno."""
+
+
+@dataclass(frozen=True)
+class WorkerConfig:
+    redis_host: str
+    redis_port: int
+    redis_password: str
+    database_url: str
+    s3_endpoint: str
+    s3_region: str
+    s3_bucket: str
+    s3_access_key: str
+    s3_secret_key: str
+    work_dir: Path
+    queue_name: str = TRANSCRIBE_QUEUE
+    burn_queue_name: str = BURN_QUEUE
+    cancel_channel: str = CANCEL_CHANNEL
+    concurrency: int = 1
+    # El candado se renueva cada mitad de este tiempo; Whisper y ffmpeg corren fuera del bucle de
+    # eventos (ADR 0006), así que se renueva aunque un segmento tarde minutos.
+    lock_duration_ms: int = 60_000
+    # Cada cuánto busca BullMQ trabajos cuyo candado venció (un worker que murió a mitad).
+    stalled_interval_ms: int = 30_000
+    # Latido del trabajo en curso: el recolector del API cierra los RUNNING sin cambios durante 20 min, y hay
+    # etapas largas que no informan progreso (descargar 4 GiB, traducir miles de segmentos).
+    heartbeat_seconds: float = 60.0
+    ffmpeg_stall_timeout: float = 300.0
+    ffmpeg_total_timeout: float = 6 * 3600.0
+
+    @property
+    def redis_connection(self) -> dict[str, object]:
+        return {"host": self.redis_host, "port": self.redis_port, "password": self.redis_password}
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] | None = None) -> WorkerConfig:
+        env = os.environ if env is None else env
+
+        def need(name: str) -> str:
+            value = env.get(name)
+            if not value:
+                raise ConfigError(f"Falta la variable de entorno {name}")
+            return value
+
+        def number(name: str, default: float, *, integer: bool = False) -> float:
+            raw = env.get(name)
+            if raw is None or raw == "":
+                return default
+            try:
+                value = int(raw) if integer else float(raw)
+            except ValueError:
+                raise ConfigError(f"{name} debe ser un número (recibido {raw!r})") from None
+            if value <= 0:
+                raise ConfigError(f"{name} debe ser positivo (recibido {raw!r})")
+            return value
+
+        return cls(
+            redis_host=need("REDIS_HOST"),
+            redis_port=int(number("REDIS_PORT", 6379, integer=True)),
+            redis_password=need("REDIS_PASSWORD"),
+            database_url=need("DATABASE_URL"),
+            s3_endpoint=need("S3_ENDPOINT"),
+            s3_region=env.get("S3_REGION", "us-east-1"),
+            s3_bucket=need("S3_BUCKET"),
+            s3_access_key=need("S3_ACCESS_KEY"),
+            s3_secret_key=need("S3_SECRET_KEY"),
+            work_dir=Path(env.get("WORK_DIR", "") or "work"),
+            concurrency=int(number("WORKER_CONCURRENCY", 1, integer=True)),
+            lock_duration_ms=int(number("LOCK_DURATION_MS", 60_000, integer=True)),
+            stalled_interval_ms=int(number("STALLED_INTERVAL_MS", 30_000, integer=True)),
+            heartbeat_seconds=number("HEARTBEAT_SECONDS", 60.0),
+            ffmpeg_stall_timeout=number("FFMPEG_STALL_TIMEOUT_SECONDS", 300.0),
+            ffmpeg_total_timeout=number("FFMPEG_TOTAL_TIMEOUT_SECONDS", 6 * 3600.0),
+        )

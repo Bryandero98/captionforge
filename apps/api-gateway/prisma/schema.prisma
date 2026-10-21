@@ -1,0 +1,62 @@
+// Esquema de CaptionForge. Prisma es la ÚNICA fuente de verdad: las tablas las crea `prisma migrate
+// deploy` con el rol cf_owner. El worker de Python solo lee y actualiza las columnas que concede la
+// migración "init" (ver el bloque de GRANT al final de ese SQL).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum JobKind {
+  TRANSCRIBE
+  BURN
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Job {
+  id               String    @id @db.Uuid
+  kind             JobKind
+  status           JobStatus @default(QUEUED)
+
+  // Progreso (lo actualiza el worker): etapa del contrato job-progress y porcentaje 0-100.
+  stage            String?
+  percent          Float     @default(0)
+  message          String?
+
+  // Archivo de entrada y prefijo de salida, siempre como bucket + objectKey (ADR 0002).
+  inputBucket      String
+  inputKey         String
+  originalFilename String
+  contentType      String
+  sizeBytes        BigInt
+  outputPrefix     String
+  options          Json
+
+  // Un trabajo de quemado apunta a la transcripción de la que parte.
+  parentJobId      String?   @db.Uuid
+
+  // Resultado: errorCode es un código del contrato job-error; result es transcribe/burn-result.
+  errorCode        String?
+  errorMessage     String?
+  result           Json?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  startedAt        DateTime?
+  finishedAt       DateTime?
+
+  @@index([status, createdAt])
+  @@index([parentJobId])
+}

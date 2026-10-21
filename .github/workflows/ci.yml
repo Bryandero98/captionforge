@@ -2,11 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
+    defaults:
+      run:
+        working-directory: legacy
     strategy:
       fail-fast: false
       matrix:

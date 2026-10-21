@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/burn-result.v1.json",
+  "title": "BurnResult",
+  "description": "returnvalue del trabajo de quemado de subtítulos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "usedKaraoke", "artifacts"],
+  "properties": {
+    "schemaVersion": { "description": "Siempre 1 en este esquema.", "type": "integer", "minimum": 1, "maximum": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
+    "usedKaraoke": {
+      "description": "false si se pidió karaoke pero ningún segmento conservaba tiempos por palabra.",
+      "type": "boolean"
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["video"],
+      "properties": {
+        "video": { "$ref": "common.v1.json#/$defs/ObjectKey" }
+      }
+    }
+  }
+}

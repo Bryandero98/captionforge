@@ -1,0 +1,276 @@
+# CaptionForge: infraestructura y servicios.
+#
+#   Desarrollo local (por defecto): solo la infraestructura -> postgres, pg-roles, redis, s3, s3-init.
+#     npm run infra:up
+#   (equivale a: levantar postgres, redis y s3 con `up -d --wait` y luego ejecutar las tareas de un
+#   solo uso con `run`, que sí propaga su código de salida; `up --wait` falla si una tarea ya terminó)
+#   api-gateway, migrate y ai-worker NO se levantan: el API y el worker corren nativos (npm / python)
+#   contra esta infraestructura, para no ahogar la RAM del equipo de desarrollo.
+#
+#   Despliegue completo (todos los servicios, incluidos migrate, api-gateway y ai-worker):
+#     docker compose --profile app up -d --build     (y `docker compose ps` para ver la salud)
+#
+# Los secretos viven en .env (fuera de git; ver .env.example). Si falta uno obligatorio,
+# `docker compose` se detiene con el mensaje de la variable correspondiente.
+#
+# Reparto de credenciales (mínimo privilegio): el superusuario de PostgreSQL solo lo ve `pg-roles`;
+# el dueño del esquema (cf_owner) solo lo ve `migrate`; la API en ejecución solo conoce cf_api y el
+# worker solo cf_worker. Lo mismo en S3: la cuenta root solo la ve `s3-init`.
+
+name: captionforge
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  logging: *logging
+
+x-redis-env: &redis-env
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?define REDIS_PASSWORD en .env}
+
+x-s3-common: &s3-common
+  S3_ENDPOINT: http://s3:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: ${S3_BUCKET:-captionforge}
+  S3_FORCE_PATH_STYLE: "true"
+
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api-gateway/Dockerfile
+
+services:
+  postgres:
+    <<: *hardening
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-captionforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-captionforge}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 512m
+
+  # Tarea de un solo uso que corre en CADA `up` (es idempotente): crea los roles de mínimo
+  # privilegio y aplica sus contraseñas. Así rotar una contraseña en .env surte efecto aunque el
+  # volumen de datos ya exista (un script initdb solo corre con el volumen vacío).
+  pg-roles:
+    <<: *hardening
+    image: postgres:16-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-captionforge}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+      PGDATABASE: ${POSTGRES_DB:-captionforge}
+      CF_OWNER_DB_PASSWORD: ${CF_OWNER_DB_PASSWORD:?define CF_OWNER_DB_PASSWORD en .env}
+      CF_API_DB_PASSWORD: ${CF_API_DB_PASSWORD:?define CF_API_DB_PASSWORD en .env}
+      CF_WORKER_DB_PASSWORD: ${CF_WORKER_DB_PASSWORD:?define CF_WORKER_DB_PASSWORD en .env}
+    volumes:
+      - ./docker/postgres/init-roles.sql:/init-roles.sql:ro
+    entrypoint: ["sh", "-c", 'exec psql -v ON_ERROR_STOP=1 -v db_name="$$PGDATABASE" -f /init-roles.sql']
+
+  redis:
+    <<: *hardening
+    image: redis:7-alpine
+    restart: unless-stopped
+    user: redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?define REDIS_PASSWORD en .env}
+    # La contraseña va a un archivo de configuración (no a la línea de comandos, que se vería en
+    # `docker inspect` y en /proc/*/cmdline). BullMQ exige maxmemory-policy noeviction; maxmemory
+    # por debajo del límite del contenedor hace que Redis rechace escrituras en vez de morir por OOM;
+    # appendonly evita perder la cola al reiniciar.
+    command:
+      - sh
+      - -c
+      - |
+        printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis-auth.conf
+        exec redis-server /tmp/redis-auth.conf --appendonly yes --maxmemory 200mb --maxmemory-policy noeviction
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 256m
+
+  # Almacenamiento S3. MinIO dejó de publicar imágenes (Docker Hub y Quay ya no las sirven),
+  # por eso se usa RustFS (Apache-2.0, API S3 compatible). Ver docs/adr/0004. Imagen fijada por
+  # versión y digest.
+  s3:
+    <<: *hardening
+    image: rustfs/rustfs:1.0.3@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ROOT_USER:-captionforge}
+      RUSTFS_SECRET_KEY: ${S3_ROOT_PASSWORD:?define S3_ROOT_PASSWORD en .env}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      # En despliegue: S3_CONSOLE_ENABLE=false y quitar los `ports` (solo el API debe ser accesible).
+      RUSTFS_CONSOLE_ENABLE: ${S3_CONSOLE_ENABLE:-true}
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - s3_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/health > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    mem_limit: 512m
+
+  # Tarea de un solo uso (idempotente): crea el bucket, la caducidad de archivos y las cuentas de
+  # servicio (una para la API y otra para el worker, cada una con su política mínima).
+  s3-init:
+    <<: *hardening
+    image: rustfs/rc:v0.1.36@sha256:ab024bfebee49a750ce886b4c70963ccd9ddaa03f491704a90710641d7a26699
+    restart: "no"
+    depends_on:
+      s3:
+        condition: service_healthy
+    environment:
+      S3_ROOT_USER: ${S3_ROOT_USER:-captionforge}
+      S3_ROOT_PASSWORD: ${S3_ROOT_PASSWORD:?define S3_ROOT_PASSWORD en .env}
+      S3_BUCKET: ${S3_BUCKET:-captionforge}
+      S3_API_ACCESS_KEY: ${S3_API_ACCESS_KEY:-cf-api}
+      S3_API_SECRET_KEY: ${S3_API_SECRET_KEY:?define S3_API_SECRET_KEY en .env}
+      S3_WORKER_ACCESS_KEY: ${S3_WORKER_ACCESS_KEY:-cf-worker}
+      S3_WORKER_SECRET_KEY: ${S3_WORKER_SECRET_KEY:?define S3_WORKER_SECRET_KEY en .env}
+    volumes:
+      - ./docker/s3/init-bucket.sh:/init-bucket.sh:ro
+    entrypoint: ["/bin/sh", "/init-bucket.sh"]
+
+  # Migraciones de Prisma: el ÚNICO servicio de aplicación que ve la contraseña del dueño del
+  # esquema. Termina al acabar; la API solo arranca si terminó bien.
+  migrate:
+    <<: *hardening
+    profiles: ["app"]
+    build: *api-build
+    image: captionforge/api-gateway:local
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://cf_owner:${CF_OWNER_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-captionforge}
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pg-roles:
+        condition: service_completed_successfully
+
+  api-gateway:
+    <<: *hardening
+    profiles: ["app"]
+    build: *api-build
+    image: captionforge/api-gateway:local
+    restart: unless-stopped
+    environment:
+      <<: [*redis-env, *s3-common]
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: 0.0.0.0 # dentro del contenedor; en el anfitrión el puerto solo se publica en 127.0.0.1
+      # Runtime: rol cf_api (sin DDL). Pool por debajo del límite de 20 conexiones del rol.
+      DATABASE_URL: postgresql://cf_api:${CF_API_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-captionforge}
+      # El adaptador de Prisma (node-postgres) ignora connection_limit de la URL: el pool se fija aquí.
+      # cf_api admite 20 conexiones en total, repartidas entre todas las réplicas del API.
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      S3_ACCESS_KEY: ${S3_API_ACCESS_KEY:-cf-api}
+      S3_SECRET_KEY: ${S3_API_SECRET_KEY}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-4294967296}
+      # Protección opcional (ver .env.example). Sin API_KEY el puerto solo está publicado en 127.0.0.1.
+      API_KEY: ${API_KEY:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
+      UPLOAD_RATE_LIMIT_PER_MINUTE: ${UPLOAD_RATE_LIMIT_PER_MINUTE:-10}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      JOB_STALE_MINUTES: ${JOB_STALE_MINUTES:-20}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    mem_limit: 512m
+
+  ai-worker:
+    <<: *hardening
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: apps/ai-worker/Dockerfile
+    restart: unless-stopped
+    init: true # tini: recoge los procesos zombi de ffmpeg
+    stop_grace_period: 60s # deja terminar o cancelar el trabajo en curso
+    environment:
+      <<: [*redis-env, *s3-common]
+      DATABASE_URL: postgresql://cf_worker:${CF_WORKER_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-captionforge}
+      S3_ACCESS_KEY: ${S3_WORKER_ACCESS_KEY:-cf-worker}
+      S3_SECRET_KEY: ${S3_WORKER_SECRET_KEY}
+      WORKER_CONCURRENCY: "1"
+      WHISPER_DEFAULT_MODEL: ${WHISPER_DEFAULT_MODEL:-small}
+      HF_HOME: /models/hf
+      XDG_DATA_HOME: /models/xdg
+      ARGOS_COMPUTE_TYPE: float32
+      FFMPEG_STALL_TIMEOUT_SECONDS: "300"
+      FFMPEG_TOTAL_TIMEOUT_SECONDS: "21600"
+    volumes:
+      - model_cache:/models
+      # Archivos de trabajo (videos de hasta 4 GiB): volumen, no tmpfs, porque tmpfs cuenta
+      # contra mem_limit y mataría al proceso por falta de memoria.
+      - worker_tmp:/work
+    depends_on:
+      pg-roles:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+    mem_limit: ${WORKER_MEM_LIMIT:-4g}
+    # GPU opcional: descomentar con NVIDIA Container Toolkit instalado.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  postgres_data:
+  redis_data:
+  s3_data:
+  model_cache:
+  worker_tmp:
+
+networks:
+  default:
+    name: captionforge-net

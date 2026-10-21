@@ -1,0 +1,220 @@
+{
+  "_comment": "GENERADO por Python (legacy/src/captionforge/srt.py): la fuente de verdad. Lo verifican las pruebas de api-gateway y de ai-worker; regenerar con packages/contracts/scripts/gen-segments-golden.py si cambia srt.py.",
+  "srt": [
+    {
+      "name": "basico",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 1.5,
+          "text": " Hola mundo",
+          "words": null
+        },
+        {
+          "start": 1.5,
+          "end": 3.25,
+          "text": "Segunda línea\ncon salto ",
+          "words": null
+        }
+      ],
+      "expected": "1\n00:00:00,000 --> 00:00:01,500\nHola mundo\n\n2\n00:00:01,500 --> 00:00:03,250\nSegunda línea\ncon salto\n"
+    },
+    {
+      "name": "redondeo_al_par",
+      "segments": [
+        {
+          "start": 0.0005,
+          "end": 0.0015,
+          "text": "a",
+          "words": null
+        },
+        {
+          "start": 0.0025,
+          "end": 0.0035,
+          "text": "b",
+          "words": null
+        },
+        {
+          "start": 1.0005,
+          "end": 2.0015,
+          "text": "c",
+          "words": null
+        }
+      ],
+      "expected": "1\n00:00:00,000 --> 00:00:00,002\na\n\n2\n00:00:00,002 --> 00:00:00,004\nb\n\n3\n00:00:01,000 --> 00:00:02,002\nc\n"
+    },
+    {
+      "name": "mas_de_una_hora",
+      "segments": [
+        {
+          "start": 3661.0075,
+          "end": 7322.5,
+          "text": "larga",
+          "words": null
+        }
+      ],
+      "expected": "1\n01:01:01,008 --> 02:02:02,500\nlarga\n"
+    },
+    {
+      "name": "vacio",
+      "segments": [],
+      "expected": ""
+    },
+    {
+      "name": "unicode",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 1.0,
+          "text": " ¿Qué tal? 👍🏽",
+          "words": null
+        }
+      ],
+      "expected": "1\n00:00:00,000 --> 00:00:01,000\n¿Qué tal? 👍🏽\n"
+    }
+  ],
+  "redistribute": [
+    {
+      "text": "hola mundo cruel",
+      "start": 0.0,
+      "end": 3.0,
+      "expected": [
+        {
+          "start": 0.0,
+          "end": 0.8571428571428571,
+          "text": "hola",
+          "probability": null
+        },
+        {
+          "start": 0.8571428571428571,
+          "end": 1.9285714285714284,
+          "text": "mundo",
+          "probability": null
+        },
+        {
+          "start": 1.9285714285714284,
+          "end": 3.0,
+          "text": "cruel",
+          "probability": null
+        }
+      ]
+    },
+    {
+      "text": "  uno   dos\ttres\ncuatro ",
+      "start": 10.0,
+      "end": 12.5,
+      "expected": [
+        {
+          "start": 10.0,
+          "end": 10.46875,
+          "text": "uno",
+          "probability": null
+        },
+        {
+          "start": 10.46875,
+          "end": 10.9375,
+          "text": "dos",
+          "probability": null
+        },
+        {
+          "start": 10.9375,
+          "end": 11.5625,
+          "text": "tres",
+          "probability": null
+        },
+        {
+          "start": 11.5625,
+          "end": 12.5,
+          "text": "cuatro",
+          "probability": null
+        }
+      ]
+    },
+    {
+      "text": "👍🏽 ok añadir",
+      "start": 1.0,
+      "end": 2.0,
+      "expected": [
+        {
+          "start": 1.0,
+          "end": 1.2,
+          "text": "👍🏽",
+          "probability": null
+        },
+        {
+          "start": 1.2,
+          "end": 1.4,
+          "text": "ok",
+          "probability": null
+        },
+        {
+          "start": 1.4,
+          "end": 2.0,
+          "text": "añadir",
+          "probability": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "start": 0.0,
+      "end": 1.0,
+      "expected": null
+    },
+    {
+      "text": "   ",
+      "start": 0.0,
+      "end": 1.0,
+      "expected": null
+    },
+    {
+      "text": "sola",
+      "start": 5.0,
+      "end": 5.0,
+      "expected": null
+    },
+    {
+      "text": "una dos",
+      "start": 2.0,
+      "end": 1.0,
+      "expected": null
+    },
+    {
+      "text": "a bb ccc dddd eeeee",
+      "start": 0.1,
+      "end": 7.3,
+      "expected": [
+        {
+          "start": 0.1,
+          "end": 0.58,
+          "text": "a",
+          "probability": null
+        },
+        {
+          "start": 0.58,
+          "end": 1.54,
+          "text": "bb",
+          "probability": null
+        },
+        {
+          "start": 1.54,
+          "end": 2.9800000000000004,
+          "text": "ccc",
+          "probability": null
+        },
+        {
+          "start": 2.9800000000000004,
+          "end": 4.9,
+          "text": "dddd",
+          "probability": null
+        },
+        {
+          "start": 4.9,
+          "end": 7.3,
+          "text": "eeeee",
+          "probability": null
+        }
+      ]
+    }
+  ]
+}

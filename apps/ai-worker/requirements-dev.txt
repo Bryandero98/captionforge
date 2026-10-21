@@ -1,0 +1,5 @@
+# Instala el worker y sus dependencias locales en el entorno actual (desde apps/ai-worker):
+#   pip install -r requirements-dev.txt
+-e ../../packages/contracts/generated/python
+-e ../../legacy
+-e .[dev]

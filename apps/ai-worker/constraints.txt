@@ -1,0 +1,6 @@
+# Versiones fijadas de las dependencias que el resolvedor de pip no debe subir solo.
+# PyAV 19 quitó el argumento `metadata_errors` que faster-whisper 1.2.1 pasa al decodificar audio:
+# todo importa bien y la transcripción falla recién al abrir el audio (lo detecta scripts/check_image.py).
+# Subir estas versiones solo tras comprobar `WHISPER_E2E=1 npm run worker:test` y la imagen.
+av==18.1.0
+faster-whisper==1.2.1

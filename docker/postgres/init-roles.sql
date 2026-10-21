@@ -1,0 +1,106 @@
+-- Roles de mínimo privilegio de CaptionForge.
+--
+-- Se ejecuta al crear el volumen de PostgreSQL (init-roles.sh) y es IDEMPOTENTE: también se puede
+-- volver a ejecutar a mano para aplicar cambios o rotar contraseñas (ver README, "Rotar
+-- contraseñas"). Corre conectado como el superusuario del contenedor (POSTGRES_USER) sobre la base
+-- POSTGRES_DB. Las contraseñas se leen del entorno del contenedor con \getenv: no pasan por la
+-- línea de comandos de psql ni se escriben en este archivo.
+--
+-- Reparto de responsabilidades (Prisma es la ÚNICA fuente de verdad del esquema):
+--   * POSTGRES_USER  -> superusuario del contenedor; solo administración. Nunca llega a una app.
+--   * cf_owner       -> dueño de la base y del esquema; sin superusuario. Solo lo usa
+--                       `prisma migrate deploy` (servicio `migrate`). Crea las tablas.
+--   * cf_api         -> el API Gateway en ejecución: lectura y escritura de datos, sin DDL.
+--   * cf_worker      -> el AI Worker: SOLO LEE y actualiza columnas concretas de "Job". Nunca
+--                       inserta ni borra filas. Esas columnas se conceden en una migración de
+--                       Prisma (los permisos por columna no se pueden dar por adelantado a
+--                       tablas que todavía no existen).
+--
+-- Variable de psql esperada: db_name. Variables de entorno: CF_OWNER_DB_PASSWORD,
+-- CF_API_DB_PASSWORD, CF_WORKER_DB_PASSWORD.
+
+\set ON_ERROR_STOP on
+
+-- Una sentencia ALTER ROLE ... PASSWORD fallida escribiría la contraseña en el registro del servidor.
+SET log_statement = 'none';
+SET log_min_error_statement = 'panic';
+
+\getenv owner_password CF_OWNER_DB_PASSWORD
+\getenv api_password CF_API_DB_PASSWORD
+\getenv worker_password CF_WORKER_DB_PASSWORD
+
+-- Ningún rol hereda permisos por defecto sobre la base ni el esquema público.
+REVOKE ALL ON DATABASE :"db_name" FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+-- Roles: solo inician sesión; sin superusuario, sin crear bases ni roles.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cf_owner') THEN
+    CREATE ROLE cf_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cf_api') THEN
+    CREATE ROLE cf_api LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cf_worker') THEN
+    CREATE ROLE cf_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+  END IF;
+END
+$$;
+
+-- Las contraseñas se fijan fuera del bloque DO para poder usar las variables de psql.
+ALTER ROLE cf_owner  PASSWORD :'owner_password';
+ALTER ROLE cf_api    PASSWORD :'api_password';
+ALTER ROLE cf_worker PASSWORD :'worker_password';
+
+-- Límite de conexiones: el worker procesa de a un trabajo; la API necesita un pool pequeño
+-- (fijar connection_limit en DATABASE_URL por debajo de 20) y las migraciones usan una sola.
+ALTER ROLE cf_owner  CONNECTION LIMIT 3;
+ALTER ROLE cf_api    CONNECTION LIMIT 20;
+ALTER ROLE cf_worker CONNECTION LIMIT 5;
+
+-- Tiempos máximos: una consulta o transacción colgada no puede retener una conexión para siempre.
+-- OJO (worker): un trabajo dura horas, así que su conexión debe usar autocommit o transacciones
+-- cortas; abierta en transacción sin actividad más de 30 s, el servidor la cierra.
+ALTER ROLE cf_api    SET statement_timeout = '30s';
+ALTER ROLE cf_api    SET idle_in_transaction_session_timeout = '30s';
+ALTER ROLE cf_worker SET statement_timeout = '30s';
+ALTER ROLE cf_worker SET idle_in_transaction_session_timeout = '30s';
+
+-- Las bases de mantenimiento tampoco quedan abiertas a cualquier rol que inicie sesión.
+REVOKE CONNECT ON DATABASE postgres FROM PUBLIC;
+REVOKE CONNECT ON DATABASE template1 FROM PUBLIC;
+
+-- El dueño del esquema NO es superusuario: es dueño de la base y del esquema público, y nada más.
+ALTER DATABASE :"db_name" OWNER TO cf_owner;
+ALTER SCHEMA public OWNER TO cf_owner;
+
+GRANT CONNECT ON DATABASE :"db_name" TO cf_api, cf_worker;
+GRANT USAGE ON SCHEMA public TO cf_api, cf_worker;
+
+-- Tablas y secuencias que cree cf_owner (Prisma):
+--   la API recibe lectura/escritura; el worker, solo lectura. Las columnas que el worker puede
+--   actualizar se conceden explícitamente en la migración que crea la tabla "Job". La migración
+--   inicial también debe quitarles todo sobre "_prisma_migrations" (historial de migraciones).
+ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO cf_api;
+ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO cf_api;
+ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
+  GRANT SELECT ON TABLES TO cf_worker;
+
+-- Para tablas que ya existían antes de aplicar este archivo (re-ejecución sobre un volumen con
+-- datos): los privilegios por defecto no son retroactivos.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cf_api;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO cf_api;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO cf_worker;
+
+-- ...pero el historial de migraciones es solo del dueño: los GRANT de arriba se lo habrían devuelto
+-- a cf_api y cf_worker (la migración inicial lo revoca; esto lo mantiene así al re-ejecutar).
+DO $$
+BEGIN
+  IF to_regclass('public."_prisma_migrations"') IS NOT NULL THEN
+    REVOKE ALL ON "_prisma_migrations" FROM cf_api, cf_worker;
+  END IF;
+END
+$$;

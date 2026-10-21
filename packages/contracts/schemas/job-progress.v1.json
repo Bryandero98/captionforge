@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/job-progress.v1.json",
+  "title": "JobProgress",
+  "description": "Valor que el worker pasa a job.updateProgress() y refleja en PostgreSQL.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "stage", "percent", "message"],
+  "properties": {
+    "schemaVersion": { "description": "Siempre 1 en este esquema.", "type": "integer", "minimum": 1, "maximum": 1 },
+    "stage": { "$ref": "common.v1.json#/$defs/Stage" },
+    "percent": { "type": "number", "minimum": 0, "maximum": 100 },
+    "message": { "type": "string", "maxLength": 200 }
+  }
+}
