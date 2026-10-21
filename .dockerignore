@@ -9,7 +9,10 @@ node_modules
 **/.venv
 **/__pycache__
 graphify-out
-legacy
+legacy/*
+!legacy/pyproject.toml
+!legacy/README.md
+!legacy/src
 docs
 tools/smoke/.venv
 apps/api-gateway/src/generated

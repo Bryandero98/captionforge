@@ -78,14 +78,22 @@ class AiWorker:
             await self.repo.fail(job_id, failure.code, failure.message)
             raise Exception(failure_reason(job_id, failure))
 
-        if not await self.repo.claim(job_id):
+        # El evento se registra ANTES del claim: el API publica la cancelación en cuanto ve el trabajo
+        # RUNNING, y un mensaje que llegara entre el claim y el registro se perdería.
+        cancel = threading.Event()
+        self._cancel_events[job_id] = cancel
+        try:
+            claimed = await self.repo.claim(job_id)
+        except BaseException:
+            self._cancel_events.pop(job_id, None)
+            raise
+        if not claimed:
+            self._cancel_events.pop(job_id, None)
             # Ya no estaba QUEUED: la API lo canceló mientras esperaba, o es una reentrega. No se procesa.
             log.info("trabajo %s ya no está en cola; se omite", job_id)
             failure = JobFailure("CANCELLED", "El trabajo ya no estaba pendiente.")
             raise Exception(failure_reason(job_id, failure))
 
-        cancel = threading.Event()
-        self._cancel_events[job_id] = cancel
         progress = Progress(self.repo, job_id, asyncio.get_running_loop(), sink=job)
         runner = asyncio.create_task(self.runner.run(payload, progress, cancel))
         aborted = asyncio.create_task(signal.wait())

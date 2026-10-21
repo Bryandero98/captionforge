@@ -7,7 +7,9 @@ import { PrismaClient } from "../generated/prisma/client.js";
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleDestroy {
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
-    super({ adapter: new PrismaPg({ connectionString: config.databaseUrl }) });
+    // PrismaPg (node-postgres) ignora `connection_limit` de la URL: el tamaño del pool va aquí y debe
+    // quedar por debajo del CONNECTION LIMIT del rol cf_api (20, docker/postgres/init-roles.sql).
+    super({ adapter: new PrismaPg({ connectionString: config.databaseUrl, max: 10, connectionTimeoutMillis: 10_000 }) });
   }
 
   async onModuleDestroy(): Promise<void> {

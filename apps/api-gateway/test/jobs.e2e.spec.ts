@@ -1,11 +1,12 @@
 // Prueba de extremo a extremo del API contra la infraestructura REAL (PostgreSQL, Redis, S3).
 // Requiere `npm run infra:up` y la migración aplicada (`npm run migrate`).
 import { randomUUID } from "node:crypto";
+import net from "node:net";
 import { Readable } from "node:stream";
 
 import { Queue } from "bullmq";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/main.js";
 import { loadConfig } from "../src/config/config.js";
@@ -302,10 +303,119 @@ describe("GET /v1/jobs/:id/artifacts/:name", () => {
 
     const response = await fetch(`${base}/v1/jobs/${job.id}/artifacts/srt`);
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-disposition")).toBe('attachment; filename="output.srt"');
+    // El nombre de descarga sale del video original, no de la clave interna del almacenamiento.
+    expect(response.headers.get("content-disposition")).toBe(
+      "attachment; filename=\"entrevista.srt\"; filename*=UTF-8''entrevista.srt",
+    );
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.text()).toContain("Hola");
     // segments.json declarado pero aún no subido: 404, no 500.
     expect((await fetch(`${base}/v1/jobs/${job.id}/artifacts/segments`)).status).toBe(404);
   });
+
+  it("no sirve claves fuera del prefijo de salida del trabajo ni resultados de trabajos sin terminar", async () => {
+    const job = await createJob();
+    const other = await createJob();
+    const foreignKey = `jobs/${other.id}/input.mp4`; // el video de OTRO trabajo, que sí existe en S3
+    const result = (artifacts: unknown) => JSON.stringify({ schemaVersion: 1, jobId: job.id, artifacts });
+
+    await worker.query(`UPDATE "Job" SET status = 'COMPLETED', result = $2::jsonb, "updatedAt" = now() WHERE id = $1`, [
+      job.id,
+      result({ srt: foreignKey, segments: `jobs/${job.id}/out/../../${other.id}/input.mp4`, waveform: "/etc/passwd" }),
+    ]);
+    for (const name of ["srt", "segments", "waveform"]) {
+      expect((await fetch(`${base}/v1/jobs/${job.id}/artifacts/${name}`)).status, name).toBe(404);
+    }
+
+    // Un resultado escrito en un trabajo que no está COMPLETED tampoco se sirve.
+    const srtKey = `jobs/${other.id}/out/output.srt`;
+    await storage.putStream(srtKey, Readable.from([Buffer.from("x")]), "application/x-subrip");
+    await worker.query(`UPDATE "Job" SET status = 'RUNNING', result = $2::jsonb, "updatedAt" = now() WHERE id = $1`, [
+      other.id,
+      result({ srt: srtKey }),
+    ]);
+    expect((await fetch(`${base}/v1/jobs/${other.id}/artifacts/srt`)).status).toBe(404);
+  });
+});
+
+describe("ids de trabajo", () => {
+  it("acepta UUID en mayúsculas y los normaliza (la cancelación publica el id en minúsculas)", async () => {
+    const job = await createJob();
+    const upper = job.id.toUpperCase();
+    expect((await fetch(`${base}/v1/jobs/${upper}`)).status).toBe(200);
+
+    await worker.query(`UPDATE "Job" SET status = 'RUNNING', "updatedAt" = now() WHERE id = $1`, [job.id]);
+    await (await queue.getJob(job.id))?.remove();
+    const response = await fetch(`${base}/v1/jobs/${upper}/cancel`, { method: "POST" });
+    expect(response.status).toBe(202); // antes: 500, el mensaje con el id en mayúsculas no pasaba el contrato
+    expect(((await response.json()) as { id: string }).id).toBe(job.id);
+  });
+});
+
+describe("carrera cancelar / tomar el trabajo", () => {
+  it("si el API cancela primero, el worker ya no puede tomarlo (misma condición QUEUED)", async () => {
+    const job = await createJob();
+    await fetch(`${base}/v1/jobs/${job.id}/cancel`, { method: "POST" });
+    const claim = await worker.query(
+      `UPDATE "Job" SET status = 'RUNNING', "startedAt" = now(), "updatedAt" = now() WHERE id = $1 AND status = 'QUEUED'`,
+      [job.id],
+    );
+    expect(claim.rowCount).toBe(0);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("CANCELLED");
+  });
+
+  it("si el worker ya lo tomó, cancelar no pisa su estado: se avisa por pub/sub y sigue RUNNING", async () => {
+    const job = await createJob();
+    await worker.query(`UPDATE "Job" SET status = 'RUNNING', "startedAt" = now(), "updatedAt" = now() WHERE id = $1`, [job.id]);
+    const response = await fetch(`${base}/v1/jobs/${job.id}/cancel`, { method: "POST" });
+    expect(response.status).toBe(202);
+    const row = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(row.status).toBe("RUNNING");
+    expect(row.errorCode).toBeNull();
+    expect(row.finishedAt).toBeNull();
+  });
+
+  it("cancelaciones simultáneas del mismo trabajo: una gana, las demás ven un estado coherente", async () => {
+    const job = await createJob();
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, () => fetch(`${base}/v1/jobs/${job.id}/cancel`, { method: "POST" })),
+    );
+    const codes = responses.map((r) => r.status);
+    expect(codes.every((c) => c === 202 || c === 409), codes.join()).toBe(true);
+    expect(codes).toContain(202);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("CANCELLED");
+  });
+});
+
+describe("subida interrumpida por el cliente", () => {
+  it("si el cliente corta la conexión a mitad del archivo, la subida termina (no queda colgada) y no se crea el trabajo", async () => {
+    const settled: Promise<string>[] = [];
+    const original = storage.putStream.bind(storage);
+    const spy = vi.spyOn(storage, "putStream").mockImplementation((...args) => {
+      const promise = original(...args);
+      settled.push(promise.then(() => "ok", () => "rechazada"));
+      return promise;
+    });
+    const before = await prisma.job.count();
+    try {
+      const boundary = "----cortada";
+      const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.mp4"\r\nContent-Type: video/mp4\r\n\r\n`;
+      const socket = net.connect(Number(new URL(base).port), "127.0.0.1");
+      await new Promise<void>((resolve) => socket.once("connect", resolve));
+      // Content-Length promete 1 MB y solo se envían 2 KB: luego se corta de golpe.
+      socket.write(
+        `POST /v1/jobs/transcribe HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\n` +
+          `Content-Length: ${head.length + 1_000_000}\r\n\r\n${head}${"A".repeat(2048)}`,
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      socket.destroy();
+
+      await vi.waitFor(() => expect(settled.length).toBe(1), { timeout: 3000 });
+      const outcome = await Promise.race([settled[0]!, new Promise<string>((r) => setTimeout(() => r("COLGADA"), 5000))]);
+      expect(outcome).toBe("rechazada");
+      expect(await prisma.job.count()).toBe(before);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 15_000);
 });
