@@ -424,7 +424,7 @@ describe("subida interrumpida por el cliente", () => {
       await new Promise<void>((resolve) => socket.once("connect", resolve));
       // Content-Length promete 1 MB y solo se envían 2 KB: luego se corta de golpe.
       socket.write(
-        `POST /v1/jobs/transcribe HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\n` +
+        `POST /v1/jobs/transcribe HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\n` +
           `Content-Length: ${head.length + 1_000_000}\r\n\r\n${head}${"A".repeat(2048)}`,
       );
       await new Promise((r) => setTimeout(r, 400));
