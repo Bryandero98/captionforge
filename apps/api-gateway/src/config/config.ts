@@ -19,7 +19,17 @@ export interface AppConfig {
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
   /** Protección opcional del API: clave compartida y límites de uso por IP (0 = sin límite). */
-  security: { apiKey: string | undefined; rateLimitPerMinute: number; uploadRateLimitPerMinute: number; trustProxy: boolean };
+  security: {
+    apiKey: string | undefined;
+    rateLimitPerMinute: number;
+    uploadRateLimitPerMinute: number;
+    trustProxy: boolean;
+    /** Operaciones largas a la vez (0 = sin límite): subidas en total y flujos SSE en total y por cliente. */
+    maxConcurrentUploads: number;
+    maxEventStreams: number;
+    maxEventStreamsPerClient: number;
+    eventStreamMaxMs: number;
+  };
 }
 
 /** Lee y valida el entorno; falla al arrancar (no a mitad de una petición) si falta algo. */
@@ -69,6 +79,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       rateLimitPerMinute: integer("RATE_LIMIT_PER_MINUTE", 240, { allowZero: true }),
       uploadRateLimitPerMinute: integer("UPLOAD_RATE_LIMIT_PER_MINUTE", 10, { allowZero: true }),
       trustProxy: (env.TRUST_PROXY ?? "false") === "true",
+      // Cada subida retiene ~15 MiB (3 partes de 5 MiB): con 4 a la vez son ~60 MiB de los 512 del contenedor.
+      maxConcurrentUploads: integer("MAX_CONCURRENT_UPLOADS", 4, { allowZero: true }),
+      maxEventStreams: integer("MAX_EVENT_STREAMS", 200, { allowZero: true }),
+      maxEventStreamsPerClient: integer("MAX_EVENT_STREAMS_PER_CLIENT", 10, { allowZero: true }),
+      // Pasado este tiempo el servidor cierra el flujo y el cliente SSE reconecta solo (EventSource).
+      eventStreamMaxMs: integer("EVENT_STREAM_MAX_SECONDS", 1800, { allowZero: true }) * 1000,
     },
   };
 }

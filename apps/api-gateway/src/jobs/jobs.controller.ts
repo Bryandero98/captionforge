@@ -5,12 +5,14 @@ import {
   Get,
   HttpCode,
   HttpException,
+  HttpStatus,
   NotFoundException,
   Param,
   Post,
   Put,
   Req,
   Res,
+  ServiceUnavailableException,
   Sse,
   UnsupportedMediaTypeException,
   type MessageEvent,
@@ -18,6 +20,7 @@ import {
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { Observable } from "rxjs";
 
+import { ConnectionLimits } from "../security/connection-limits.js";
 import { StorageService } from "../storage/storage.service.js";
 import { JobIdPipe } from "./job-id.pipe.js";
 import { JobsService, contentDisposition, isTerminal, toView, type JobView } from "./jobs.service.js";
@@ -31,6 +34,7 @@ export class JobsController {
   constructor(
     private readonly jobs: JobsService,
     private readonly storage: StorageService,
+    private readonly limits: ConnectionLimits,
   ) {}
 
   /**
@@ -39,9 +43,24 @@ export class JobsController {
    */
   @Post("transcribe")
   @HttpCode(202)
-  async transcribe(@Req() req: FastifyRequest): Promise<JobView> {
+  async transcribe(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply): Promise<JobView> {
     if (!req.isMultipart()) throw new UnsupportedMediaTypeException("Se esperaba multipart/form-data.");
 
+    // Cada subida retiene ~15 MiB de partes en memoria: sin tope, unas cuantas a la vez agotan el contenedor.
+    const slot = this.limits.uploads.tryAcquire();
+    if ("denied" in slot) {
+      // El cuerpo no se ha leído: se cierra la conexión en vez de dejar al cliente enviándolo a nadie.
+      reply.header("retry-after", "10").header("connection", "close");
+      throw new ServiceUnavailableException("Hay demasiadas subidas en curso; reintenta en unos segundos.");
+    }
+    try {
+      return await this.receiveUpload(req);
+    } finally {
+      slot.release();
+    }
+  }
+
+  private async receiveUpload(req: FastifyRequest): Promise<JobView> {
     let options: unknown = {};
     for await (const part of req.parts()) {
       if (part.type === "field") {
@@ -84,14 +103,35 @@ export class JobsController {
    * segundo y solo se emite cuando algo cambió. Termina al llegar a un estado final.
    */
   @Sse(":id/events")
-  async events(@Param("id", JobIdPipe) id: string): Promise<Observable<MessageEvent>> {
-    // Antes de abrir el flujo: una vez enviadas las cabeceras 200 ya no se puede responder 404.
-    await this.jobs.get(id);
+  async events(
+    @Param("id", JobIdPipe) id: string,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<Observable<MessageEvent>> {
+    // Cada flujo hace una consulta por segundo mientras el trabajo no termine, y uno en cola puede esperar
+    // horas: el límite por minuto cuenta aperturas, no flujos vivos. Se reserva el hueco antes de consultar.
+    const { eventStreamMaxMs } = this.limits;
+    const slot = this.limits.eventStreams.tryAcquire(req.ip, eventStreamMaxMs > 0 ? eventStreamMaxMs + 10_000 : undefined);
+    if ("denied" in slot) {
+      reply.header("retry-after", "30");
+      throw slot.denied === "key"
+        ? new HttpException("Demasiados flujos de eventos abiertos desde esta dirección.", HttpStatus.TOO_MANY_REQUESTS)
+        : new ServiceUnavailableException("El servidor tiene demasiados flujos de eventos abiertos.");
+    }
+    try {
+      // Antes de abrir el flujo: una vez enviadas las cabeceras 200 ya no se puede responder 404.
+      await this.jobs.get(id);
+    } catch (error) {
+      slot.release();
+      throw error;
+    }
     return new Observable<MessageEvent>((subscriber) => {
       let stopped = false;
       let last = "";
       let lastBeat = Date.now();
       let timer: NodeJS.Timeout | undefined;
+      // Tiempo máximo: se cierra el flujo y EventSource reconecta solo (el estado se vuelve a enviar entero).
+      const maxDuration = eventStreamMaxMs > 0 ? setTimeout(() => subscriber.complete(), eventStreamMaxMs) : undefined;
 
       const tick = async (): Promise<void> => {
         try {
@@ -125,6 +165,8 @@ export class JobsController {
       return () => {
         stopped = true;
         if (timer) clearTimeout(timer);
+        if (maxDuration) clearTimeout(maxDuration);
+        slot.release();
       };
     });
   }

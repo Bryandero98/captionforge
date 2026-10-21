@@ -71,8 +71,10 @@ export class StorageService {
     const upload = new Upload({
       client: this.client,
       params: { Bucket: this.bucket, Key: key, Body: counter, ContentType: contentType },
-      queueSize: 3,
-      partSize: 8 * 1024 * 1024,
+      // Memoria por subida ≈ (queueSize + 1) × partSize = 15 MiB. 5 MiB es el mínimo que acepta S3; con 4 GiB
+      // de tope son ~820 partes, muy por debajo de las 10 000 permitidas.
+      queueSize: 2,
+      partSize: 5 * 1024 * 1024,
       leavePartsOnError: false, // si falla, se descartan las partes ya subidas
     });
     try {
