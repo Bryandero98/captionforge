@@ -75,7 +75,7 @@ de RAM.
 |---|---|---|
 | 0 | Paquete actual a `legacy/`, PR #6 y #7 fusionados | Hecha |
 | 1 | Monorepo, contratos, compose, roles mínimos, smoke test | Hecha |
-| 2 | API Gateway NestJS + Prisma (incluye la migración que concede UPDATE por columna a `cf_worker`) | Pendiente |
+| 2 | API Gateway NestJS + Prisma (incluye la migración que concede UPDATE por columna a `cf_worker`) | Hecha |
 | 3 | AI Worker Python (modelo cargado una vez, reutiliza los módulos de `legacy`) | Pendiente |
 | 4 | Flujo de quemado y adaptación del cliente web | Pendiente |
 | 5 | Endurecimiento, observabilidad y despliegue | Pendiente |

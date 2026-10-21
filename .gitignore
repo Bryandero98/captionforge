@@ -24,3 +24,4 @@ node_modules/
 packages/contracts/.venv/
 *.tsbuildinfo
 coverage/
+apps/api-gateway/src/generated/

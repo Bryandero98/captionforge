@@ -1,4 +1,4 @@
-// Genera los tipos TypeScript desde los JSON Schema: generated/ts/<esquema>.ts + index.ts.
+// Genera los tipos TypeScript desde los JSON Schema: generated/ts/<esquema>.d.ts + index.d.ts (solo tipos).
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -35,11 +35,11 @@ export async function generateTs(outDir) {
       strictIndexSignatures: true,
       style: { singleQuote: false, semi: true, printWidth: 100 },
     });
-    writeFileSync(join(tsDir, `${name}.ts`), lf(ts));
+    writeFileSync(join(tsDir, `${name}.d.ts`), lf(ts));
     exports.push(`export type { ${schema.title} } from "./${name}";`);
   }
 
-  writeFileSync(join(tsDir, "index.ts"), lf([BANNER, "", ...exports, ""].join("\n")));
+  writeFileSync(join(tsDir, "index.d.ts"), lf([BANNER, "", ...exports, ""].join("\n")));
   return tsDir;
 }
 

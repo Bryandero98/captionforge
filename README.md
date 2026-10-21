@@ -15,7 +15,7 @@ rediseñado como un sistema distribuido dirigido por eventos.
 | [`packages/contracts`](packages/contracts) | Esquemas JSON (fuente de verdad) y los tipos TypeScript y modelos Pydantic generados | Hecho |
 | [`docker-compose.yml`](docker-compose.yml) + [`docker/`](docker) | PostgreSQL, Redis, almacenamiento S3 y roles de mínimo privilegio | Hecho |
 | [`tools/smoke`](tools/smoke) | Prueba de extremo a extremo Node → Redis → Python | Hecho |
-| `apps/api-gateway` | API NestJS + Prisma | Fase 2 |
+| [`apps/api-gateway`](apps/api-gateway) | API NestJS 12 + Prisma 7: subida a S3, cola, estado, SSE, cancelación, descarga | Hecho (Fase 2) |
 | `apps/ai-worker` | Worker Python (Whisper, ffmpeg) | Fase 3 |
 | [`legacy/`](legacy) | Paquete Python actual (CLI + servidor web local) | Sin cambios |
 
@@ -53,6 +53,8 @@ contra la infraestructura dockerizada para no gastar RAM. Para un despliegue com
 | `npm run infra:up` / `infra:down` | Levanta o apaga PostgreSQL, Redis y S3 |
 | `npm run infra:verify` | Comprueba permisos: lo permitido funciona y lo prohibido falla |
 | `npm run smoke` | Productor Node → Redis → worker Python con BullMQ real |
+| `npm run migrate -w @captionforge/api-gateway` | Aplica las migraciones de Prisma con el rol dueño (`cf_owner`) |
+| `npm test -w @captionforge/api-gateway` | Pruebas del API contra PostgreSQL, Redis y S3 reales |
 | `npm run compose:check` | Valida `docker-compose.yml` con y sin el perfil `app` |
 
 ## Decisiones

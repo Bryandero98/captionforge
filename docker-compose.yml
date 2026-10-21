@@ -59,7 +59,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -190,6 +190,7 @@ services:
       <<: [*redis-env, *s3-common]
       NODE_ENV: production
       PORT: "3000"
+      HOST: 0.0.0.0 # dentro del contenedor; en el anfitrión el puerto solo se publica en 127.0.0.1
       # Runtime: rol cf_api (sin DDL). Pool por debajo del límite de 20 conexiones del rol.
       DATABASE_URL: postgresql://cf_api:${CF_API_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-captionforge}?connection_limit=10&pool_timeout=10
       S3_ACCESS_KEY: ${S3_API_ACCESS_KEY:-cf-api}

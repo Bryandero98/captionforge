@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+graphify-out
+legacy
+docs
+tools/smoke/.venv
+apps/api-gateway/src/generated

@@ -94,3 +94,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cf_api;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO cf_api;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO cf_worker;
+
+-- ...pero el historial de migraciones es solo del dueño: los GRANT de arriba se lo habrían devuelto
+-- a cf_api y cf_worker (la migración inicial lo revoca; esto lo mantiene así al re-ejecutar).
+DO $$
+BEGIN
+  IF to_regclass('public."_prisma_migrations"') IS NOT NULL THEN
+    REVOKE ALL ON "_prisma_migrations" FROM cf_api, cf_worker;
+  END IF;
+END
+$$;

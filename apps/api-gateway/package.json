@@ -2,9 +2,46 @@
   "name": "@captionforge/api-gateway",
   "version": "0.0.0",
   "private": true,
-  "description": "API Gateway de CaptionForge (NestJS + Prisma). Fase 2 del plan: recibe subidas, las guarda en MinIO, crea el trabajo en PostgreSQL y lo encola en BullMQ.",
+  "type": "module",
+  "description": "API Gateway de CaptionForge (NestJS + Prisma): recibe subidas, las guarda en S3, crea el trabajo en PostgreSQL y lo encola en BullMQ.",
   "engines": {
     "node": ">=22"
   },
-  "scripts": {}
+  "scripts": {
+    "prisma:generate": "prisma generate",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "dev": "node scripts/with-env.mjs api -- node --watch dist/main.js",
+    "migrate": "node scripts/with-env.mjs owner -- prisma migrate deploy",
+    "test": "node scripts/with-env.mjs api -- vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1154.0",
+    "@aws-sdk/lib-storage": "^3.1154.0",
+    "@captionforge/contracts": "^1.0.0",
+    "@fastify/multipart": "^10.1.4",
+    "@nestjs/common": "^12.2.0",
+    "@nestjs/core": "^12.2.0",
+    "@nestjs/platform-fastify": "^12.2.0",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "bullmq": "^6.3.19",
+    "fastify": "^5.12.7",
+    "ioredis": "^5.11.1",
+    "pg": "^8.23.1",
+    "prisma": "^7.10.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.16.18",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "typescript": "^6.0.3",
+    "unplugin-swc": "^2.0.0",
+    "vitest": "^5.0.5"
+  }
 }
