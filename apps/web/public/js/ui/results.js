@@ -31,9 +31,10 @@ export function downloadName(originalFilename, extension) {
  * @param {{
  *   doc: Document, win: Window, baseUrl: string, t: (key: string, params?: Record<string, string | number>) => string,
  *   lang: () => string, announce: (text: string) => void, fetchSegments?: typeof getSegments,
+ *   onChange?: () => void,
  * }} deps
  */
-export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegments = getSegments }) {
+export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegments = getSegments, onChange = () => {} }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -93,6 +94,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     els.srt.setAttribute("aria-disabled", String(dirty));
     els.hint.hidden = !dirty;
     els.hint.textContent = dirty ? t("editor.downloads.hint") : "";
+    onChange();
   }
 
   function renderStatic() {
@@ -181,6 +183,12 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     /** Hay cambios sin guardar en el editor. */
     get dirty() {
       return editor.dirty;
+    },
+    /** La transcripción abierta y si se puede quemar, o null si no hay subtítulos cargados. */
+    get context() {
+      if (job === null || editor.segments.length === 0) return null;
+      const hasWords = editor.segments.some((segment) => Array.isArray(segment.words) && segment.words.length > 0);
+      return { job, hasWords, dirty: editor.dirty };
     },
   };
 }

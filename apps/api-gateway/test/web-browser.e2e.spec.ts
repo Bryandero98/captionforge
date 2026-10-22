@@ -513,6 +513,109 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await page.close();
   }, 60_000);
 
+  async function burnJobOf(parentId: string) {
+    return prisma.job.findFirstOrThrow({ where: { parentJobId: parentId } });
+  }
+
+  /** El worker termina el quemado: sube un «video» a S3 y deja el trabajo COMPLETED con su resultado. */
+  async function workerFinishesBurn(burnId: string) {
+    const job = await prisma.job.findUniqueOrThrow({ where: { id: burnId } });
+    const key = `${job.outputPrefix}captioned.mp4`;
+    await storage.putBuffer(key, Buffer.alloc(4096, 7), "video/mp4");
+    const result = { schemaVersion: 1, jobId: burnId, usedKaraoke: false, artifacts: { video: key } };
+    await prisma.job.update({ where: { id: burnId }, data: { status: "COMPLETED", stage: "burning", percent: 100, result, finishedAt: new Date() } });
+  }
+
+  it("quemado: se crea un trabajo propio, se sigue su progreso y al terminar aparecen el video y su descarga", async () => {
+    const base = await startApi();
+    const { page, spy, jobId } = await openEditorFor(base, "quema.mp4");
+    // Estos subtítulos no traen tiempos por palabra: el karaoke no se puede elegir y se dice por qué.
+    expect(await page.$eval("#burn-karaoke", (box) => (box as unknown as { disabled: boolean }).disabled)).toBe(true);
+    expect(await text(page, "#burn-hint")).toContain("tiempos por palabra");
+    await page.select("#burn-style", "tiktok");
+    await page.click("#burn-start");
+
+    await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 15_000 });
+    await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("En cola"), { timeout: 10_000 });
+    const burn = await burnJobOf(jobId);
+    expect(burn.kind).toBe("BURN");
+    expect(burn.options).toMatchObject({ style: "tiktok" });
+    // Mientras hay un quemado en curso no se puede lanzar otro.
+    expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(true);
+    expect(await text(page, "#burn-hint")).toContain("Ya hay un video en preparación");
+
+    await prisma.job.update({ where: { id: burn.id }, data: { status: "RUNNING", stage: "burning", percent: 50 } });
+    await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("Quemando los subtítulos en el video · 50 %"), { timeout: 10_000 });
+    expect(await isVisible(page, "#burn-cancel")).toBe(true);
+
+    await workerFinishesBurn(burn.id);
+    await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("Video listo"), { timeout: 10_000 });
+    expect(await isVisible(page, "#burn-video")).toBe(true);
+    expect(await page.$eval("#burn-video", (video) => video.getAttribute("src"))).toMatch(/\/v1\/jobs\/[0-9a-f-]{36}\/artifacts\/video$/);
+    expect(await page.$eval("#burn-download", (link) => link.getAttribute("href"))).toMatch(/\/artifacts\/video$/);
+    // El navegador puede pedir rangos del video (saltar sin bajarlo entero).
+    const range = await page.evaluate(async (href) => {
+      const response = await fetch(href as string, { headers: { Range: "bytes=0-9" } });
+      return { status: response.status, length: (await response.arrayBuffer()).byteLength };
+    }, await page.$eval("#burn-video", (video) => video.getAttribute("src")));
+    expect(range).toEqual({ status: 206, length: 10 });
+    expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(false);
+    expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(2);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("quemado: con cambios sin guardar no se puede crear el video (saldría con los subtítulos viejos)", async () => {
+    const base = await startApi();
+    const { page } = await openEditorFor(base, "sucio.mp4");
+    await retype(page, "#result-segments li:first-child .seg__text", "Cambiado");
+    expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(true);
+    expect(await text(page, "#burn-hint")).toContain("Guarda los cambios");
+    await page.click("#editor-save");
+    await page.waitForFunction(() => (document.querySelector("#editor-state")?.textContent ?? "").includes("Cambios guardados"), { timeout: 10_000 });
+    expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(false);
+    await page.close();
+  }, 60_000);
+
+  it("quemado: un fallo se explica en el idioma de la interfaz y se puede volver a intentar", async () => {
+    const base = await startApi();
+    const { page, jobId } = await openEditorFor(base, "falla-quema.mp4");
+    await page.click("#burn-start");
+    await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 15_000 });
+    const burn = await burnJobOf(jobId);
+    await prisma.job.update({ where: { id: burn.id }, data: { status: "FAILED", errorCode: "FFMPEG_FAILED", errorMessage: "fuente no encontrada", finishedAt: new Date() } });
+    await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("No se pudo leer el audio"), { timeout: 10_000 });
+    expect(await page.$eval("#burn-panel", (panel) => panel.classList.contains("is-failed"))).toBe(true);
+    expect(await isVisible(page, "#burn-video")).toBe(false);
+    expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(false);
+    await page.close();
+  }, 60_000);
+
+  it("quemado: abrir un video con subtítulos desde «Recientes» lo muestra y permite volver a sus subtítulos", async () => {
+    const base = await startApi();
+    const { page, jobId } = await openEditorFor(base, "vuelve.mp4");
+    await page.click("#burn-start");
+    await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 15_000 });
+    const burn = await burnJobOf(jobId);
+    await workerFinishesBurn(burn.id);
+    await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("Video listo"), { timeout: 10_000 });
+
+    await page.reload({ waitUntil: "networkidle0" });
+    expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(2);
+    // El más reciente es el quemado.
+    await page.click("#history-list li:first-child .btn--secondary");
+    await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("Video listo"), { timeout: 10_000 });
+    expect(await isVisible(page, "#job-panel")).toBe(false);
+    expect(await isVisible(page, "#result-panel")).toBe(false);
+    expect(await isVisible(page, "#burn-open-parent")).toBe(true);
+
+    await page.click("#burn-open-parent");
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    await page.waitForFunction(() => document.querySelectorAll("#result-segments li").length === 3, { timeout: 15_000 });
+    expect(await isVisible(page, "#burn-panel")).toBe(false);
+    await page.close();
+  }, 90_000);
+
   it("editor: «Cargar la versión nueva» en un conflicto descarta lo local y muestra lo del servidor", async () => {
     const base = await startApi();
     const { page, jobId } = await openEditorFor(base, "recarga.mp4");

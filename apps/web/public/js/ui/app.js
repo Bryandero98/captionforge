@@ -10,7 +10,9 @@ import { trackingViewOf } from "../domain/job-state.js";
 import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang } from "../i18n/index.js";
+import { createBurn } from "./burn.js";
 import { createHistory } from "./history.js";
+import { detailText, statusText } from "./job-text.js";
 import { createResults } from "./results.js";
 import { createTracker } from "./tracker.js";
 
@@ -103,8 +105,21 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let trackedStage = null;
 
   const translate = (/** @type {string} */ key, /** @type {Record<string, string | number> | undefined} */ params) => t(key, params);
-  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text) });
+  /** @type {ReturnType<typeof createBurn> | null} */
+  let burn = null;
+  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), onChange: () => burn?.refreshForm() });
   const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
+  burn = createBurn({
+    doc,
+    win,
+    baseUrl: config.baseUrl,
+    t: translate,
+    announce: (text) => announce(text),
+    context: () => results.context,
+    onStarted: (job) => history.add({ id: job.id, name: String(results.context?.job.originalFilename ?? job.id), kind: "BURN", at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
+    onOpenParent: (parentId) => void openJob(parentId),
+    follower,
+  });
 
   // ---------- estado ----------
 
@@ -153,12 +168,22 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     if (!confirmLeave()) return;
     if (state.phase !== "idle") state = initialState;
     render();
-    const { replaced } = await tracker.open(jobId, fetchJob);
-    if (!replaced) els.jobPanel.focus(); // solo si no lo reemplazó otra apertura
+    burn?.stop();
+    const { job, replaced } = await tracker.open(jobId, fetchJob);
+    if (replaced) return; // otra apertura lo reemplazó
+    if (job?.kind === "BURN") {
+      // Un quemado tiene su propio panel: el seguimiento principal no lo muestra.
+      tracker.stop();
+      burn?.adopt(job);
+      doc.getElementById("burn-panel")?.focus();
+      return;
+    }
+    els.jobPanel.focus();
   }
 
   function stopTracking() {
     tracker.stop();
+    burn?.stop();
     trackedKind = "none";
     trackedStep = -1;
   }
@@ -242,16 +267,12 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     els.progressDetail.textContent = state.phase === "finalizing" ? "" : parts.join(" · ");
   }
 
-  /** Texto de `key`, o el de `fallback` si esa clave no está traducida (una etapa o un código nuevo del servidor). */
-  function textOr(/** @type {string} */ key, /** @type {string} */ fallback, /** @type {Record<string, string | number>} */ params = {}) {
-    const text = t(key, params);
-    return text === key ? fallback : text;
-  }
-
   function renderJob() {
     const view = trackingViewOf(tracker.state);
-    els.jobPanel.hidden = view.kind === "none";
-    if (view.kind === "none") {
+    // Un quemado tiene su propio panel (ui/burn.js): el principal solo muestra transcripciones.
+    const hidden = view.kind === "none" || tracker.state.job?.kind === "BURN";
+    els.jobPanel.hidden = hidden;
+    if (hidden) {
       results.hide();
       return;
     }
@@ -260,14 +281,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     if (view.kind === "completed" && trackedJob?.kind === "TRANSCRIBE") results.show(trackedJob);
     else results.hide();
 
-    let status = "";
-    if (view.kind === "queued") status = t("job.queued");
-    else if (view.kind === "running") {
-      status = view.stage === null ? t("job.preparing") : t("job.running", { stage: textOr(`stage.${view.stage}`, view.stage), percent: view.percent });
-    } else if (view.kind === "completed") status = t("job.completed");
-    else if (view.kind === "cancelled") status = t("job.cancelled");
-    else if (view.kind === "failed") status = textOr(`job.error.${view.failure?.code}`, t("job.error.INTERNAL"));
-    else status = view.error?.code === "not_found" ? t("job.lost.not_found") : t("job.lost");
+    const status = statusText(view, t);
     els.jobStatus.textContent = status;
 
     const showBar = view.kind === "queued" || view.kind === "running" || view.kind === "completed";
@@ -283,13 +297,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     }
     els.jobBar.setAttribute("aria-valuetext", status);
 
-    let detail = "";
-    if (view.kind === "failed" && view.failure?.message) detail = t("error.detail", { detail: view.failure.message.slice(0, 300) });
-    else if (!view.terminal && view.kind !== "lost") {
-      if (view.connection === "waiting") detail = t("job.conn.waiting", { seconds: view.waitSeconds });
-      else if (view.connection === "reconnecting") detail = t("job.conn.reconnecting");
-      else detail = view.message ?? "";
-    }
+    const detail = detailText(view, t);
     els.jobDetail.textContent = detail;
     els.jobDetail.hidden = detail === "";
     els.jobReconnect.hidden = !(view.kind === "lost" && view.error?.code !== "not_found");
@@ -494,6 +502,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     }
     results.refresh();
     history.refresh();
+    burn?.refresh();
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }

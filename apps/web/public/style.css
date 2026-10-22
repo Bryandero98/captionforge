@@ -454,6 +454,39 @@ select:disabled {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.burn {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.burn__title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+.burn .options {
+  align-items: end;
+}
+.field--check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.field--check input {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--accent);
+}
+.burn .btn {
+  margin-top: 14px;
+}
+.burn__video {
+  display: block;
+  width: 100%;
+  max-height: 24rem;
+  margin-top: 14px;
+  background: #000;
+  border-radius: var(--radius);
+}
 .segments {
   max-height: 22rem;
   margin: 18px 0 0;
