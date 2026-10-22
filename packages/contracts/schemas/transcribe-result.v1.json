@@ -19,6 +19,11 @@
     "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
     "detectedLanguage": { "$ref": "common.v1.json#/$defs/LanguageCode" },
     "device": { "type": "string", "enum": ["cpu", "cuda"] },
+    "diarized": {
+      "description": "true si los segmentos llevan `speaker`. false si no se pidió o si la diarización falló y se entregó la transcripción sin hablantes. Si falta (resultados anteriores), false.",
+      "type": "boolean",
+      "default": false
+    },
     "durationSeconds": { "type": "number", "minimum": 0 },
     "segmentCount": { "type": "integer", "minimum": 0 },
     "audioCleaned": {
