@@ -138,7 +138,6 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     const speaker = doc.createElement("span");
     speaker.className = "seg__speaker";
     speaker.hidden = true;
-    times.append(speaker);
     const makeTime = (/** @type {"start" | "end"} */ field) => {
       const input = doc.createElement("input");
       input.type = "text";
@@ -168,7 +167,7 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     };
     const start = makeTime("start");
     const end = makeTime("end");
-    times.append(start, end);
+    times.append(start, end, speaker); // el hablante va después de los campos: no cambia su posición
     const text = doc.createElement("textarea");
     text.className = "seg__text";
     text.rows = 1;
