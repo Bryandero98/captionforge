@@ -21,6 +21,11 @@
     "device": { "type": "string", "enum": ["cpu", "cuda"] },
     "durationSeconds": { "type": "number", "minimum": 0 },
     "segmentCount": { "type": "integer", "minimum": 0 },
+    "audioCleaned": {
+      "description": "true si se transcribió el audio con la voz aislada. false si no se pidió o si la separación falló y se usó el audio original. Si falta (resultados anteriores), false.",
+      "type": "boolean",
+      "default": false
+    },
     "artifacts": {
       "type": "object",
       "additionalProperties": false,

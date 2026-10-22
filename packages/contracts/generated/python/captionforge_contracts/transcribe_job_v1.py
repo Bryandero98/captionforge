@@ -86,6 +86,8 @@ class StylePreset(StrEnum):
 class Stage(StrEnum):
     downloading_input = 'downloading_input'
     extracting_audio = 'extracting_audio'
+    downloading_separation_model = 'downloading_separation_model'
+    separating_voice = 'separating_voice'
     downloading_model = 'downloading_model'
     transcribing = 'transcribing'
     translating = 'translating'
@@ -147,6 +149,12 @@ class Options(BaseModel):
     translateTo: Annotated[
         LanguageCode | None, Field(description='null = sin traducción.')
     ]
+    cleanAudio: Annotated[
+        bool | None,
+        Field(
+            description='Aislar la voz (Demucs) antes de transcribir. Opcional: si falta, false. Si la separación falla, el trabajo sigue con el audio original (ver audioCleaned en el resultado).'
+        ),
+    ] = False
 
 
 class TranscribeJob(BaseModel):

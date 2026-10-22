@@ -23,6 +23,10 @@ export interface TranscribeResult {
   device: "cpu" | "cuda";
   durationSeconds: number;
   segmentCount: number;
+  /**
+   * true si se transcribió el audio con la voz aislada. false si no se pidió o si la separación falló y se usó el audio original. Si falta (resultados anteriores), false.
+   */
+  audioCleaned?: boolean;
   artifacts: {
     /**
      * Clave dentro de jobs/<jobId>/. Solo [A-Za-z0-9_-] por segmento y un punto de extensión opcional en el último: no admite '..', barras iniciales ni rutas absolutas (sin lookahead, para que Pydantic y Ajv validen igual).

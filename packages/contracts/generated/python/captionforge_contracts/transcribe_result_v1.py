@@ -94,6 +94,8 @@ class StylePreset(StrEnum):
 class Stage(StrEnum):
     downloading_input = 'downloading_input'
     extracting_audio = 'extracting_audio'
+    downloading_separation_model = 'downloading_separation_model'
+    separating_voice = 'separating_voice'
     downloading_model = 'downloading_model'
     transcribing = 'transcribing'
     translating = 'translating'
@@ -159,4 +161,10 @@ class TranscribeResult(BaseModel):
     device: Device
     durationSeconds: Annotated[float, Field(ge=0.0)]
     segmentCount: Annotated[int, Field(ge=0)]
+    audioCleaned: Annotated[
+        bool | None,
+        Field(
+            description='true si se transcribió el audio con la voz aislada. false si no se pidió o si la separación falló y se usó el audio original. Si falta (resultados anteriores), false.'
+        ),
+    ] = False
     artifacts: Artifacts

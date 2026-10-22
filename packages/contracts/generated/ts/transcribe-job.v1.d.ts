@@ -51,5 +51,9 @@ export interface TranscribeJob {
      * null = sin traducción.
      */
     translateTo: string | null;
+    /**
+     * Aislar la voz (Demucs) antes de transcribir. Opcional: si falta, false. Si la separación falla, el trabajo sigue con el audio original (ver audioCleaned en el resultado).
+     */
+    cleanAudio?: boolean;
   };
 }
