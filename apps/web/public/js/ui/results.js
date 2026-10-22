@@ -3,6 +3,7 @@
 
 import { ApiError } from "../api/errors.js";
 import { artifactUrl, getSegments } from "../api/jobs.js";
+import { cleanAudioStatus } from "../domain/clean-audio.js";
 import { formatDuration } from "../domain/format.js";
 import { segmentsToVtt } from "../domain/subtitles.js";
 import { createSegmentEditor } from "./segment-editor.js";
@@ -44,6 +45,9 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
   const els = {
     panel: $("result-panel"),
     language: $("result-language"),
+    cleanRow: $("result-clean-row"),
+    clean: $("result-clean"),
+    cleanNote: $("result-clean-note"),
     duration: $("result-duration"),
     count: $("result-count"),
     srt: $("dl-srt"),
@@ -85,6 +89,12 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     els.language.textContent = result?.detectedLanguage ? languageName(result.detectedLanguage) : "—";
     els.duration.textContent = typeof result?.durationSeconds === "number" ? formatDuration(result.durationSeconds) || "—" : "—";
     els.count.textContent = typeof result?.segmentCount === "number" ? String(result.segmentCount) : "—";
+    // Solo si se pidió limpiar: un trabajo normal no muestra un «Audio limpiado: no» que nadie preguntó.
+    const cleaning = cleanAudioStatus(/** @type {{ options?: unknown, result?: unknown } | null} */ (job));
+    els.cleanRow.hidden = cleaning === "none";
+    els.clean.textContent = cleaning === "cleaned" ? t("result.cleaned.yes") : t("result.cleaned.no");
+    els.cleanNote.hidden = cleaning !== "fallback";
+    els.cleanNote.textContent = cleaning === "fallback" ? t("result.cleaned.fallback") : "";
   }
 
   /** Con cambios sin guardar las descargas darían la versión vieja: se desactivan y se dice por qué. */

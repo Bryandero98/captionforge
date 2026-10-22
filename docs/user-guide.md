@@ -21,6 +21,9 @@ placeholder changes).
    and AVI. Files that cannot be used are skipped and the reason is shown.
 2. **Set the options.** *Model*: Base is the fastest, Medium the most accurate. *Audio language*: leave it on
    "Auto-detect" unless you know it. *Translate to*: optional, to get the captions in another language.
+   *Clean up background noise* (off by default): turn it on when music or loud noise covers the voice. It takes longer,
+   because the voice is isolated before transcribing. If it cannot be done, the job continues with the original audio and
+   the result says so ("Audio cleaned: No"); when applied it shows "Audio cleaned: Yes".
 3. **Generate the captions.** Press "Generate captions". You will see the upload and then the job stages (preparing the
    audio, transcribing, translating…). With several videos they are uploaded one at a time; if one fails the queue stops
    there and what was already uploaded is kept. You can close the page: the job keeps running on the server and stays in
@@ -49,4 +52,5 @@ placeholder changes).
 | "The server is busy. Retry in N s." | That is the per-minute upload limit: wait for the countdown, then use the retry button. |
 | "These captions are no longer on the server" | More than a day has passed: upload the video again. |
 | Uploading a huge file ends in a network error | The server rejects it before receiving it if it exceeds the maximum; check the size shown on the upload area. |
+| "The background noise could not be removed…" in the result | Voice separation failed (for example, no GPU memory or the component is not installed) and the original audio was transcribed: review the captions more carefully or try without the option. |
 | Two tabs editing the same captions | The second one to save sees the conflict notice (nothing is lost without your decision). |

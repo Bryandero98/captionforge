@@ -45,6 +45,9 @@ class WorkerConfig:
     shutdown_grace_seconds: float = 45.0
     ffmpeg_stall_timeout: float = 300.0
     ffmpeg_total_timeout: float = 6 * 3600.0
+    # Separación de voz (subproceso): sin ninguna señal de vida en este tiempo se da por colgada y se continúa con el audio original.
+    separation_stall_timeout: float = 300.0
+    separation_total_timeout: float = 3600.0
 
     @property
     def redis_connection(self) -> dict[str, object]:
@@ -90,4 +93,6 @@ class WorkerConfig:
             shutdown_grace_seconds=number("SHUTDOWN_GRACE_SECONDS", 45.0),
             ffmpeg_stall_timeout=number("FFMPEG_STALL_TIMEOUT_SECONDS", 300.0),
             ffmpeg_total_timeout=number("FFMPEG_TOTAL_TIMEOUT_SECONDS", 6 * 3600.0),
+            separation_stall_timeout=number("SEPARATION_STALL_TIMEOUT_SECONDS", 300.0),
+            separation_total_timeout=number("SEPARATION_TOTAL_TIMEOUT_SECONDS", 3600.0),
         )

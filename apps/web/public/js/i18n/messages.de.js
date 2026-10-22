@@ -180,6 +180,14 @@ const de = {
   "error.aborted": "Upload abgebrochen.",
   "error.bad_response": "Der Server hat etwas geantwortet, das nicht von der CaptionForge-API stammt. Befindet sich ein Proxy oder ein Anmeldeportal dazwischen?",
   "error.unexpected": "Unerwartete Antwort des Servers.",
+  "options.clean": "Hintergrundgeräusche reduzieren (langsamer, für Musik oder laute Geräusche)",
+  "stage.downloading_separation_model": "Modell zur Audiobereinigung wird heruntergeladen",
+  "stage.separating_voice": "Hintergrundgeräusche werden reduziert",
+  "result.cleaned": "Audio bereinigt",
+  "result.cleaned.yes": "Ja",
+  "result.cleaned.no": "Nein",
+  "result.cleaned.fallback": "Die Hintergrundgeräusche konnten nicht reduziert werden, deshalb wurde das Original-Audio transkribiert. Die Untertitel können mehr Fehler enthalten; prüfe sie sorgfältig.",
+  "guide.s2.clean": "Hintergrundgeräusche reduzieren: Aktiviere das, wenn Musik oder laute Geräusche die Stimme überdecken. Es dauert länger. Lässt sich das Audio nicht bereinigen, wird das Original verwendet und du wirst darauf hingewiesen.",
 };
 
 export default de;

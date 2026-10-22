@@ -325,7 +325,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
   const NL = String.fromCharCode(10);
 
   /** Hace de worker al terminar: sube los subtítulos a S3 y deja el trabajo COMPLETED con su resultado. */
-  async function workerCompletes(name: string, segments: { start: number; end: number; text: string; words: null }[]) {
+  async function workerCompletes(name: string, segments: { start: number; end: number; text: string; words: null }[], extra: Record<string, unknown> = {}) {
     const [job] = await jobsNamed(`${token}-${name}`);
     const id = job!.id;
     const segmentsKey = `jobs/${id}/out/segments.json`;
@@ -339,6 +339,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
       device: "cpu",
       durationSeconds: 125,
       segmentCount: segments.length,
+      ...extra,
       artifacts: { srt: srtKey, segments: { bucket: baseConfig.s3.bucket, objectKey: segmentsKey, etag }, waveform: `jobs/${id}/out/waveform.json` },
     };
     await prisma.job.update({ where: { id }, data: { status: "COMPLETED", stage: "uploading", percent: 100, result, finishedAt: new Date() } });
@@ -349,6 +350,61 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     { start: 2, end: 4, text: " Segunda frase", words: null },
     { start: 4, end: 6, text: " Tercera", words: null },
   ];
+
+  it("limpieza de audio: la casilla viaja en las opciones, la etapa nueva se ve y el resultado dice «Audio limpiado: Sí»", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const name = "ruidoso.mp4";
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    expect(await page.$eval("#opt-clean", (box) => (box as unknown as { checked: boolean }).checked)).toBe(false); // desactivada por defecto
+    expect(await text(page, 'label[for="opt-clean"]')).toBe("Limpiar ruido de fondo (más lento, para música o ruido fuerte)");
+    await page.click("#opt-clean");
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+    const [job] = await jobsNamed(`${token}-${name}`);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job!.id } })).options).toMatchObject({ cleanAudio: true });
+
+    await prisma.job.update({ where: { id: job!.id }, data: { status: "RUNNING", stage: "separating_voice", percent: 25, startedAt: new Date(), message: "Limpiando el audio (50%)" } });
+    await page.waitForFunction(() => (document.querySelector("#job-status")?.textContent ?? "").includes("Limpiando el ruido de fondo"), { timeout: 15_000 });
+    await workerCompletes(name, SEGMENTS, { audioCleaned: true });
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    expect(await page.$eval("#result-clean-row", (row) => !row.hasAttribute("hidden"))).toBe(true);
+    expect(await text(page, "#result-clean")).toBe("Sí");
+    expect(await page.$eval("#result-clean-note", (note) => note.hasAttribute("hidden"))).toBe(true);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("limpieza de audio: si el worker usó el audio original, se muestra «No» y una alerta informativa", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const name = "respaldo.mp4";
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    await page.click("#opt-clean");
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+    await workerCompletes(name, SEGMENTS, { audioCleaned: false });
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    expect(await text(page, "#result-clean")).toBe("No");
+    expect(await page.$eval("#result-clean-note", (note) => !note.hasAttribute("hidden"))).toBe(true);
+    expect(await text(page, "#result-clean-note")).toContain("se transcribió el audio original");
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("limpieza de audio: sin pedirla, el resultado no muestra ni indicador ni alerta", async () => {
+    const base = await startApi();
+    const { page } = await openPage(base);
+    const name = "limpio.mp4";
+    await uploadAndFollow(page, name);
+    const [job] = await jobsNamed(`${token}-${name}`);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job!.id } })).options).toMatchObject({ cleanAudio: false });
+    await workerCompletes(name, SEGMENTS, { audioCleaned: false });
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    expect(await page.$eval("#result-clean-row", (row) => row.hasAttribute("hidden"))).toBe(true);
+    expect(await page.$eval("#result-clean-note", (note) => note.hasAttribute("hidden"))).toBe(true);
+    await page.close();
+  }, 90_000);
 
   it("resultado: al completarse se muestran los datos, los subtítulos y las descargas (.srt del servidor, .vtt del cliente)", async () => {
     const base = await startApi();

@@ -21,6 +21,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# La limpieza de audio (cleanAudio, ADR 0013) NO es un extra de pip: demucs declara dependencias que no se pueden resolver
+# en Python 3.12+ (diffq). Se instala con requirements-separation.txt (versiones fijadas, torch 2.11). Sin eso el trabajo
+# sigue con el audio original.
 
 [project.scripts]
 ai-worker = "ai_worker.__main__:run"

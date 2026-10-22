@@ -65,8 +65,8 @@ def test_valid_examples_are_accepted_and_round_trip(path: Path) -> None:
     model = _model_for(_schema_name(path))
     raw = path.read_text(encoding="utf-8")
     parsed = model.model_validate_json(raw, strict=True)
-    # Lo que entra es lo que sale: ningún campo se pierde ni se renombra.
-    assert _normalize(parsed.model_dump(mode="json")) == _normalize(json.loads(raw))
+    # Lo que entra es lo que sale: ningún campo se pierde ni se renombra (los opcionales con valor por defecto que no venían siguen sin venir).
+    assert _normalize(parsed.model_dump(mode="json", exclude_unset=True)) == _normalize(json.loads(raw))
 
 
 @pytest.mark.parametrize("path", _examples("invalid"), ids=lambda p: p.name)

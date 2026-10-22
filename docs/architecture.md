@@ -89,6 +89,7 @@ de RAM.
 | 4a | Flujo de quemado: edición de subtítulos, cola `burn`, descarga con `Range` | Hecha |
 | 4b | Cliente web (`apps/web`) servido por el API, vanilla JS sin build y SSE propio ([ADR 0012](adr/0012-frontend-vanilla-sse.md)): estática + CSP, subida con progreso/cancelación y cola de varios videos, seguimiento SSE, resultados y descargas, editor con control de versión (etag/409), quemado como trabajo propio, historial local y 6 idiomas (es/en revisados; pt/fr/de/it traducción automática pendiente de revisión nativa). Guía: [guia-de-uso.md](guia-de-uso.md) | Hecho |
 | 5a | Endurecimiento: clave de API opcional, límites de uso, cierre de trabajos huérfanos, pool de conexiones ([ADR 0010](adr/0010-endurecimiento-del-api-y-trabajos-huerfanos.md)) | Hecha |
+| 4c | Limpieza de audio opcional (issue #5): aislar la voz con Demucs en un subproceso antes de transcribir, con respaldo al audio original ([ADR 0013](adr/0013-limpieza-de-audio-demucs-en-subproceso.md)) | Hecha |
 | 5b | Autenticación de personas usuarias, observabilidad (métricas, trazas) y despliegue | Pendiente |
 
 ## Seguimiento conocido (revisión independiente, 2026-10-21)

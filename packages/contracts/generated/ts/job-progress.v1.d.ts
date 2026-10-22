@@ -15,6 +15,8 @@ export interface JobProgress {
   stage:
     | "downloading_input"
     | "extracting_audio"
+    | "downloading_separation_model"
+    | "separating_voice"
     | "downloading_model"
     | "transcribing"
     | "translating"

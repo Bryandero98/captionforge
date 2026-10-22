@@ -465,6 +465,6 @@ export class JobsService {
     }
     const given = raw as Record<string, unknown>;
     // Los valores por defecto se aplican aquí; claves desconocidas las rechaza el contrato.
-    return { modelSize: "small", sourceLanguage: null, translateTo: null, ...given } as TranscribeJob["options"];
+    return { modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false, ...given } as TranscribeJob["options"];
   }
 }

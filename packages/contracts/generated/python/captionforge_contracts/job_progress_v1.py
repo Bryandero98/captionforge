@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 class Stage(StrEnum):
     downloading_input = 'downloading_input'
     extracting_audio = 'extracting_audio'
+    downloading_separation_model = 'downloading_separation_model'
+    separating_voice = 'separating_voice'
     downloading_model = 'downloading_model'
     transcribing = 'transcribing'
     translating = 'translating'

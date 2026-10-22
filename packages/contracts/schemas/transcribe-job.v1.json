@@ -51,6 +51,11 @@
         "translateTo": {
           "description": "null = sin traducción.",
           "anyOf": [{ "$ref": "common.v1.json#/$defs/LanguageCode" }, { "type": "null" }]
+        },
+        "cleanAudio": {
+          "description": "Aislar la voz (Demucs) antes de transcribir. Opcional: si falta, false. Si la separación falla, el trabajo sigue con el audio original (ver audioCleaned en el resultado).",
+          "type": "boolean",
+          "default": false
         }
       }
     }

@@ -30,7 +30,8 @@ from captionforge_contracts import TranscribeJob, TranscribeResult
 from .config import WorkerConfig
 from .errors import JobCancelled, JobFailure
 from .models import ModelProvider
-from .progress import Progress
+from .progress import CLEAN_STAGE_RANGES, Progress
+from .separation import SeparationFailed, Separator, SubprocessSeparator
 from .storage import Storage
 
 log = logging.getLogger("ai_worker")
@@ -83,10 +84,13 @@ def _transcribe_sync(
 
 
 class TranscribeRunner:
-    def __init__(self, config: WorkerConfig, storage: Storage, models: ModelProvider) -> None:
+    def __init__(self, config: WorkerConfig, storage: Storage, models: ModelProvider, separator: Separator | None = None) -> None:
         self._config = config
         self._storage = storage
         self._models = models
+        self._separator = separator or SubprocessSeparator(
+            stall_timeout=config.separation_stall_timeout, total_timeout=config.separation_total_timeout
+        )
 
     async def run(self, payload: TranscribeJob, progress: Progress, cancel: threading.Event) -> dict[str, Any]:
         """Devuelve el TranscribeResult (como dict JSON). Lanza JobCancelled o la excepción original."""
@@ -103,12 +107,41 @@ class TranscribeRunner:
         if cancel.is_set():
             raise JobCancelled()
 
+    async def _clean(self, audio: Path, job_dir: Path, progress: Progress, cancel: threading.Event) -> tuple[Path, bool]:
+        """Devuelve (audio a transcribir, si es el limpio). Whisper se suelta ANTES de lanzar el separador: los dos
+        modelos nunca conviven en la GPU. Un fallo de la separación no hace fallar el trabajo; una cancelación sí."""
+        await asyncio.to_thread(self._models.release)
+        cleaned = job_dir / "vocals.wav"
+
+        async def report(stage: str, fraction: float) -> None:
+            message = "Descargando el modelo de separación de voz" if stage == "downloading_separation_model" else f"Limpiando el audio ({fraction * 100:.0f}%)"
+            await progress.report(stage, fraction, message)
+
+        await progress.report("separating_voice", 0.0, "Limpiando el audio")
+        try:
+            await self._separator.separate(audio, cleaned, report)
+        except JobCancelled:
+            raise
+        except Exception as error:  # noqa: BLE001 - cualquier fallo de la separación (OOM, pesos, hijo) -> audio original
+            self._check(cancel)  # si fue una cancelación, no se disfraza de fallo recuperable
+            if isinstance(error, SeparationFailed):
+                log.warning("separación de voz fallida; se usa el audio original: %s", error)
+            else:
+                log.warning("separación de voz fallida; se usa el audio original", exc_info=error)
+            await progress.report("separating_voice", 1.0, "No se pudo limpiar el audio; se usa el original")
+            return audio, False
+        self._check(cancel)
+        return cleaned, True
+
     async def _run(self, payload: TranscribeJob, progress: Progress, cancel: threading.Event, job_dir: Path) -> dict[str, Any]:
         job_id = str(payload.jobId)
         size = str(payload.options.modelSize)
         source_language = _language(payload.options.sourceLanguage)
         translate_to = _language(payload.options.translateTo)
         prefix = payload.outputPrefix
+        clean_audio = bool(payload.options.cleanAudio)
+        if clean_audio:
+            progress.use_ranges(CLEAN_STAGE_RANGES)
 
         # 1. Entrada
         await progress.report("downloading_input", 0.0, "Descargando el video")
@@ -125,6 +158,11 @@ class TranscribeRunner:
             total_timeout=self._config.ffmpeg_total_timeout,
         )
         self._check(cancel)
+
+        # 2b. Aislar la voz (opcional). Si falla, se transcribe el audio original.
+        transcribe_from, audio_cleaned = audio, False
+        if clean_audio:
+            transcribe_from, audio_cleaned = await self._clean(audio, job_dir, progress, cancel)
 
         # 3. Modelo (se descarga solo la primera vez; se carga una vez por proceso)
         if not await asyncio.to_thread(self._models.is_cached, size):
@@ -153,7 +191,7 @@ class TranscribeRunner:
         result = await asyncio.to_thread(
             _transcribe_sync,
             model,
-            audio,
+            transcribe_from,
             source_language,
             device,
             lambda fraction: progress.report_threadsafe(
@@ -190,6 +228,7 @@ class TranscribeRunner:
                 "jobId": job_id,
                 "detectedLanguage": result.language,
                 "device": result.device,
+                "audioCleaned": audio_cleaned,
                 "durationSeconds": result.duration,
                 "segmentCount": len(segments),
                 "artifacts": {

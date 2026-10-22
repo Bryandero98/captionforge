@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "stage": "downloading_separation_model",
+  "percent": 45.0,
+  "message": "Descargando el modelo de separación"
+}

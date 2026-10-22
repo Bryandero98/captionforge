@@ -180,6 +180,14 @@ const pt = {
   "error.aborted": "Envio cancelado.",
   "error.bad_response": "O servidor respondeu algo que não é da API do CaptionForge. Há um proxy ou um portal de acesso no meio?",
   "error.unexpected": "Resposta inesperada do servidor.",
+  "options.clean": "Reduzir o ruído de fundo (mais lento, para música ou ruído alto)",
+  "stage.downloading_separation_model": "Baixando o modelo de limpeza de áudio",
+  "stage.separating_voice": "Reduzindo o ruído de fundo",
+  "result.cleaned": "Áudio limpo",
+  "result.cleaned.yes": "Sim",
+  "result.cleaned.no": "Não",
+  "result.cleaned.fallback": "Não foi possível reduzir o ruído de fundo, então o áudio original foi transcrito. As legendas podem ter mais erros; revise-as com atenção.",
+  "guide.s2.clean": "Reduzir o ruído de fundo: ative se houver música ou ruído alto sobre a voz. Demora mais. Se não for possível limpar, o áudio original é usado e você é avisado.",
 };
 
 export default pt;
