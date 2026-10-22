@@ -17,6 +17,7 @@ import { createApp } from "../src/main.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
 
 // Las funciones de waitForFunction se ejecutan dentro del navegador; solo se declara lo que usan (sin cargar la librería DOM).
+declare const localStorage: { setItem(key: string, value: string): void };
 declare const document: {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
   activeElement: { id: string } | null;
@@ -94,6 +95,14 @@ async function openPage(base: string, throttleBytesPerSecond?: number): Promise<
     // Cancelar aborta a propósito la subida: eso no es un fallo.
     if (request.failure()?.errorText !== "net::ERR_ABORTED") spy.problems.push(`petición fallida: ${request.url()} ${request.failure()?.errorText}`);
   });
+  // El idioma sale del navegador (en CI es inglés): las pruebas fijan español con la preferencia guardada.
+  await page.evaluateOnNewDocument(() => {
+    try {
+      localStorage.setItem("captionforge_lang", "es");
+    } catch {
+      // sin almacenamiento: queda el idioma del navegador
+    }
+  });
   if (throttleBytesPerSecond !== undefined) {
     const session = await page.createCDPSession();
     await session.send("Network.enable");
@@ -119,7 +128,7 @@ async function jobsNamed(name: string): Promise<{ id: string; status: string }[]
 describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real", () => {
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "cf-web-e2e-"));
-    browser = await puppeteer.launch({ executablePath: browserPath, headless: true, args: ["--no-sandbox", "--disable-gpu"] });
+    browser = await puppeteer.launch({ executablePath: browserPath, headless: true, args: ["--no-sandbox", "--disable-gpu", "--lang=en-US"] });
   }, 60_000);
 
   afterAll(async () => {
