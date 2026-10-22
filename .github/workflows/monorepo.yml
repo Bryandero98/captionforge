@@ -42,6 +42,9 @@ jobs:
       - name: Workflows con mínimo privilegio (permissions global de solo lectura, acciones fijadas por SHA)
         run: npm run workflows:test && npm run workflows:check
 
+      - name: Interfaz web (pruebas del cliente, tipos y lista de idiomas al día)
+        run: npm run web:test && npm run web:check
+
       - name: Los archivos generados están al día
         run: npm run contracts:check
 

@@ -119,8 +119,8 @@ Decisiones de diseño que importan:
   `Sec-Fetch-Site` recibe 403 antes de ejecutar `SELECT 1` y los pings a Redis y S3. Con DNS rebinding el navegador
   declara `same-origin` y la ruta responde, pero solo con el estado de las dependencias y bajo su propio contador
   (600 por minuto); no expone datos de trabajos.
-- **Sin reflejo.** Los mensajes de error son fijos y no repiten el `Host` ni el `Origin` recibidos; las
-  respuestas 403/421 cierran la conexión (`connection: close`) porque el cuerpo rechazado no se lee.
+- **Sin reflejo.** Los mensajes de error son fijos y no repiten el `Host` ni el `Origin` recibidos; los
+  rechazos con el cuerpo sin leer descartan hasta 16 MiB (10 s) y entonces cortan, para que el navegador vea el error.
 - **Observable.** Al arrancar se registra la política efectiva, de modo que un `ALLOWED_HOSTS` mal puesto se ve
   en el log y no en producción.
 

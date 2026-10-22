@@ -6,7 +6,7 @@ rediseñado como un sistema distribuido dirigido por eventos.
 > **Estado: reescritura en curso (rama `feat/monorepo-foundation`).**
 > El paquete Python publicado en PyPI sigue intacto en [`legacy/`](legacy/README.md) y es lo que
 > usa hoy la gente. Este monorepo es la nueva base: contratos, infraestructura, API Gateway y AI
-> Worker (transcripción y quemado). Falta adaptar el cliente web y el endurecimiento final.
+> Worker (transcripción y quemado). El cliente web (`apps/web`) está en curso y falta el endurecimiento final.
 > Ver [docs/architecture.md](docs/architecture.md).
 
 ## Qué hay aquí
