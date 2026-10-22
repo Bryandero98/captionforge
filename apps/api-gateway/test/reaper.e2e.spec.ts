@@ -9,6 +9,7 @@ import { ReaperService } from "../src/jobs/reaper.service.js";
 import { createApp } from "../src/main.js";
 import { QUEUES } from "../src/queue/names.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
+import { disposeTestTenants, sharedTenant, type TestTenant } from "./support/tenancy.js";
 
 const config = { ...loadConfig(), reaper: { intervalMs: 0, staleRunningMs: 20 * 60_000, queuedGraceMs: 5 * 60_000 } };
 const created: string[] = [];
@@ -18,6 +19,7 @@ let app: Awaited<ReturnType<typeof createApp>>;
 let prisma: PrismaService;
 let reaper: ReaperService;
 let queue: Queue;
+let tenant: TestTenant;
 
 /** Inserta una fila directamente (sin pasar por la subida) con las fechas indicadas. */
 async function insertJob(opts: { status: "QUEUED" | "RUNNING" | "COMPLETED"; minutesSinceUpdate?: number; minutesSinceCreated?: number; kind?: "TRANSCRIBE" | "BURN" }): Promise<string> {
@@ -26,6 +28,7 @@ async function insertJob(opts: { status: "QUEUED" | "RUNNING" | "COMPLETED"; min
   await prisma.job.create({
     data: {
       id,
+      tenantId: tenant.id,
       kind: opts.kind ?? "TRANSCRIBE",
       status: opts.status,
       inputBucket: config.s3.bucket,
@@ -46,6 +49,7 @@ async function insertJob(opts: { status: "QUEUED" | "RUNNING" | "COMPLETED"; min
 const row = (id: string) => prisma.job.findUniqueOrThrow({ where: { id } });
 
 beforeAll(async () => {
+  tenant = await sharedTenant();
   app = await createApp(config, { logger: ["error"] });
   await app.init();
   prisma = app.get(PrismaService);

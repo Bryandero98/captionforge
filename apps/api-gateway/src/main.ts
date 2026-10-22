@@ -124,14 +124,15 @@ function discardRemainingBody(request: FastifyRequest["raw"]): void {
  * Política de contenido de la interfaz: todo del mismo origen y nada en línea. El cliente es JavaScript de módulos ES
  * sin compilar ni scripts en línea, así que no hace falta 'unsafe-inline' ni 'unsafe-eval' (con una CSP así, un
  * nombre de archivo o un subtítulo que acabara en el HTML no se podría ejecutar). `data:` es para la flecha de los
- * <select> (un SVG en el CSS). Si más adelante se leen miniaturas con <video>, habrá que añadir `blob:` a media-src.
+ * <select> (un SVG en el CSS). `blob:` en media-src es para la vista previa del video quemado: un <video src> no puede mandar
+ * la clave de API, así que la interfaz lo baja con fetch y lo muestra desde un Blob (ADR 0015).
  */
 export const WEB_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self' data:",
-  "media-src 'self'",
+  "media-src 'self' blob:",
   "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
@@ -163,6 +164,30 @@ async function registerWeb(app: NestFastifyApplication, config: AppConfig): Prom
       reply.header("Content-Security-Policy", WEB_CSP);
     },
   });
+  registerWebConfig(app, config);
+}
+
+/**
+ * Clave por defecto de la interfaz local (ADR 0015). El MVP no tiene inicio de sesión: la interfaz pide su configuración
+ * a este endpoint y manda la clave en `X-API-Key`. Quien alcanza el puerto obtiene la clave del tenant "Default", igual
+ * que antes podía usar el API abierto en 127.0.0.1: por eso solo existe si se define WEB_API_KEY, y la guardia de
+ * Host/Origin/Sec-Fetch-Site (que corre antes) impide que una página ajena la lea desde el navegador. El inicio de
+ * sesión de personas (issue #7) la sustituye.
+ */
+function registerWebConfig(app: NestFastifyApplication, config: AppConfig): void {
+  const apiKey = config.security.webApiKey;
+  if (apiKey === undefined) return;
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .get("/web-config.json", async (_request, reply) => {
+      reply
+        .header("Cache-Control", "no-store")
+        .header("Cross-Origin-Resource-Policy", "same-origin")
+        .header("Content-Security-Policy", WEB_CSP)
+        .type("application/json; charset=utf-8");
+      return { apiKey };
+    });
 }
 
 /**

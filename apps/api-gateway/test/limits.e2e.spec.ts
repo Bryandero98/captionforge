@@ -9,6 +9,7 @@ import { createApp } from "../src/main.js";
 import { JobsService } from "../src/jobs/jobs.service.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
 import { UPLOAD_PART_BYTES, UPLOAD_QUEUE_SIZE } from "../src/storage/storage.service.js";
+import { disposeTestTenants, sharedTenant, type TestTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
@@ -16,6 +17,7 @@ const rows: { prisma: PrismaService; id: string }[] = [];
 const open: { destroy: () => void }[] = [];
 const MEMORY_BUDGET_MIB = Number(process.env.MEMORY_BUDGET_MIB ?? 200);
 const uploaded: { prisma: PrismaService; id: string }[] = [];
+let tenant: TestTenant;
 
 /** Anota un trabajo creado por una subida de prueba para borrarlo (fila, cola y objeto de S3) al terminar. */
 async function trackUpload(prisma: PrismaService, id: string): Promise<void> {
@@ -23,12 +25,13 @@ async function trackUpload(prisma: PrismaService, id: string): Promise<void> {
 }
 
 async function start(security: Partial<AppConfig["security"]>): Promise<{ base: string; prisma: PrismaService; jobs: JobsService }> {
+  tenant = await sharedTenant();
   const app = await createApp(
     {
       ...baseConfig,
       reaper: { ...baseConfig.reaper, intervalMs: 0 },
       security: {
-        apiKey: undefined,
+        webApiKey: undefined,
         rateLimitPerMinute: 0,
         uploadRateLimitPerMinute: 0,
         trustProxy: false,
@@ -56,6 +59,7 @@ afterAll(async () => {
   for (const { prisma, id } of rows) await prisma.job.delete({ where: { id } }).catch(() => undefined);
   await cleanUploads();
   for (const app of apps) await app.close();
+  await disposeTestTenants();
 });
 
 const BOUNDARY = "----limits-boundary";
@@ -70,7 +74,7 @@ function startStalledUpload(base: string): { status: Promise<number>; headers: P
   const status = new Promise<number>((resolve) => (resolveStatus = resolve));
   const headers = new Promise<http.IncomingHttpHeaders>((resolve) => (resolveHeaders = resolve));
   const request = http.request(
-    { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}`, "transfer-encoding": "chunked" } },
+    { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { ...tenant.headers, "content-type": `multipart/form-data; boundary=${BOUNDARY}`, "transfer-encoding": "chunked" } },
     (response) => {
       response.resume();
       resolveStatus(response.statusCode ?? 0);
@@ -95,6 +99,7 @@ async function insertQueuedJob(prisma: PrismaService): Promise<string> {
   await prisma.job.create({
     data: {
       id,
+      tenantId: tenant.id,
       kind: "TRANSCRIBE",
       status: "QUEUED",
       inputBucket: baseConfig.s3.bucket,
@@ -205,13 +210,13 @@ describe("conexiones SSE (MAX_EVENT_STREAMS_*)", () => {
     const id = await insertQueuedJob(prisma);
     const original = jobs.get.bind(jobs);
     let slow = true;
-    const spy = vi.spyOn(jobs, "get").mockImplementation(async (jobId: string) => {
+    const spy = vi.spyOn(jobs, "get").mockImplementation(async (tenantId: string, jobId: string) => {
       if (slow) await sleep(500);
-      return original(jobId);
+      return original(tenantId, jobId);
     });
     try {
       const url = new URL(`${base}/v1/jobs/${id}/events`);
-      const request = http.get({ host: url.hostname, port: url.port, path: url.pathname });
+      const request = http.get({ host: url.hostname, port: url.port, path: url.pathname, headers: tenant.headers });
       request.on("error", () => undefined);
       await sleep(100);
       request.destroy(); // corta mientras `jobs.get` sigue esperando
@@ -288,7 +293,7 @@ function uploadFiller(base: string, mib: number): Promise<{ status: number; id?:
   const chunk = Buffer.alloc(1024 * 1024, 7);
   return new Promise((resolve, reject) => {
     const request = http.request(
-      { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}`, "transfer-encoding": "chunked" } },
+      { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { ...tenant.headers, "content-type": `multipart/form-data; boundary=${BOUNDARY}`, "transfer-encoding": "chunked" } },
       (response) => {
         const parts: Buffer[] = [];
         response.on("data", (part: Buffer) => parts.push(part));

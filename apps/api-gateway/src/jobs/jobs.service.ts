@@ -144,7 +144,12 @@ export class JobsService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
-  async createTranscription(upload: TranscriptionUpload): Promise<JobView> {
+  /**
+   * Aislamiento por tenant (ADR 0015): TODA operación recibe el `tenantId` de la clave de API y lo usa en la consulta
+   * (`where: { id, tenantId }`), nunca después de leer. Un trabajo de otro tenant es indistinguible de uno que no
+   * existe: 404, no 403, para no revelar que el UUID es real.
+   */
+  async createTranscription(tenantId: string, upload: TranscriptionUpload): Promise<JobView> {
     if (!(ALLOWED_CONTENT_TYPES as readonly string[]).includes(upload.mimetype)) {
       throw new UnsupportedMediaTypeException(`Tipo de archivo no admitido: ${upload.mimetype}`);
     }
@@ -204,6 +209,7 @@ export class JobsService {
       job = await this.prisma.job.create({
         data: {
           id,
+          tenantId,
           kind: "TRANSCRIBE",
           inputBucket: payload.input.bucket,
           inputKey,
@@ -248,8 +254,8 @@ export class JobsService {
   }
 
   /** La transcripción terminada de la que cuelgan los subtítulos; 409 si todavía no hay nada que editar o quemar. */
-  private async completedTranscription(id: string): Promise<{ job: Job; segmentsKey: string }> {
-    const job = await this.require(id);
+  private async completedTranscription(tenantId: string, id: string): Promise<{ job: Job; segmentsKey: string }> {
+    const job = await this.require(tenantId, id);
     if (job.kind !== "TRANSCRIBE") throw new ConflictException("Solo las transcripciones tienen subtítulos.");
     if (job.status !== "COMPLETED") throw new ConflictException("La transcripción todavía no terminó.");
     const key = (job.result as { artifacts?: { segments?: { objectKey?: unknown } } } | null)?.artifacts?.segments?.objectKey;
@@ -273,8 +279,8 @@ export class JobsService {
     }
   }
 
-  async getSegments(id: string): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
-    const { segmentsKey } = await this.completedTranscription(id);
+  async getSegments(tenantId: string, id: string): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
+    const { segmentsKey } = await this.completedTranscription(tenantId, id);
     const { segments, etag } = await this.readSegments(segmentsKey);
     return { segments: segments.map((segment, index) => ({ index, ...segment })), etag };
   }
@@ -284,7 +290,7 @@ export class JobsService {
    * Si el cuerpo trae `etag`, se rechaza con 409 cuando los subtítulos cambiaron desde que se leyeron.
    * Cambiar los subtítulos invalida los quemados que ya estén en cola (el worker lo detecta por el ETag).
    */
-  async updateSegments(id: string, body: unknown): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
+  async updateSegments(tenantId: string, id: string, body: unknown): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
     let parsed: ReturnType<typeof parseEdits>;
     try {
       parsed = parseEdits(body);
@@ -293,11 +299,11 @@ export class JobsService {
       throw error;
     }
     // Leer el ETag, compararlo y escribir es una sola operación: dos PUT con el mismo ETag no pueden pasar los dos.
-    return this.segmentEdits.run(id, () => this.applySegmentEdits(id, parsed));
+    return this.segmentEdits.run(id, () => this.applySegmentEdits(tenantId, id, parsed));
   }
 
-  private async applySegmentEdits(id: string, parsed: ReturnType<typeof parseEdits>): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
-    const { job, segmentsKey } = await this.completedTranscription(id);
+  private async applySegmentEdits(tenantId: string, id: string, parsed: ReturnType<typeof parseEdits>): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
+    const { job, segmentsKey } = await this.completedTranscription(tenantId, id);
     const current = await this.readSegments(segmentsKey);
     if (parsed.etag !== undefined && parsed.etag !== current.etag) {
       throw new ConflictException("Los subtítulos cambiaron desde que los leíste. Vuelve a cargarlos.");
@@ -320,19 +326,19 @@ export class JobsService {
     // El ETag nuevo queda en el resultado: es el que se pasará al worker en el próximo quemado.
     const result = job.result as { artifacts: { segments: Record<string, unknown> } } & Record<string, unknown>;
     result.artifacts.segments = { ...result.artifacts.segments, etag };
-    await this.prisma.job.update({ where: { id }, data: { result: result as unknown as Prisma.InputJsonValue } });
+    await this.prisma.job.updateMany({ where: { id, tenantId }, data: { result: result as unknown as Prisma.InputJsonValue } });
     return { segments: updated.map((segment, index) => ({ index, ...segment })), etag };
   }
 
   /** Pide el quemado de los subtítulos APROBADOS (los actuales) sobre el video original. */
-  async createBurn(parentId: string, rawOptions: unknown): Promise<JobView> {
+  async createBurn(tenantId: string, parentId: string, rawOptions: unknown): Promise<JobView> {
     const options = this.parseBurnOptions(rawOptions);
-    const { job: parent, segmentsKey } = await this.completedTranscription(parentId);
+    const { job: parent, segmentsKey } = await this.completedTranscription(tenantId, parentId);
     const head = await this.storage.head(segmentsKey);
     if (!head) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
 
     const active = await this.prisma.job.count({
-      where: { kind: "BURN", parentJobId: parent.id, status: { in: ["QUEUED", "RUNNING"] } },
+      where: { tenantId, kind: "BURN", parentJobId: parent.id, status: { in: ["QUEUED", "RUNNING"] } },
     });
     if (active > 0) throw new ConflictException("Ya hay un quemado en curso para esta transcripción. Espera a que termine o cancélalo.");
 
@@ -357,6 +363,7 @@ export class JobsService {
     const job = await this.prisma.job.create({
       data: {
         id,
+        tenantId,
         kind: "BURN",
         parentJobId: parent.id,
         inputBucket: parent.inputBucket,
@@ -393,17 +400,33 @@ export class JobsService {
     return { style: style as BurnJob["options"]["style"], karaoke };
   }
 
-  async get(id: string): Promise<JobView> {
-    return toView(await this.require(id));
+  async get(tenantId: string, id: string): Promise<JobView> {
+    return toView(await this.require(tenantId, id));
   }
 
-  /** Para el stream de eventos: undefined = no existe. */
-  async find(id: string): Promise<Job | null> {
-    return this.prisma.job.findUnique({ where: { id } });
+  /**
+   * Los trabajos del tenant, del más reciente al más antiguo. `cursor` es el id del último de la página anterior: debe
+   * ser del mismo tenant (si no, 404 como en cualquier otra consulta).
+   */
+  async list(tenantId: string, { limit, cursor }: { limit: number; cursor?: string }): Promise<{ jobs: JobView[]; nextCursor: string | null }> {
+    if (cursor !== undefined) await this.require(tenantId, cursor);
+    const rows = await this.prisma.job.findMany({
+      where: { tenantId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+    });
+    const page = rows.slice(0, limit);
+    return { jobs: page.map(toView), nextCursor: rows.length > limit ? (page[page.length - 1]?.id ?? null) : null };
   }
 
-  async cancel(id: string): Promise<JobView> {
-    const job = await this.require(id);
+  /** Para el stream de eventos: null = no existe (o es de otro tenant). */
+  async find(tenantId: string, id: string): Promise<Job | null> {
+    return this.prisma.job.findFirst({ where: { id, tenantId } });
+  }
+
+  async cancel(tenantId: string, id: string): Promise<JobView> {
+    const job = await this.require(tenantId, id);
     if (isTerminal(job.status)) {
       throw new ConflictException(`El trabajo ya terminó (${job.status}).`);
     }
@@ -412,7 +435,7 @@ export class JobsService {
     // se quitaba el trabajo de la cola y luego se actualizaba la fila: si el worker lo tomaba entre
     // ambos pasos, la fila quedaba CANCELLED mientras el video se procesaba entero.
     const cancelled = await this.prisma.job.updateMany({
-      where: { id, status: "QUEUED" },
+      where: { id, tenantId, status: "QUEUED" },
       data: { status: "CANCELLED", errorCode: "CANCELLED", errorMessage: "Cancelado por el usuario.", finishedAt: new Date() },
     });
     if (cancelled.count === 1) {
@@ -421,10 +444,10 @@ export class JobsService {
       await this.queue.removeIfWaiting(job.kind, id).catch((e: unknown) =>
         this.logger.warn(`No se pudo quitar ${id} de la cola: ${(e as Error).message}`),
       );
-      return toView(await this.require(id));
+      return toView(await this.require(tenantId, id));
     }
     // Perdió: el worker ya lo tomó (o terminó entre la lectura y aquí). Se relee y se avisa al worker.
-    const current = await this.require(id);
+    const current = await this.require(tenantId, id);
     if (isTerminal(current.status)) {
       throw new ConflictException(`El trabajo ya terminó (${current.status}).`);
     }
@@ -445,8 +468,8 @@ export class JobsService {
    * El resultado lo escribe el worker; aun así solo se sirven claves bajo el prefijo de salida de
    * este trabajo, para que un resultado corrupto no pueda exponer objetos de otro trabajo.
    */
-  async artifactKey(id: string, name: string): Promise<{ key: string; filename: string } | null> {
-    const job = await this.require(id);
+  async artifactKey(tenantId: string, id: string, name: string): Promise<{ key: string; filename: string } | null> {
+    const job = await this.require(tenantId, id);
     if (job.status !== "COMPLETED") return null;
     if (!ARTIFACTS_BY_KIND[job.kind].includes(name)) return null;
     const artifacts = (job.result as { artifacts?: Record<string, unknown> } | null)?.artifacts;
@@ -456,8 +479,8 @@ export class JobsService {
     return { key, filename: downloadName(job.originalFilename, name) };
   }
 
-  private async require(id: string): Promise<Job> {
-    const job = await this.prisma.job.findUnique({ where: { id } });
+  private async require(tenantId: string, id: string): Promise<Job> {
+    const job = await this.prisma.job.findFirst({ where: { id, tenantId } });
     if (!job) throw new NotFoundException("No existe ese trabajo.");
     return job;
   }

@@ -8,19 +8,22 @@ import { loadConfig } from "../src/config/config.js";
 import { JobsService } from "../src/jobs/jobs.service.js";
 import { createApp } from "../src/main.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
+import { disposeTestTenants, sharedTenant, type TestTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
 const WEB = "http://localhost:5173";
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 const rows: { prisma: PrismaService; id: string }[] = [];
+let tenant: TestTenant;
 
 async function start(security: Record<string, unknown> = {}): Promise<{ port: number; jobs: JobsService; prisma: PrismaService }> {
+  tenant = await sharedTenant();
   const app = await createApp(
     {
       ...baseConfig,
       reaper: { ...baseConfig.reaper, intervalMs: 0 },
       security: {
-        apiKey: undefined,
+        webApiKey: undefined,
         rateLimitPerMinute: 0,
         uploadRateLimitPerMinute: 0,
         trustProxy: false,
@@ -46,6 +49,7 @@ async function start(security: Record<string, unknown> = {}): Promise<{ port: nu
 afterAll(async () => {
   for (const { prisma, id } of rows) await prisma.job.delete({ where: { id } }).catch(() => undefined);
   for (const app of apps) await app.close();
+  await disposeTestTenants();
 });
 
 type Reply = { status: number; headers: http.IncomingHttpHeaders; body: string };
@@ -53,7 +57,7 @@ type Reply = { status: number; headers: http.IncomingHttpHeaders; body: string }
 /** http.request y no fetch: fetch no permite fijar Host ni Origin a voluntad. */
 function send(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: Buffer): Promise<Reply> {
   return new Promise((resolve, reject) => {
-    const request = http.request({ host: "127.0.0.1", port, method, path, headers }, (response) => {
+    const request = http.request({ host: "127.0.0.1", port, method, path, headers: { ...tenant.headers, ...headers } }, (response) => {
       const parts: Buffer[] = [];
       response.on("data", (part: Buffer) => parts.push(part));
       response.on("end", () => resolve({ status: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(parts).toString() }));
@@ -224,6 +228,7 @@ describe("CORS con lista cerrada de orígenes", () => {
     await prisma.job.create({
       data: {
         id,
+        tenantId: tenant.id,
         kind: "TRANSCRIBE",
         status: "QUEUED",
         inputBucket: baseConfig.s3.bucket,
@@ -237,7 +242,7 @@ describe("CORS con lista cerrada de orígenes", () => {
     });
     rows.push({ prisma, id });
     const headers = await new Promise<http.IncomingHttpHeaders>((resolve, reject) => {
-      const request = http.get({ host: "127.0.0.1", port, path: `/v1/jobs/${id}/events`, headers: { origin: WEB } }, (response) => {
+      const request = http.get({ host: "127.0.0.1", port, path: `/v1/jobs/${id}/events`, headers: { ...tenant.headers, origin: WEB } }, (response) => {
         resolve(response.headers);
         request.destroy();
       });
