@@ -180,6 +180,14 @@ const fr = {
   "error.aborted": "Envoi annulé.",
   "error.bad_response": "Le serveur a répondu quelque chose qui ne vient pas de l'API de CaptionForge. Y a-t-il un proxy ou un portail d'accès entre les deux ?",
   "error.unexpected": "Réponse inattendue du serveur.",
+  "options.clean": "Réduire le bruit de fond (plus lent, pour la musique ou un bruit fort)",
+  "stage.downloading_separation_model": "Téléchargement du modèle de nettoyage audio",
+  "stage.separating_voice": "Réduction du bruit de fond",
+  "result.cleaned": "Audio nettoyé",
+  "result.cleaned.yes": "Oui",
+  "result.cleaned.no": "Non",
+  "result.cleaned.fallback": "Impossible de réduire le bruit de fond, l'audio d'origine a donc été transcrit. Les sous-titres peuvent contenir plus d'erreurs ; relis-les avec attention.",
+  "guide.s2.clean": "Réduire le bruit de fond : active-le s'il y a de la musique ou un bruit fort par-dessus la voix. C'est plus long. Si le nettoyage n'est pas possible, l'audio d'origine est utilisé et tu en es informé.",
 };
 
 export default fr;

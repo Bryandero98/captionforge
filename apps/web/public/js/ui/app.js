@@ -55,6 +55,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     model: $("opt-model"),
     source: $("opt-source"),
     translate: $("opt-translate"),
+    clean: $("opt-clean"),
     start: $("start"),
     progress: $("progress-panel"),
     progressStatus: $("progress-status"),
@@ -149,7 +150,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     try {
       const job = await uploader({
         file: /** @type {File} */ (item.file),
-        options: { modelSize: els.model.value, sourceLanguage: els.source.value, translateTo: els.translate.value },
+        options: { modelSize: els.model.value, sourceLanguage: els.source.value, translateTo: els.translate.value, cleanAudio: els.clean.checked },
         baseUrl: config.baseUrl,
         maxBytes: config.maxBytes,
         signal: abort.signal,

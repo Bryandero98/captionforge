@@ -37,7 +37,7 @@
         <summary data-i18n="guide.title">Cómo usar CaptionForge, paso a paso</summary>
         <ol class="guide__steps">
           <li><h2 class="guide__step" data-i18n="guide.s1.title"></h2><p data-i18n="guide.s1.body"></p></li>
-          <li><h2 class="guide__step" data-i18n="guide.s2.title"></h2><p data-i18n="guide.s2.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s2.title"></h2><p data-i18n="guide.s2.body"></p><p data-i18n="guide.s2.clean"></p></li>
           <li><h2 class="guide__step" data-i18n="guide.s3.title"></h2><p data-i18n="guide.s3.body"></p></li>
           <li><h2 class="guide__step" data-i18n="guide.s4.title"></h2><p data-i18n="guide.s4.body"></p></li>
           <li><h2 class="guide__step" data-i18n="guide.s5.title"></h2><p data-i18n="guide.s5.body"></p></li>
@@ -87,6 +87,10 @@
               <label for="opt-translate" data-i18n="options.translate">Traducir a</label>
               <select id="opt-translate"></select>
             </div>
+            <div class="field field--check">
+              <input type="checkbox" id="opt-clean" />
+              <label for="opt-clean" data-i18n="options.clean">Limpiar ruido de fondo (más lento, para música o ruido fuerte)</label>
+            </div>
           </div>
 
           <button type="submit" class="btn btn--primary btn--wide" id="start" disabled data-i18n="action.start">Generar subtítulos</button>
@@ -132,7 +136,9 @@
           <div><dt data-i18n="result.language">Idioma detectado</dt><dd id="result-language">—</dd></div>
           <div><dt data-i18n="result.duration">Duración</dt><dd id="result-duration">—</dd></div>
           <div><dt data-i18n="result.count">Subtítulos</dt><dd id="result-count">—</dd></div>
+          <div id="result-clean-row" hidden><dt data-i18n="result.cleaned">Audio limpiado</dt><dd id="result-clean">—</dd></div>
         </dl>
+        <p class="panel__detail" id="result-clean-note" role="status" hidden></p>
         <div class="panel__actions">
           <a class="btn btn--primary" id="dl-srt" href="#" download data-i18n="result.dl.srt">Descargar .srt</a>
           <button type="button" class="btn btn--secondary" id="dl-vtt" disabled data-i18n="result.dl.vtt">Descargar .vtt</button>

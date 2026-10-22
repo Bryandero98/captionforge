@@ -180,6 +180,14 @@ const it = {
   "error.aborted": "Caricamento annullato.",
   "error.bad_response": "Il server ha risposto con qualcosa che non è l'API di CaptionForge. C'è un proxy o un portale di accesso di mezzo?",
   "error.unexpected": "Risposta inattesa del server.",
+  "options.clean": "Riduci il rumore di fondo (più lento, per musica o rumori forti)",
+  "stage.downloading_separation_model": "Download del modello di pulizia dell'audio",
+  "stage.separating_voice": "Riduzione del rumore di fondo",
+  "result.cleaned": "Audio ripulito",
+  "result.cleaned.yes": "Sì",
+  "result.cleaned.no": "No",
+  "result.cleaned.fallback": "Non è stato possibile ridurre il rumore di fondo, quindi è stato trascritto l'audio originale. I sottotitoli potrebbero contenere più errori; controllali con attenzione.",
+  "guide.s2.clean": "Riduci il rumore di fondo: attivalo se ci sono musica o rumori forti sopra la voce. Richiede più tempo. Se non si riesce a ripulire, viene usato l'audio originale e ti viene segnalato.",
 };
 
 export default it;

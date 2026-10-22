@@ -43,7 +43,7 @@ describe("la petición", () => {
 
   it("`options` viaja como JSON con null en los campos vacíos, nunca como cadena vacía", async () => {
     const { promise, xhr } = start();
-    assert.deepEqual(JSON.parse(String(xhr.sent.get("options"))), { modelSize: "base", sourceLanguage: null, translateTo: "es" });
+    assert.deepEqual(JSON.parse(String(xhr.sent.get("options"))), { modelSize: "base", sourceLanguage: null, translateTo: "es", cleanAudio: false });
     xhr.respond(202, JOB);
     await promise;
   });
@@ -134,12 +134,19 @@ describe("comprobaciones antes de subir", () => {
 
 describe("normalizeOptions", () => {
   it("rellena el modelo por defecto y convierte vacíos en null", () => {
-    assert.deepEqual(normalizeOptions({}), { modelSize: "small", sourceLanguage: null, translateTo: null });
+    assert.deepEqual(normalizeOptions({}), { modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false });
     assert.deepEqual(normalizeOptions({ modelSize: "medium", sourceLanguage: "en", translateTo: "" }), {
       modelSize: "medium",
       sourceLanguage: "en",
       translateTo: null,
+      cleanAudio: false,
     });
+  });
+
+  it("cleanAudio: booleano, false por defecto; cualquier otro tipo se rechaza antes de subir", () => {
+    assert.equal(normalizeOptions({ cleanAudio: true }).cleanAudio, true);
+    assert.equal(normalizeOptions({ cleanAudio: false }).cleanAudio, false);
+    for (const bad of ["true", 1, 0, null, [], {}]) assert.throws(() => normalizeOptions({ cleanAudio: bad }), /cleanAudio/, JSON.stringify(bad));
   });
 
   it("rechaza un modelo desconocido y un código de idioma raro (el API los rechazaría con 400)", () => {
