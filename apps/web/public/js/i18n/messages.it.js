@@ -164,7 +164,7 @@ const it = {
   "error.title": "Non è stato possibile caricare il video",
   "error.detail": "Risposta del server: {detail}",
   "error.invalid_request": "I dati del caricamento non sono validi. Controlla il file e le opzioni.",
-  "error.unauthorized": "Il server richiede una chiave di accesso e questa interfaccia non può inviarla.",
+  "error.unauthorized": "La chiave di accesso di questa interfaccia manca, non è valida o è stata revocata. Controlla DEFAULT_API_KEY nel .env e riavvia il servizio.",
   "error.forbidden": "Questa pagina non è autorizzata a usare il server. È un problema di configurazione, non del file.",
   "error.not_found": "Il server non ha trovato quanto richiesto.",
   "error.too_slow": "La connessione è troppo lenta: il server richiede almeno 16 KiB/s costanti. Prova con un'altra rete o con un file più piccolo.",

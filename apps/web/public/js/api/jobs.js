@@ -1,6 +1,7 @@
 // Llamadas JSON al API de trabajos (todo menos la subida y el flujo SSE, que tienen su propio módulo).
 // Cada una devuelve datos o lanza ApiError con código estable (api/errors.js); nunca texto del servidor para decidir.
 
+import { authHeaders } from "./auth.js";
 import { ApiError, errorFromResponse } from "./errors.js";
 import { isTerminalStatus } from "./sse.js";
 
@@ -19,7 +20,8 @@ function assertJobId(jobId) {
 }
 
 /**
- * URL de descarga de un artefacto (el navegador lo baja por el `Content-Disposition: attachment` del API).
+ * URL de un artefacto. No sirve para navegar a ella: el API exige la clave en una cabecera, que un enlace no manda;
+ * las descargas van por api/download.js (fetch + Blob).
  * @param {string} baseUrl
  * @param {string} jobId
  * @param {"srt" | "segments" | "waveform" | "video"} name
@@ -47,7 +49,7 @@ async function requestJson({ url, method = "GET", body, signal, fetchImpl = (...
       response = await fetchImpl(url, {
         method,
         cache: "no-store",
-        headers: body === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
+        headers: body === undefined ? { ...authHeaders(), Accept: "application/json" } : { ...authHeaders(), Accept: "application/json", "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: timeout.signal,
       });

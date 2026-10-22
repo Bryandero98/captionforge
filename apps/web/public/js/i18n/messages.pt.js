@@ -164,7 +164,7 @@ const pt = {
   "error.title": "Não foi possível enviar o vídeo",
   "error.detail": "Resposta do servidor: {detail}",
   "error.invalid_request": "Os dados do envio não são válidos. Confira o arquivo e as opções.",
-  "error.unauthorized": "O servidor exige uma chave de acesso e esta interface não consegue enviá-la.",
+  "error.unauthorized": "A chave de acesso desta interface está ausente, é inválida ou foi revogada. Confira DEFAULT_API_KEY no .env e reinicie o serviço.",
   "error.forbidden": "Esta página não tem autorização para usar o servidor. É um problema de configuração, não do arquivo.",
   "error.not_found": "O servidor não encontrou o que foi pedido.",
   "error.too_slow": "A conexão está lenta demais: o servidor exige pelo menos 16 KiB/s sustentados. Tente outra rede ou um arquivo menor.",

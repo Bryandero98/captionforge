@@ -164,7 +164,7 @@ const de = {
   "error.title": "Das Video konnte nicht hochgeladen werden",
   "error.detail": "Antwort des Servers: {detail}",
   "error.invalid_request": "Die Upload-Daten sind ungültig. Prüfe die Datei und die Optionen.",
-  "error.unauthorized": "Der Server verlangt einen Zugangsschlüssel, und diese Oberfläche kann keinen senden.",
+  "error.unauthorized": "Der Zugangsschlüssel dieser Oberfläche fehlt, ist ungültig oder wurde widerrufen. Prüfe DEFAULT_API_KEY in der .env und starte den Dienst neu.",
   "error.forbidden": "Diese Seite ist nicht berechtigt, den Server zu verwenden. Das ist ein Konfigurationsproblem, nicht ein Problem der Datei.",
   "error.not_found": "Der Server hat das Angeforderte nicht gefunden.",
   "error.too_slow": "Die Verbindung ist zu langsam: Der Server verlangt dauerhaft mindestens 16 KiB/s. Versuch es mit einem anderen Netzwerk oder einer kleineren Datei.",

@@ -4,6 +4,7 @@
 // Tres capas: SseParser (formato text/event-stream, puro), streamJobEvents (una conexión: abre, lee, entrega eventos)
 // y followJob (sigue un trabajo hasta un estado final reconectando si el flujo se corta).
 
+import { authHeaders } from "./auth.js";
 import { ApiError, errorFromResponse } from "./errors.js";
 
 const STATUSES = new Set(["QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]);
@@ -149,7 +150,7 @@ export async function streamJobEvents({ baseUrl, jobId, signal, fetchImpl = (...
     let response;
     try {
       response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/v1/jobs/${encodeURIComponent(jobId)}/events`, {
-        headers: { Accept: "text/event-stream" },
+        headers: { ...authHeaders(), Accept: "text/event-stream" },
         cache: "no-store",
         signal: inner.signal,
       });

@@ -164,7 +164,7 @@ const fr = {
   "error.title": "Impossible d'envoyer la vidéo",
   "error.detail": "Réponse du serveur : {detail}",
   "error.invalid_request": "Les données de l'envoi ne sont pas valides. Vérifie le fichier et les options.",
-  "error.unauthorized": "Le serveur demande une clé d'accès et cette interface ne peut pas l'envoyer.",
+  "error.unauthorized": "La clé d'accès de cette interface est absente, invalide ou révoquée. Vérifie DEFAULT_API_KEY dans le .env et redémarre le service.",
   "error.forbidden": "Cette page n'est pas autorisée à utiliser le serveur. C'est un problème de configuration, pas du fichier.",
   "error.not_found": "Le serveur n'a pas trouvé ce qui était demandé.",
   "error.too_slow": "La connexion est trop lente : le serveur exige au moins 16 KiB/s soutenus. Essaie avec un autre réseau ou un fichier plus petit.",
