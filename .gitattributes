@@ -7,3 +7,5 @@
 docker-compose*.yml text eol=lf
 Dockerfile         text eol=lf
 packages/contracts/** text eol=lf
+*.bat              text eol=crlf
+*.ps1              text eol=lf

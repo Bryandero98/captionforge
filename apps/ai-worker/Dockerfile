@@ -43,9 +43,9 @@ ARG WITH_SEPARATION=0
 ARG WITH_DIARIZATION=0
 COPY apps/ai-worker/requirements-separation.txt apps/ai-worker/requirements-diarization.txt apps/ai-worker/
 RUN if [ "$WITH_SEPARATION" = "1" ] || [ "$WITH_DIARIZATION" = "1" ]; then \
-      pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cpu; \
+      pip install --retries 10 --timeout 60 torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cpu; \
     else \
-      pip install torch --index-url https://download.pytorch.org/whl/cpu; \
+      pip install --retries 10 --timeout 60 torch --index-url https://download.pytorch.org/whl/cpu; \
     fi \
  && if [ "$WITH_SEPARATION" = "1" ]; then pip install --no-deps -r apps/ai-worker/requirements-separation.txt; fi \
  && if [ "$WITH_DIARIZATION" = "1" ]; then pip install -r apps/ai-worker/requirements-diarization.txt --extra-index-url https://download.pytorch.org/whl/cpu; fi

@@ -27,7 +27,22 @@ caps, graceful shutdown and recovery of orphaned jobs. Its known limits are decl
 > | **Local package** | `pip install` + `captionforge serve` (Python 3.10+): one process, one video at a time, nothing leaves your machine. | Published on PyPI. See [`legacy/`](legacy/README.md). |
 > | **Service (this monorepo)** | API Gateway + queue + AI Worker + object storage, built to run several jobs and several users. | API and worker done; web client feature-complete (upload queue, live progress, editor, downloads, burned-in video; 6 languages), user accounts pending. |
 
-## Quickstart (service)
+## Quickstart (one command)
+
+The only requirement is Docker (Docker Desktop on Windows and macOS).
+
+```sh
+./start.sh        # macOS / Linux
+start.bat         # Windows (double-click or run it from a terminal)
+```
+
+The script checks that `docker` and `docker compose` work, creates `.env` from `.env.example` with random passwords if it does not exist (an existing `.env` is never touched), runs `docker compose --profile app up -d --build`, waits for the API and prints the address: **http://localhost:3000**. The first run builds the images (several minutes) and the first transcription downloads the Whisper model. Everything is published on `127.0.0.1` only. Turn it off with `docker compose --profile app down`. Speaker identification and GPU are optional and need extra setup (see the [user guide](docs/user-guide.md#turning-on-speaker-identification) and the compose file).
+
+### Troubleshooting
+
+- **A job stays `QUEUED` and is never processed** (seen once on the very first cold start, not reproduced afterwards): restart the worker with `docker compose --profile app restart ai-worker`. The queued job is picked up right away; nothing is lost.
+
+## Quickstart (development)
 
 Requirements: Docker, Node >= 22 and Python >= 3.11.
 
