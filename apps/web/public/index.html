@@ -106,6 +106,23 @@
         </div>
       </section>
 
+      <section class="panel" id="result-panel" tabindex="-1" hidden aria-labelledby="result-title">
+        <h2 class="panel__status" id="result-title" data-i18n="result.title">Tus subtítulos</h2>
+        <dl class="facts">
+          <div><dt data-i18n="result.language">Idioma detectado</dt><dd id="result-language">—</dd></div>
+          <div><dt data-i18n="result.duration">Duración</dt><dd id="result-duration">—</dd></div>
+          <div><dt data-i18n="result.count">Subtítulos</dt><dd id="result-count">—</dd></div>
+        </dl>
+        <div class="panel__actions">
+          <a class="btn btn--primary" id="dl-srt" href="#" download data-i18n="result.dl.srt">Descargar .srt</a>
+          <button type="button" class="btn btn--secondary" id="dl-vtt" disabled data-i18n="result.dl.vtt">Descargar .vtt</button>
+        </div>
+        <p class="panel__detail" id="result-status" role="status" hidden></p>
+        <button type="button" class="btn btn--secondary" id="result-retry" hidden data-i18n="action.retry">Reintentar</button>
+        <ol class="segments" id="result-segments"></ol>
+        <button type="button" class="btn btn--ghost" id="result-more" hidden></button>
+      </section>
+
       <section class="panel panel--error" id="error-panel" role="group" aria-labelledby="error-title" hidden>
         <h2 class="panel__status" id="error-title" data-i18n="error.title">No se pudo subir el video</h2>
         <p id="error-message"></p>
@@ -114,6 +131,13 @@
           <button type="button" class="btn btn--primary" id="error-retry" data-i18n="action.retry">Reintentar</button>
           <button type="button" class="btn btn--secondary" id="error-other" data-i18n="action.chooseOther">Elegir otro archivo</button>
         </div>
+      </section>
+
+      <section class="history" id="history-panel" aria-labelledby="history-title">
+        <h2 class="history__title" id="history-title" data-i18n="history.title">Recientes</h2>
+        <p class="panel__detail" data-i18n="history.note">Se guardan solo en este navegador. El servidor borra los resultados pasado un día.</p>
+        <p class="panel__detail" id="history-empty" data-i18n="history.empty">Todavía no has subido nada desde este navegador.</p>
+        <ul class="history__list" id="history-list"></ul>
       </section>
 
       <!-- Anuncios para lector de pantalla: solo hitos (cada 25 %), no cada porcentaje. -->

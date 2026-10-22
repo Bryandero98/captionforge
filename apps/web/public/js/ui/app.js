@@ -2,13 +2,16 @@
 // Todo texto entra con textContent: ningún dato (nombre de archivo, mensaje del servidor) se interpreta como HTML.
 
 import { ApiError } from "../api/errors.js";
-import { followJob } from "../api/sse.js";
+import { getJob } from "../api/jobs.js";
+import { followJob, isTerminalStatus } from "../api/sse.js";
 import { precheckFile, uploadVideo } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
 import { initialTracking, trackingReduce, trackingViewOf } from "../domain/job-state.js";
 import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang } from "../i18n/index.js";
+import { createHistory } from "./history.js";
+import { createResults } from "./results.js";
 
 const LANG_KEY = "captionforge_lang";
 /** Espera por defecto que se muestra en 429/503 si el servidor no manda Retry-After. */
@@ -22,9 +25,10 @@ const MODELS = ["base", "small", "medium"];
  *   config: { baseUrl: string, maxBytes: number },
  *   uploader?: typeof uploadVideo,
  *   follower?: typeof followJob,
+ *   fetchJob?: typeof getJob,
  * }} deps
  */
-export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob }) {
+export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -99,6 +103,10 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   /** @type {string | null} */
   let trackedStage = null;
 
+  const translate = (/** @type {string} */ key, /** @type {Record<string, string | number> | undefined} */ params) => t(key, params);
+  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang });
+  const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
+
   // ---------- estado ----------
 
   /** @param {Parameters<typeof reduce>[1]} event */
@@ -126,6 +134,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
             : dispatch({ type: "sent" }),
       });
       dispatch({ type: "accepted", job });
+      history.add({ id: job.id, name: file?.name ?? job.id, kind: "TRANSCRIBE", at: Date.now() });
       void follow(job.id);
     } catch (error) {
       // Un fallo que no es del API (un bug) no debe pasar por «error de red» sin dejar rastro.
@@ -170,6 +179,33 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
       }
     } finally {
       if (trackController === abort) trackController = null;
+    }
+  }
+
+  /**
+   * Abre un trabajo del historial: si sigue en curso se retoma el seguimiento; si terminó, se muestra su estado final
+   * (y los subtítulos si es una transcripción completada). Un trabajo que el servidor ya no tiene se dice como tal.
+   */
+  async function openJob(/** @type {string} */ jobId) {
+    if (viewOf(state).busy) return; // hay una subida en curso: no se pisa
+    if (state.phase !== "idle") state = initialState;
+    trackController?.abort();
+    const abort = new AbortController();
+    trackController = abort;
+    track({ type: "track", jobId });
+    render();
+    try {
+      const job = await fetchJob({ baseUrl: config.baseUrl, jobId, signal: abort.signal });
+      if (abort.signal.aborted) return;
+      track({ type: "job", job });
+      if (!isTerminalStatus(job.status)) void follow(jobId);
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      if (!(error instanceof ApiError)) console.error(error);
+      track({ type: "lost", error: error instanceof ApiError ? error : ApiError.network() });
+    } finally {
+      if (trackController === abort) trackController = null;
+      els.jobPanel.focus();
     }
   }
 
@@ -263,8 +299,13 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   function renderJob() {
     const view = trackingViewOf(tracking);
     els.jobPanel.hidden = view.kind === "none";
-    if (view.kind === "none") return;
+    if (view.kind === "none") {
+      results.hide();
+      return;
+    }
     els.jobPanel.classList.toggle("is-failed", view.kind === "failed");
+    if (view.kind === "completed" && tracking.job?.kind === "TRANSCRIBE") results.show(tracking.job);
+    else results.hide();
 
     let status = "";
     if (view.kind === "queued") status = t("job.queued");
@@ -498,6 +539,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     } catch {
       // sin almacenamiento: la preferencia dura solo esta visita
     }
+    results.refresh();
+    history.refresh();
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }

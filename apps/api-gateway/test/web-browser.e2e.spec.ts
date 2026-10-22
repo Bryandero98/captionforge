@@ -4,7 +4,7 @@
 // rechaza una subida antes de leer el cuerpo (cierra la conexión).
 //
 // Necesita Chrome, Chromium o Edge: se busca en CHROME_PATH y en las rutas habituales; sin navegador, se omite.
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -15,12 +15,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/config.js";
 import { createApp } from "../src/main.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
+import { StorageService } from "../src/storage/storage.service.js";
 
 // Las funciones de waitForFunction se ejecutan dentro del navegador; solo se declara lo que usan (sin cargar la librería DOM).
 declare const localStorage: { setItem(key: string, value: string): void };
 declare const document: {
   querySelector(selector: string): { getAttribute(name: string): string | null; textContent: string | null } | null;
   activeElement: { id: string } | null;
+  querySelectorAll(selector: string): { length: number };
 };
 
 const CANDIDATES = [
@@ -41,6 +43,7 @@ const token = `e2e-web-${randomUUID().slice(0, 8)}`;
 let dir = "";
 let browser: Browser;
 let prisma: PrismaService;
+let storage: StorageService;
 
 type Overrides = { maxUploadBytes?: number; uploadRateLimitPerMinute?: number; eventStreamMaxMs?: number };
 
@@ -71,6 +74,7 @@ async function startApi(overrides: Overrides = {}): Promise<string> {
   await app.listen(0, "127.0.0.1");
   apps.push(app);
   prisma = app.get(PrismaService);
+  storage = app.get(StorageService);
   return `http://127.0.0.1:${new URL(await app.getUrl()).port}`;
 }
 
@@ -231,7 +235,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
 
   /** Hace de worker: escribe el estado del trabajo en PostgreSQL y el SSE real del API lo reenvía al navegador. */
   async function workerSays(name: string, data: { status?: "RUNNING" | "COMPLETED" | "FAILED"; stage?: string; percent?: number; message?: string; errorCode?: string; errorMessage?: string }) {
-    const [job] = await jobsNamed(name);
+    const [job] = await jobsNamed(`${token}-${name}`);
     await prisma.job.update({ where: { id: job!.id }, data: { ...data, ...(data.status === "COMPLETED" || data.status === "FAILED" ? { finishedAt: new Date() } : {}) } });
   }
 
@@ -261,7 +265,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await waitForJobText(page, "Transcribiendo · 55 %");
     expect(await page.$eval("#job-bar", (bar) => bar.getAttribute("aria-valuenow"))).toBe("55");
 
-    await workerSays(name, { status: "COMPLETED", stage: "uploading", percent: 100 });
+    await workerCompletes(name, SEGMENTS);
     await waitForJobText(page, "Listo");
     expect(await page.$eval("#job-bar", (bar) => bar.getAttribute("aria-valuenow"))).toBe("100");
     // El anuncio se repone tras una pausa breve (para que un texto repetido se vuelva a leer).
@@ -310,6 +314,115 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await waitForJobText(page, "Transcribiendo · 80 %");
     expect(await text(page, "#job-detail")).toBe("");
     expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  const NL = String.fromCharCode(10);
+
+  /** Hace de worker al terminar: sube los subtítulos a S3 y deja el trabajo COMPLETED con su resultado. */
+  async function workerCompletes(name: string, segments: { start: number; end: number; text: string; words: null }[]) {
+    const [job] = await jobsNamed(`${token}-${name}`);
+    const id = job!.id;
+    const segmentsKey = `jobs/${id}/out/segments.json`;
+    const srtKey = `jobs/${id}/out/output.srt`;
+    const { etag } = await storage.putBuffer(segmentsKey, Buffer.from(JSON.stringify(segments)), "application/json");
+    await storage.putBuffer(srtKey, Buffer.from("1" + NL + "00:00:00,000 --> 00:00:02,000" + NL + "Hola" + NL), "application/x-subrip");
+    const result = {
+      schemaVersion: 1,
+      jobId: id,
+      detectedLanguage: "es",
+      device: "cpu",
+      durationSeconds: 125,
+      segmentCount: segments.length,
+      artifacts: { srt: srtKey, segments: { bucket: baseConfig.s3.bucket, objectKey: segmentsKey, etag }, waveform: `jobs/${id}/out/waveform.json` },
+    };
+    await prisma.job.update({ where: { id }, data: { status: "COMPLETED", stage: "uploading", percent: 100, result, finishedAt: new Date() } });
+  }
+
+  const SEGMENTS = [
+    { start: 0, end: 2, text: " Hola & bienvenidos <b>todos</b>", words: null },
+    { start: 2, end: 4, text: " Segunda frase", words: null },
+    { start: 4, end: 6, text: " Tercera", words: null },
+  ];
+
+  it("resultado: al completarse se muestran los datos, los subtítulos y las descargas (.srt del servidor, .vtt del cliente)", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const downloads = mkdtempSync(join(tmpdir(), "cf-dl-"));
+    const session = await browser.target().createCDPSession();
+    await session.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloads });
+    const name = "entrevista.mp4";
+    await uploadAndFollow(page, name);
+    await workerCompletes(name, SEGMENTS);
+
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    await page.waitForFunction(() => document.querySelectorAll("#result-segments li").length === 3, { timeout: 15_000 });
+    expect(await text(page, "#result-language")).toMatch(/Español/i);
+    expect(await text(page, "#result-duration")).toContain("2 min");
+    expect(await text(page, "#result-count")).toBe("3");
+    // El texto del subtítulo es texto, no HTML: la etiqueta se ve tal cual y no se crea ningún nodo.
+    expect(await text(page, "#result-segments li:first-child .seg__text")).toContain("<b>todos</b>");
+    expect(await page.$$eval("#result-segments b", (nodes) => nodes.length)).toBe(0);
+
+    const srtHref = await page.$eval("#dl-srt", (link) => link.getAttribute("href"));
+    expect(srtHref).toMatch(/\/v1\/jobs\/[0-9a-f-]{36}\/artifacts\/srt$/);
+    const srt = await page.evaluate(async (href) => {
+      const response = await fetch(href as string);
+      return { status: response.status, disposition: response.headers.get("content-disposition"), body: await response.text() };
+    }, srtHref);
+    expect(srt.status).toBe(200);
+    expect(srt.disposition).toContain("entrevista.srt");
+
+    await page.click("#dl-vtt");
+    // El nombre es el del video subido (con el prefijo único de la prueba) y la extensión .vtt.
+    const found = () => readdirSync(downloads).find((entry) => entry.endsWith(".vtt"));
+    for (let i = 0; i < 50 && found() === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(found()).toBe(`${token}-entrevista.vtt`);
+    const vtt = readFileSync(join(downloads, found()!), "utf8");
+    expect(vtt.startsWith("WEBVTT")).toBe(true);
+    expect(vtt).toContain("00:00:02.000 --> 00:00:04.000");
+    expect(vtt).toContain("Hola &amp; bienvenidos &lt;b&gt;todos&lt;/b&gt;");
+    expect(spy.problems).toEqual([]);
+    await session.detach();
+    rmSync(downloads, { recursive: true, force: true });
+    await page.close();
+  }, 60_000);
+
+  it("historial: lo subido queda en «Recientes», sobrevive a recargar y «Abrir» retoma el trabajo; «Quitar» lo borra", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const name = "historial.mp4";
+    await uploadAndFollow(page, name);
+    await workerCompletes(name, SEGMENTS);
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(1);
+    expect(await text(page, "#history-list li")).toContain(name);
+
+    await page.reload({ waitUntil: "networkidle0" });
+    expect(await isVisible(page, "#job-panel")).toBe(false);
+    expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(1);
+    await page.click("#history-list li .btn--secondary");
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    await waitForJobText(page, "Listo");
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("job-panel");
+
+    await page.click("#history-list li .btn--ghost");
+    expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(0);
+    expect(await isVisible(page, "#history-empty")).toBe(true);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it("historial: un trabajo que el servidor ya no tiene se dice sin dejar la interfaz colgada", async () => {
+    const base = await startApi();
+    const { page } = await openPage(base);
+    const ghost = randomUUID();
+    await page.evaluate((id) => localStorage.setItem("captionforge_jobs", JSON.stringify([{ id, name: "caducado.mp4", kind: "TRANSCRIBE", at: Date.now() }])), ghost);
+    await page.reload({ waitUntil: "networkidle0" });
+    await page.click("#history-list li .btn--secondary");
+    await waitForJobText(page, "no encuentra este trabajo");
+    expect(await isVisible(page, "#job-reconnect")).toBe(false);
+    expect(await isVisible(page, "#result-panel")).toBe(false);
     await page.close();
   }, 60_000);
 
