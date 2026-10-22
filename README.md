@@ -175,7 +175,7 @@ The full picture, including what is **not** covered yet, is in
 After the web client, ideas worth doing, deliberately not started:
 
 - **Speaker diarization** ("who said what") via [pyannote.audio](https://github.com/pyannote/pyannote-audio) - [issue #4](https://github.com/Bryandero98/captionforge/issues/4).
-- **Vocal/source separation** before transcription for noisy audio - [issue #5](https://github.com/Bryandero98/captionforge/issues/5).
+- **Vocal/source separation** before transcription for noisy audio - [issue #5](https://github.com/Bryandero98/captionforge/issues/5): implemented as an opt-in "clean background noise" option for the service (Demucs in a subprocess, falls back to the original audio on failure; see [ADR 0013](docs/adr/0013-limpieza-de-audio-demucs-en-subproceso.md)).
 - **A complete native installer** for the local package (multi-platform, signed, ffmpeg bundled) - [issue #2](https://github.com/Bryandero98/captionforge/issues/2); a first step exists in [`legacy/`](legacy/README.md).
 - **Isolating ffmpeg** in its own user or container (the minimal environment prevents accidental
   secret inheritance, not an already-compromised ffmpeg).

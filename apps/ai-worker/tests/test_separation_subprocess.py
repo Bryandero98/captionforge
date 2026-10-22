@@ -128,10 +128,11 @@ def test_a_silent_child_is_killed_after_the_stall_timeout(tmp_path: Path) -> Non
             open(r"{marker}", "a").write("x")
             time.sleep(0.05)
         """,
-        stall=0.6,
+        stall=3.0,  # el arranque de Python bajo carga puede tardar más de un segundo: el margen evita una prueba intermitente
     )
     with pytest.raises(SeparationFailed):
         asyncio.run(separator.separate(source, target, noop))
+    assert marker.exists(), "el hijo ni llegó a arrancar"
     size = marker.stat().st_size
     time.sleep(0.4)
     assert marker.stat().st_size == size, "el hijo sigue vivo tras el tiempo de silencio"
