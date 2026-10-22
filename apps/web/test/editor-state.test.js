@@ -98,3 +98,31 @@ describe("issuesOf: validación antes de enviar", () => {
     assert.deepEqual(issuesOf(setText(odd, 1, "mejor")), {});
   });
 });
+
+describe("editor: casos de la revision", () => {
+  it("volver al valor original MIENTRAS se guarda deja ese retroceso pendiente (el servidor ya tiene el valor enviado)", () => {
+    const sent = setText(open(), 0, "B");
+    const reverted = setText(sent, 0, " Hola"); // el usuario escribe de nuevo el original durante el guardado
+    assert.equal(dirtyCount(reverted), 0);
+    const next = saved(reverted, [seg(0, 0, 2, "B"), ...SEGMENTS.slice(1)], "b".repeat(32), editsOf(sent));
+    assert.deepEqual(editsOf(next), [{ index: 0, text: " Hola" }]);
+  });
+
+  it("lo mismo con un tiempo", () => {
+    const sent = setTime(open(), 1, "end", 5);
+    const reverted = setTime(sent, 1, "end", 4);
+    const next = saved(reverted, [SEGMENTS[0], seg(1, 2, 5, " Mundo"), SEGMENTS[2]], "b".repeat(32), editsOf(sent));
+    assert.deepEqual(editsOf(next), [{ index: 1, end: 4 }]);
+  });
+
+  it("una linea en blanco en el texto es un problema ('blank'); una sola salto de linea no", () => {
+    assert.deepEqual(issuesOf(setText(open(), 0, "uno\n\ndos")), { 0: "blank" });
+    assert.deepEqual(issuesOf(setText(open(), 0, "uno\n \ndos")), { 0: "blank" });
+    assert.deepEqual(issuesOf(setText(open(), 0, "uno\ndos")), {});
+  });
+
+  it("un tiempo por encima del maximo del servidor es un problema de rango", () => {
+    assert.deepEqual(issuesOf(setTime(open(), 2, "end", 1_000_001)), { 2: "range" });
+    assert.deepEqual(issuesOf(setTime(open(), 2, "end", 1_000_000)), {});
+  });
+});

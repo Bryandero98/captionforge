@@ -60,7 +60,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
   /** @type {AbortController | null} */
   let controller = null;
 
-  const editor = createSegmentEditor({ doc, win, baseUrl, t, announce, onChange: () => updateDownloads() });
+  const editor = createSegmentEditor({ doc, win, baseUrl, t, onChange: () => updateDownloads() });
 
   /** Nombre del idioma en el idioma de la interfaz; si Intl no lo conoce, el código tal cual. */
   function languageName(/** @type {string} */ code) {

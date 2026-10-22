@@ -485,6 +485,34 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await page.close();
   }, 60_000);
 
+  it("editor: Ctrl+S dentro de un campo de tiempo guarda también lo que se acaba de escribir en él", async () => {
+    const base = await startApi();
+    const { page, jobId } = await openEditorFor(base, "atajo.mp4");
+    await retype(page, "#result-segments li:first-child .seg__t:nth-child(1)", "0:00:01.000");
+    await page.keyboard.down("Control");
+    await page.keyboard.press("KeyS");
+    await page.keyboard.up("Control");
+    await page.waitForFunction(() => (document.querySelector("#editor-state")?.textContent ?? "").includes("Cambios guardados"), { timeout: 10_000 });
+    const saved = (await fetch(`${base}/v1/jobs/${jobId}/segments`).then((response) => response.json())) as { segments: { start: number }[] };
+    expect(saved.segments[0]!.start).toBe(1);
+    await page.close();
+  }, 60_000);
+
+  it("editor: una línea en blanco en el texto se marca antes de enviar y el aviso queda asociado al campo", async () => {
+    const base = await startApi();
+    const { page } = await openEditorFor(base, "blanco.mp4");
+    await retype(page, "#result-segments li:first-child .seg__text", "uno");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("dos");
+    expect(await text(page, "#result-segments li:first-child .seg__issue")).toContain("líneas en blanco");
+    const wiring = await page.$eval("#result-segments li:first-child .seg__text", (area) => ({ invalid: area.getAttribute("aria-invalid"), described: area.getAttribute("aria-describedby") }));
+    expect(wiring.invalid).toBe("true");
+    expect(wiring.described).toMatch(/^seg-issue-0$/);
+    expect(await page.$eval("#result-segments li:first-child .seg__t:nth-child(1)", (input) => input.getAttribute("aria-invalid"))).toBe("false");
+    await page.close();
+  }, 60_000);
+
   it("editor: «Cargar la versión nueva» en un conflicto descarta lo local y muestra lo del servidor", async () => {
     const base = await startApi();
     const { page, jobId } = await openEditorFor(base, "recarga.mp4");
@@ -496,6 +524,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await retype(page, "#result-segments li:first-child .seg__text", "Descartable");
     await page.click("#editor-save");
     await page.waitForSelector("#editor-conflict:not([hidden])", { timeout: 10_000 });
+    page.once("dialog", (dialog) => void dialog.accept()); // confirma descartar los cambios locales
     await page.click("#editor-reload");
     await page.waitForFunction(() => (document.querySelector("#editor-state")?.textContent ?? "").includes("versión del servidor"), { timeout: 10_000 });
     expect(await rowValue(page, "#result-segments li:first-child .seg__text")).toBe(" Hola & bienvenidos <b>todos</b>");

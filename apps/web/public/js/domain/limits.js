@@ -3,3 +3,6 @@
 
 /** Caracteres máximos del texto de un subtítulo. */
 export const MAX_TEXT_CHARS = 2000;
+
+/** Segundos maximos de un tiempo de subtitulo (~277 horas). */
+export const MAX_SECONDS = 1_000_000;

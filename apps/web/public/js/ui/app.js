@@ -3,15 +3,16 @@
 
 import { ApiError } from "../api/errors.js";
 import { getJob } from "../api/jobs.js";
-import { followJob, isTerminalStatus } from "../api/sse.js";
+import { followJob } from "../api/sse.js";
 import { precheckFile, uploadVideo } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
-import { initialTracking, trackingReduce, trackingViewOf } from "../domain/job-state.js";
+import { trackingViewOf } from "../domain/job-state.js";
 import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang } from "../i18n/index.js";
 import { createHistory } from "./history.js";
 import { createResults } from "./results.js";
+import { createTracker } from "./tracker.js";
 
 const LANG_KEY = "captionforge_lang";
 /** Espera por defecto que se muestra en 429/503 si el servidor no manda Retry-After. */
@@ -94,10 +95,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let waiting = false;
   let previousPhase = state.phase;
   let announcedStep = -1;
-  // Seguimiento del trabajo por SSE (api/sse.js), independiente de la subida: sigue tras «en cola».
-  let tracking = initialTracking;
-  /** @type {AbortController | null} */
-  let trackController = null;
+  // Seguimiento del trabajo por SSE (ui/tracker.js), independiente de la subida: sigue tras «en cola».
+  const tracker = createTracker({ baseUrl: config.baseUrl, follower, onChange: () => renderJob() });
   let trackedKind = "none";
   let trackedStep = -1;
   /** @type {string | null} */
@@ -135,50 +134,13 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
       });
       dispatch({ type: "accepted", job });
       history.add({ id: job.id, name: file?.name ?? job.id, kind: "TRANSCRIBE", at: Date.now() });
-      void follow(job.id);
+      void tracker.follow(job.id);
     } catch (error) {
       // Un fallo que no es del API (un bug) no debe pasar por «error de red» sin dejar rastro.
       if (!(error instanceof ApiError)) console.error(error);
       dispatch({ type: "failed", error: error instanceof ApiError ? error : ApiError.network() });
     } finally {
       if (controller === abort) controller = null;
-    }
-  }
-
-  /** @param {Parameters<typeof trackingReduce>[1]} event */
-  function track(event) {
-    tracking = trackingReduce(tracking, event);
-    renderJob();
-  }
-
-  /** Sigue el trabajo hasta un estado final; el trabajo vive en el servidor, así que cortar el seguimiento no lo cancela. */
-  async function follow(/** @type {string} */ jobId) {
-    trackController?.abort();
-    const abort = new AbortController();
-    trackController = abort;
-    // Los avisos de un seguimiento ya reemplazado se ignoran aunque el follower no respete la señal.
-    const current = (/** @type {() => void} */ action) => () => {
-      if (!abort.signal.aborted) action();
-    };
-    track({ type: tracking.jobId === jobId ? "resume" : "track", jobId });
-    try {
-      await follower({
-        baseUrl: config.baseUrl,
-        jobId,
-        signal: abort.signal,
-        onJob: (job) => current(() => track({ type: "job", job }))(),
-        onConnection: (state) => current(() => track({ type: "connection", state }))(),
-      });
-    } catch (error) {
-      if (abort.signal.aborted) return; // se dejó de seguir a propósito
-      if (!(error instanceof ApiError)) console.error(error);
-      try {
-        track({ type: "lost", error: error instanceof ApiError ? error : ApiError.network() });
-      } catch (renderError) {
-        console.error(renderError);
-      }
-    } finally {
-      if (trackController === abort) trackController = null;
     }
   }
 
@@ -190,35 +152,15 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     if (viewOf(state).busy) return; // hay una subida en curso: no se pisa
     if (!confirmLeave()) return;
     if (state.phase !== "idle") state = initialState;
-    trackController?.abort();
-    const abort = new AbortController();
-    trackController = abort;
-    track({ type: "track", jobId });
     render();
-    try {
-      const job = await fetchJob({ baseUrl: config.baseUrl, jobId, signal: abort.signal });
-      if (abort.signal.aborted) return;
-      track({ type: "job", job });
-      if (!isTerminalStatus(job.status)) void follow(jobId);
-    } catch (error) {
-      if (abort.signal.aborted) return;
-      if (!(error instanceof ApiError)) console.error(error);
-      track({ type: "lost", error: error instanceof ApiError ? error : ApiError.network() });
-    } finally {
-      if (trackController === abort) {
-        trackController = null;
-        els.jobPanel.focus(); // solo si no lo reemplazo otra apertura
-      }
-    }
+    const { replaced } = await tracker.open(jobId, fetchJob);
+    if (!replaced) els.jobPanel.focus(); // solo si no lo reemplazó otra apertura
   }
 
   function stopTracking() {
-    trackController?.abort();
-    trackController = null;
-    tracking = initialTracking;
+    tracker.stop();
     trackedKind = "none";
     trackedStep = -1;
-    renderJob();
   }
 
   /** Con cambios sin guardar en los subtítulos, pregunta antes de abandonarlos. */
@@ -307,14 +249,15 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   }
 
   function renderJob() {
-    const view = trackingViewOf(tracking);
+    const view = trackingViewOf(tracker.state);
     els.jobPanel.hidden = view.kind === "none";
     if (view.kind === "none") {
       results.hide();
       return;
     }
     els.jobPanel.classList.toggle("is-failed", view.kind === "failed");
-    if (view.kind === "completed" && tracking.job?.kind === "TRANSCRIBE") results.show(tracking.job);
+    const trackedJob = tracker.state.job;
+    if (view.kind === "completed" && trackedJob?.kind === "TRANSCRIBE") results.show(trackedJob);
     else results.hide();
 
     let status = "";
@@ -566,7 +509,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   els.errorRetry.addEventListener("click", () => void begin());
   els.noticeRetry.addEventListener("click", () => void begin());
   els.jobReconnect.addEventListener("click", () => {
-    if (tracking.jobId !== null) void follow(tracking.jobId);
+    if (tracker.state.jobId !== null) void tracker.follow(tracker.state.jobId);
   });
   els.errorOther.addEventListener("click", startOver);
   els.noticeAgain.addEventListener("click", startOver);

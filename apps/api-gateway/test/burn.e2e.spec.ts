@@ -189,6 +189,20 @@ describe("PUT /v1/jobs/:id/segments", () => {
     expect(segments[0]!.text).toBe("A");
   });
 
+  it("dos PUT simultáneos con el mismo etag: uno se aplica y el otro recibe 409 (la comprobación y la escritura son atómicas)", async () => {
+    const { id, etag } = await completedTranscription();
+    const attempts = await Promise.all(
+      Array.from({ length: 6 }, (_, n) => put(`/v1/jobs/${id}/segments`, { segments: [{ index: 0, text: `Escritor ${n}` }], etag })),
+    );
+    const statuses = attempts.map((response) => response.status).sort();
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+    expect(statuses.filter((status) => status === 409)).toHaveLength(5);
+    // Lo que quedó guardado es exactamente lo del único que ganó.
+    const winner = attempts.find((response) => response.status === 200)!;
+    const { segments } = (await (await get(`/v1/jobs/${id}/segments`)).json()) as { segments: { text: string }[] };
+    expect(segments[0]!.text).toBe(((await winner.json()) as { segments: { text: string }[] }).segments[0]!.text);
+  });
+
   it("409 en un trabajo que no es una transcripción terminada", async () => {
     const { id } = await completedTranscription();
     const burn = (await (await fetch(`${base}/v1/jobs/${id}/burn`, json({}))).json()) as { id: string };
