@@ -15,9 +15,10 @@ const api = new pg.Client({ connectionString: url("DATABASE_URL_API") });
 const worker = new pg.Client({ connectionString: url("DATABASE_URL_WORKER") });
 const id = randomUUID();
 
-const insert = `INSERT INTO "Job" (id, kind, "inputBucket", "inputKey", "originalFilename", "contentType",
+const DEFAULT_TENANT = "00000000-0000-4000-8000-000000000001"; // lo crea la migración de tenencia
+const insert = `INSERT INTO "Job" (id, "tenantId", kind, "inputBucket", "inputKey", "originalFilename", "contentType",
   "sizeBytes", "outputPrefix", options, "updatedAt")
-  VALUES ($1, 'TRANSCRIBE', 'b', 'k', 'f.mp4', 'video/mp4', 1, 'jobs/x/out/', '{}', now())`;
+  VALUES ($1, '${DEFAULT_TENANT}', 'TRANSCRIBE', 'b', 'k', 'f.mp4', 'video/mp4', 1, 'jobs/x/out/', '{}', now())`;
 
 beforeAll(async () => {
   await Promise.all([owner.connect(), api.connect(), worker.connect()]);
@@ -85,5 +86,44 @@ describe("cf_owner (dueño del esquema, sin superusuario)", () => {
     const r = await owner.query(`SELECT migration_name, finished_at IS NOT NULL AS ok FROM "_prisma_migrations"`);
     expect(r.rows.map((x: { migration_name: string }) => x.migration_name)).toContain("20261021000000_init");
     expect(r.rows.every((x: { ok: boolean }) => x.ok)).toBe(true);
+  });
+});
+
+describe("tablas de tenencia (ADR 0015)", () => {
+  const tenantRow = randomUUID();
+  const keyHash = randomUUID().replaceAll("-", "");
+
+  beforeAll(async () => {
+    await owner.query(`INSERT INTO "Tenant" (id, name) VALUES ($1, 'privilegios')`, [tenantRow]);
+    await owner.query(`INSERT INTO "ApiKey" (id, "tenantId", name, prefix, "keyHash") VALUES ($1, $2, 'k', 'cfk_0000', $3)`, [randomUUID(), tenantRow, keyHash]);
+  });
+
+  afterAll(async () => {
+    await owner.query(`DELETE FROM "ApiKey" WHERE "tenantId" = $1`, [tenantRow]);
+    await owner.query(`DELETE FROM "Tenant" WHERE id = $1`, [tenantRow]);
+  });
+
+  it("cf_api lee tenants y claves y solo puede anotar lastUsedAt", async () => {
+    expect((await api.query(`SELECT name FROM "Tenant" WHERE id = $1`, [tenantRow])).rows[0].name).toBe("privilegios");
+    expect((await api.query(`SELECT "revokedAt" FROM "ApiKey" WHERE "keyHash" = $1`, [keyHash])).rowCount).toBe(1);
+    await api.query(`UPDATE "ApiKey" SET "lastUsedAt" = now() WHERE "keyHash" = $1`, [keyHash]);
+    await expect(api.query(`UPDATE "ApiKey" SET "revokedAt" = NULL WHERE "keyHash" = $1`, [keyHash])).rejects.toThrow(/permission denied/);
+    await expect(api.query(`UPDATE "ApiKey" SET "keyHash" = 'x' WHERE "keyHash" = $1`, [keyHash])).rejects.toThrow(/permission denied/);
+  });
+
+  it("cf_api NO puede crear ni borrar tenants, claves ni personas: un API comprometido no se da acceso a sí mismo", async () => {
+    await expect(api.query(`INSERT INTO "Tenant" (id, name) VALUES ($1, 'x')`, [randomUUID()])).rejects.toThrow(/permission denied/);
+    await expect(
+      api.query(`INSERT INTO "ApiKey" (id, "tenantId", name, prefix, "keyHash") VALUES ($1, $2, 'x', 'x', 'x')`, [randomUUID(), tenantRow]),
+    ).rejects.toThrow(/permission denied/);
+    await expect(api.query(`DELETE FROM "ApiKey" WHERE "keyHash" = $1`, [keyHash])).rejects.toThrow(/permission denied/);
+    await expect(api.query(`DELETE FROM "Tenant" WHERE id = $1`, [tenantRow])).rejects.toThrow(/permission denied/);
+    await expect(api.query(`SELECT * FROM "User"`)).rejects.toThrow(/permission denied/);
+  });
+
+  it("cf_worker no ve nada de la tenencia", async () => {
+    for (const table of ["Tenant", "ApiKey", "User"]) {
+      await expect(worker.query(`SELECT * FROM "${table}"`), table).rejects.toThrow(/permission denied/);
+    }
   });
 });
