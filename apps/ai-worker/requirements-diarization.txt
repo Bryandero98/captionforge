@@ -1,0 +1,10 @@
+# Identificar quién habla (diarize, ADR 0014): lo único que importa el subproceso ai_worker.diarize_cli.
+# Se instala con resolución normal DESPUÉS de fijar torch/torchaudio a la 2.11, la misma versión que la limpieza de
+# audio (ADR 0013), para que las dos funciones compartan una sola pila de PyTorch:
+#   pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-diarization.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# El modelo (pyannote/speaker-diarization-3.1 y segmentation-3.0) es de acceso restringido: hace falta un token de
+# Hugging Face de solo lectura en el entorno del worker (HF_TOKEN o HF_TOKEN_FILE), ver docs/guia-de-uso.md.
+torch==2.11.0
+torchaudio==2.11.0
+pyannote.audio==4.0.7

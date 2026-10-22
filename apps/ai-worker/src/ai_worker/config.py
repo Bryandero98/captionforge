@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from .diarization import resolve_hf_token
 
 TRANSCRIBE_QUEUE = "captionforge.transcribe"
 BURN_QUEUE = "captionforge.burn"
@@ -48,6 +50,12 @@ class WorkerConfig:
     # Separación de voz (subproceso): sin ninguna señal de vida en este tiempo se da por colgada y se continúa con el audio original.
     separation_stall_timeout: float = 300.0
     separation_total_timeout: float = 3600.0
+    # Identificar hablantes (subproceso): misma política que la separación. En CPU la inferencia tarda varias veces la
+    # duración del audio, por eso los topes son más holgados.
+    diarization_stall_timeout: float = 600.0
+    diarization_total_timeout: float = 7200.0
+    # Token de Hugging Face (HF_TOKEN o HF_TOKEN_FILE). repr=False: nunca debe salir en un log ni en un traceback.
+    hf_token: str | None = field(default=None, repr=False)
 
     @property
     def redis_connection(self) -> dict[str, object]:
@@ -95,4 +103,7 @@ class WorkerConfig:
             ffmpeg_total_timeout=number("FFMPEG_TOTAL_TIMEOUT_SECONDS", 6 * 3600.0),
             separation_stall_timeout=number("SEPARATION_STALL_TIMEOUT_SECONDS", 300.0),
             separation_total_timeout=number("SEPARATION_TOTAL_TIMEOUT_SECONDS", 3600.0),
+            diarization_stall_timeout=number("DIARIZATION_STALL_TIMEOUT_SECONDS", 600.0),
+            diarization_total_timeout=number("DIARIZATION_TOTAL_TIMEOUT_SECONDS", 7200.0),
+            hf_token=resolve_hf_token(env),
         )

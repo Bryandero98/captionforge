@@ -30,7 +30,8 @@ from captionforge_contracts import TranscribeJob, TranscribeResult
 from .config import WorkerConfig
 from .errors import JobCancelled, JobFailure
 from .models import ModelProvider
-from .progress import CLEAN_STAGE_RANGES, Progress
+from .diarization import DiarizationFailed, Diarizer, SubprocessDiarizer, assign_speakers
+from .progress import Progress, stage_ranges
 from .separation import SeparationFailed, Separator, SubprocessSeparator
 from .storage import Storage
 
@@ -84,12 +85,24 @@ def _transcribe_sync(
 
 
 class TranscribeRunner:
-    def __init__(self, config: WorkerConfig, storage: Storage, models: ModelProvider, separator: Separator | None = None) -> None:
+    def __init__(
+        self,
+        config: WorkerConfig,
+        storage: Storage,
+        models: ModelProvider,
+        separator: Separator | None = None,
+        diarizer: Diarizer | None = None,
+    ) -> None:
         self._config = config
         self._storage = storage
         self._models = models
         self._separator = separator or SubprocessSeparator(
             stall_timeout=config.separation_stall_timeout, total_timeout=config.separation_total_timeout
+        )
+        self._diarizer = diarizer or SubprocessDiarizer(
+            token=config.hf_token,
+            stall_timeout=config.diarization_stall_timeout,
+            total_timeout=config.diarization_total_timeout,
         )
 
     async def run(self, payload: TranscribeJob, progress: Progress, cancel: threading.Event) -> dict[str, Any]:
@@ -133,6 +146,38 @@ class TranscribeRunner:
         self._check(cancel)
         return cleaned, True
 
+    async def _diarize(
+        self, audio: Path, segments: list[Segment], progress: Progress, cancel: threading.Event
+    ) -> tuple[list[Segment], bool]:
+        """Devuelve (segmentos con hablante, si se identificó). Whisper se suelta ANTES de lanzar el hijo: los dos modelos
+        nunca conviven en la GPU. Un fallo (sin token, descarga, tiempo, hijo) no hace fallar el trabajo: se entrega la
+        transcripción normal; una cancelación sí lo cancela."""
+        await asyncio.to_thread(self._models.release)
+
+        async def report(stage: str, fraction: float) -> None:
+            message = (
+                "Descargando el modelo de identificación de hablantes"
+                if stage == "downloading_diarization_model"
+                else f"Identificando quién habla ({fraction * 100:.0f}%)"
+            )
+            await progress.report(stage, fraction, message)
+
+        await progress.report("diarizing", 0.0, "Identificando quién habla")
+        try:
+            turns = await self._diarizer.diarize(audio, report)
+        except JobCancelled:
+            raise
+        except Exception as error:  # noqa: BLE001 - cualquier fallo (token, red, OOM, hijo) -> transcripción sin hablantes
+            self._check(cancel)  # si fue una cancelación, no se disfraza de fallo recuperable
+            if isinstance(error, DiarizationFailed):
+                log.warning("identificación de hablantes fallida; se entrega la transcripción normal: %s", error)
+            else:
+                log.warning("identificación de hablantes fallida; se entrega la transcripción normal", exc_info=error)
+            await progress.report("diarizing", 1.0, "No se pudo identificar quién habla; se entrega la transcripción normal")
+            return segments, False
+        self._check(cancel)
+        return assign_speakers(segments, turns), True
+
     async def _run(self, payload: TranscribeJob, progress: Progress, cancel: threading.Event, job_dir: Path) -> dict[str, Any]:
         job_id = str(payload.jobId)
         size = str(payload.options.modelSize)
@@ -140,8 +185,9 @@ class TranscribeRunner:
         translate_to = _language(payload.options.translateTo)
         prefix = payload.outputPrefix
         clean_audio = bool(payload.options.cleanAudio)
-        if clean_audio:
-            progress.use_ranges(CLEAN_STAGE_RANGES)
+        diarize = bool(payload.options.diarize)
+        if clean_audio or diarize:
+            progress.use_ranges(stage_ranges(clean_audio, diarize))
 
         # 1. Entrada
         await progress.report("downloading_input", 0.0, "Descargando el video")
@@ -201,6 +247,11 @@ class TranscribeRunner:
         )
         segments = result.segments
 
+        # 4b. Quién habla (opcional): Whisper ya terminó, así que se suelta antes de lanzar pyannote.
+        diarized = False
+        if diarize:
+            segments, diarized = await self._diarize(transcribe_from, segments, progress, cancel)
+
         # 5. Traducción opcional
         if translate_to and translate_to != (source_language or result.language):
             await progress.report("translating", 0.0, f"Traduciendo a {translate_to}")
@@ -229,6 +280,7 @@ class TranscribeRunner:
                 "detectedLanguage": result.language,
                 "device": result.device,
                 "audioCleaned": audio_cleaned,
+                "diarized": diarized,
                 "durationSeconds": result.duration,
                 "segmentCount": len(segments),
                 "artifacts": {

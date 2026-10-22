@@ -38,6 +38,42 @@ CLEAN_STAGE_RANGES: dict[str, tuple[float, float]] = {
     "uploading": (90.0, 99.0),
 }
 
+# Identificar hablantes (diarize): después de Whisper, que se suelta antes de lanzar el hijo de pyannote.
+DIARIZE_STAGE_RANGES: dict[str, tuple[float, float]] = {
+    "downloading_input": (0.0, 4.0),
+    "extracting_audio": (4.0, 8.0),
+    "downloading_model": (8.0, 12.0),
+    "transcribing": (12.0, 50.0),
+    "downloading_diarization_model": (50.0, 55.0),
+    "diarizing": (55.0, 86.0),
+    "translating": (86.0, 90.0),
+    "uploading": (90.0, 99.0),
+}
+
+# Las dos opciones a la vez.
+CLEAN_DIARIZE_STAGE_RANGES: dict[str, tuple[float, float]] = {
+    "downloading_input": (0.0, 3.0),
+    "extracting_audio": (3.0, 6.0),
+    "downloading_separation_model": (6.0, 9.0),
+    "separating_voice": (9.0, 30.0),
+    "downloading_model": (30.0, 33.0),
+    "transcribing": (33.0, 60.0),
+    "downloading_diarization_model": (60.0, 64.0),
+    "diarizing": (64.0, 87.0),
+    "translating": (87.0, 90.0),
+    "uploading": (90.0, 99.0),
+}
+
+
+def stage_ranges(clean_audio: bool, diarize: bool) -> dict[str, tuple[float, float]]:
+    """Reparto del porcentaje según las opciones del trabajo (siempre monótono de 0 a 99)."""
+    if clean_audio and diarize:
+        return CLEAN_DIARIZE_STAGE_RANGES
+    if clean_audio:
+        return CLEAN_STAGE_RANGES
+    return DIARIZE_STAGE_RANGES if diarize else STAGE_RANGES
+
+
 # El quemado tiene sus propias etapas: el ffmpeg de codificación es casi todo el trabajo.
 BURN_STAGE_RANGES: dict[str, tuple[float, float]] = {
     "downloading_input": (0.0, 5.0),
