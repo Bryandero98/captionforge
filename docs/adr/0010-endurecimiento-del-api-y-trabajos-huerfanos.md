@@ -34,7 +34,7 @@ producción:
   varias veces por minuto en cualquier etapa), no cuándo empezó el trabajo: un video de dos horas no es
   un huérfano.
 
-**API**: clave compartida opcional (`API_KEY`, mínimo 24 caracteres; `Authorization: Bearer` o
+**API** *(sustituida por claves por tenant en el [ADR 0015](0015-tenencia-y-claves-de-api.md))*: clave compartida opcional (`API_KEY`, mínimo 24 caracteres; `Authorization: Bearer` o
 `X-API-Key`; comparación de tiempo constante sobre hashes; `/health` abierto) y límite de peticiones
 por IP con contador aparte para las subidas (`RATE_LIMIT_PER_MINUTE`=240, `UPLOAD_RATE_LIMIT_PER_MINUTE`=10).
 `TRUST_PROXY` es explícito: detrás de un proxy sin activarlo todos los clientes comparten una IP.

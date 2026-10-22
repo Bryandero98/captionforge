@@ -90,18 +90,18 @@ curl -N http://127.0.0.1:3000/v1/jobs/<id>/events
 curl -OJ http://127.0.0.1:3000/v1/jobs/<id>/artifacts/srt
 ```
 
-Con `API_KEY` definida, añade `-H "Authorization: Bearer <clave>"` a cada llamada.
+Cada llamada necesita tu clave de API: añade `-H "X-API-Key: <clave>"` (la `DEFAULT_API_KEY` de tu `.env`; también sirve `Authorization: Bearer <clave>`). Un trabajo pertenece al tenant dueño de la clave: otra clave recibe `404`, nunca `403`.
 
 ## API
 
-Todo cuelga de `/v1/jobs`. El worker escribe el estado del trabajo en PostgreSQL y el API lo lee. Con
-`API_KEY` definida (ver `.env.example`) todas las rutas piden `Authorization: Bearer <clave>`;
-`/health` queda abierto.
+Todo cuelga de `/v1/jobs`. El worker escribe el estado del trabajo en PostgreSQL y el API lo lee. Todas las rutas de `/v1/jobs` piden `X-API-Key: <clave>` (o `Authorization: Bearer <clave>`); `/health` y
+`/v1/capabilities` quedan abiertas. Las claves y los tenants se explican en el [ADR 0015](docs/adr/0015-tenencia-y-claves-de-api.md).
 
 | Método y ruta | Qué hace |
 |---|---|
 | `POST /v1/jobs/transcribe` | Multipart. Sube el video a S3 mientras llega. `202` |
 | `GET /v1/capabilities` | Funciones opcionales de este servidor (`{ "diarization": { "enabled": true } }`); la web oculta o desactiva lo que falte |
+| `GET /v1/jobs` | Tus trabajos, del más reciente al más antiguo (`?limit=` 1-100, `?cursor=<último id>`); solo los del tenant de la clave |
 | `GET /v1/jobs/:id` | Estado, etapa, porcentaje, error y resultado |
 | `GET /v1/jobs/:id/events` | Progreso por SSE hasta un estado final |
 | `POST /v1/jobs/:id/cancel` | Cancela: en cola se quita; en curso se avisa al worker |

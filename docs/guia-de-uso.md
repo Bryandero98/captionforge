@@ -47,8 +47,10 @@ ningún marcador `{x}`).
 
 - Los resultados se **borran del servidor pasado un día**. «Recientes» solo guarda los identificadores en este
   navegador, no los videos.
-- Con `API_KEY` configurada en el servidor la interfaz web no puede autenticarse (ver ADR 0011): úsala sin clave en local
-  o detrás de un proxy que la gestione.
+- La interfaz web usa la clave de API del `.env` (`DEFAULT_API_KEY`, la crea `start.sh` / `start.bat`) y la manda sola. Si ves
+  «La clave de acceso de esta interfaz falta, no es válida o fue revocada», revisa esa variable y reinicia el servicio (ADR 0015).
+- Los trabajos son de quien tiene la clave: con otra clave no se ven (ni se pueden cancelar, editar o descargar).
+- El video con subtítulos se previsualiza en la página solo hasta 256 MiB; por encima, la descarga funciona igual.
 - Teclado: toda la interfaz se maneja con Tab/Enter/Espacio; Ctrl+S guarda los cambios; los avisos importantes se
   anuncian a lectores de pantalla.
 
