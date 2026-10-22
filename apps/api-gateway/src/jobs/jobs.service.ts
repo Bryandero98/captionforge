@@ -17,6 +17,7 @@ import { Prisma, type Job, type JobStatus } from "../generated/prisma/client.js"
 import { PrismaService } from "../prisma/prisma.service.js";
 import { QueueService } from "../queue/queue.service.js";
 import { StorageService } from "../storage/storage.service.js";
+import { KeyedMutex } from "./keyed-mutex.js";
 import { type Segment, SegmentsError, applyEdits, parseEdits, parseSegments, segmentsToSrt } from "./segments.js";
 
 export const ALLOWED_CONTENT_TYPES = [
@@ -131,6 +132,8 @@ function extensionOf(filename: string): string {
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
+  /** Serializa las ediciones de subtítulos de un mismo trabajo (ver KeyedMutex). */
+  private readonly segmentEdits = new KeyedMutex();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -286,6 +289,11 @@ export class JobsService {
       if (error instanceof SegmentsError) throw new BadRequestException(error.message);
       throw error;
     }
+    // Leer el ETag, compararlo y escribir es una sola operación: dos PUT con el mismo ETag no pueden pasar los dos.
+    return this.segmentEdits.run(id, () => this.applySegmentEdits(id, parsed));
+  }
+
+  private async applySegmentEdits(id: string, parsed: ReturnType<typeof parseEdits>): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
     const { job, segmentsKey } = await this.completedTranscription(id);
     const current = await this.readSegments(segmentsKey);
     if (parsed.etag !== undefined && parsed.etag !== current.etag) {

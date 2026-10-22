@@ -22,18 +22,36 @@
         <p class="tagline" data-i18n="app.tagline">Subtítulos automáticos para tus videos.</p>
       </div>
       <div class="lang" role="group" data-i18n-aria-label="lang.label" aria-label="Idioma de la interfaz">
-        <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es">ES</button>
-        <button type="button" class="lang__btn" id="lang-en" data-lang="en" aria-pressed="false" lang="en">EN</button>
+        <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es" aria-label="ES, Español">ES</button>
+        <button type="button" class="lang__btn" id="lang-en" data-lang="en" aria-pressed="false" lang="en" aria-label="EN, English">EN</button>
+        <button type="button" class="lang__btn" id="lang-pt" data-lang="pt" aria-pressed="false" lang="pt" aria-label="PT, Português">PT</button>
+        <button type="button" class="lang__btn" id="lang-fr" data-lang="fr" aria-pressed="false" lang="fr" aria-label="FR, Français">FR</button>
+        <button type="button" class="lang__btn" id="lang-de" data-lang="de" aria-pressed="false" lang="de" aria-label="DE, Deutsch">DE</button>
+        <button type="button" class="lang__btn" id="lang-it" data-lang="it" aria-pressed="false" lang="it" aria-label="IT, Italiano">IT</button>
       </div>
     </header>
+    <p class="lang-notice" id="lang-notice" role="status"></p>
 
     <main id="main" tabindex="-1">
+      <details class="guide" id="guide">
+        <summary data-i18n="guide.title">Cómo usar CaptionForge, paso a paso</summary>
+        <ol class="guide__steps">
+          <li><h2 class="guide__step" data-i18n="guide.s1.title"></h2><p data-i18n="guide.s1.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s2.title"></h2><p data-i18n="guide.s2.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s3.title"></h2><p data-i18n="guide.s3.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s4.title"></h2><p data-i18n="guide.s4.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s5.title"></h2><p data-i18n="guide.s5.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s6.title"></h2><p data-i18n="guide.s6.body"></p></li>
+        </ol>
+        <p class="panel__detail" data-i18n="guide.privacy"></p>
+      </details>
+
       <form id="upload-form" novalidate>
         <fieldset class="form" id="form-fields">
           <legend class="visually-hidden" data-i18n="file.selected">Video elegido</legend>
 
           <label class="drop" id="drop">
-            <input class="visually-hidden" type="file" id="file-input" accept=".mp4,.mov,.mkv,.webm,.avi,video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo">
+            <input class="visually-hidden" type="file" id="file-input" multiple accept=".mp4,.mov,.mkv,.webm,.avi,video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo">
             <svg class="drop__icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 16V4"/>
               <path d="m7 9 5-5 5 5"/>
@@ -45,6 +63,8 @@
           </label>
 
           <p class="problem" id="file-problem" role="alert" hidden></p>
+
+          <ul class="batch" id="batch-list" role="list" hidden></ul>
 
           <div class="file" id="file-row" hidden>
             <div class="file__info">
@@ -94,6 +114,78 @@
         </div>
       </section>
 
+      <section class="panel" id="job-panel" tabindex="-1" hidden aria-labelledby="job-title">
+        <h2 class="visually-hidden" id="job-title" data-i18n="job.title">Estado del trabajo</h2>
+        <p class="panel__status" id="job-status"></p>
+        <div class="bar" id="job-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="job-title">
+          <div class="bar__fill" id="job-bar-fill"></div>
+        </div>
+        <p class="panel__detail" id="job-detail"></p>
+        <div class="panel__actions">
+          <button type="button" class="btn btn--primary" id="job-reconnect" hidden data-i18n="job.reconnect">Volver a conectar</button>
+        </div>
+      </section>
+
+      <section class="panel" id="result-panel" tabindex="-1" hidden aria-labelledby="result-title">
+        <h2 class="panel__status" id="result-title" data-i18n="result.title">Tus subtítulos</h2>
+        <dl class="facts">
+          <div><dt data-i18n="result.language">Idioma detectado</dt><dd id="result-language">—</dd></div>
+          <div><dt data-i18n="result.duration">Duración</dt><dd id="result-duration">—</dd></div>
+          <div><dt data-i18n="result.count">Subtítulos</dt><dd id="result-count">—</dd></div>
+        </dl>
+        <div class="panel__actions">
+          <a class="btn btn--primary" id="dl-srt" href="#" download data-i18n="result.dl.srt">Descargar .srt</a>
+          <button type="button" class="btn btn--secondary" id="dl-vtt" disabled data-i18n="result.dl.vtt">Descargar .vtt</button>
+        </div>
+        <p class="panel__detail" id="dl-hint" hidden></p>
+        <form class="burn" id="burn-form" hidden>
+          <h3 class="burn__title" data-i18n="burn.title">Poner los subtítulos en el video</h3>
+          <div class="options">
+            <div class="field">
+              <label for="burn-style" data-i18n="burn.style">Estilo</label>
+              <select id="burn-style"></select>
+            </div>
+            <div class="field field--check">
+              <input type="checkbox" id="burn-karaoke" />
+              <label for="burn-karaoke" data-i18n="burn.karaoke">Resaltar cada palabra (karaoke)</label>
+            </div>
+          </div>
+          <p class="panel__detail" id="burn-hint" role="status" hidden></p>
+          <button type="submit" class="btn btn--secondary" id="burn-start" aria-describedby="burn-hint" data-i18n="burn.start">Crear video con subtítulos</button>
+        </form>
+        <p class="panel__detail" id="result-status" role="status" hidden></p>
+        <button type="button" class="btn btn--secondary" id="result-retry" hidden data-i18n="action.retry">Reintentar</button>
+        <div class="editor-bar" id="editor-bar" hidden>
+          <p class="editor-bar__state" id="editor-state" role="status"></p>
+          <div class="panel__actions">
+            <button type="button" class="btn btn--primary" id="editor-save" disabled data-i18n="editor.save">Guardar cambios</button>
+            <button type="button" class="btn btn--ghost" id="editor-discard" disabled data-i18n="editor.discard">Descartar cambios</button>
+          </div>
+          <div class="editor-conflict" id="editor-conflict" hidden>
+            <button type="button" class="btn btn--secondary" id="editor-reload" data-i18n="editor.conflict.reload">Cargar la versión nueva</button>
+            <button type="button" class="btn btn--secondary" id="editor-overwrite" data-i18n="editor.conflict.overwrite">Guardar mis cambios encima</button>
+          </div>
+        </div>
+        <ol class="segments" id="result-segments"></ol>
+        <button type="button" class="btn btn--ghost" id="result-more" hidden></button>
+      </section>
+
+      <section class="panel" id="burn-panel" tabindex="-1" hidden aria-labelledby="burn-title">
+        <h2 class="visually-hidden" id="burn-title" data-i18n="burn.panel.title">Video con subtítulos</h2>
+        <p class="panel__status" id="burn-status"></p>
+        <div class="bar" id="burn-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="burn-title">
+          <div class="bar__fill" id="burn-bar-fill"></div>
+        </div>
+        <p class="panel__detail" id="burn-detail" hidden></p>
+        <video class="burn__video" id="burn-video" controls preload="metadata" hidden data-i18n-aria-label="burn.video.label" aria-label="Vista previa del video con subtítulos"></video>
+        <div class="panel__actions">
+          <a class="btn btn--primary" id="burn-download" href="#" download hidden data-i18n="burn.download">Descargar video</a>
+          <button type="button" class="btn btn--secondary" id="burn-cancel" hidden data-i18n="action.cancel">Cancelar</button>
+          <button type="button" class="btn btn--primary" id="burn-reconnect" hidden data-i18n="job.reconnect">Volver a conectar</button>
+          <button type="button" class="btn btn--ghost" id="burn-open-parent" hidden data-i18n="burn.openParent">Abrir los subtítulos</button>
+        </div>
+      </section>
+
       <section class="panel panel--error" id="error-panel" role="group" aria-labelledby="error-title" hidden>
         <h2 class="panel__status" id="error-title" data-i18n="error.title">No se pudo subir el video</h2>
         <p id="error-message"></p>
@@ -102,6 +194,13 @@
           <button type="button" class="btn btn--primary" id="error-retry" data-i18n="action.retry">Reintentar</button>
           <button type="button" class="btn btn--secondary" id="error-other" data-i18n="action.chooseOther">Elegir otro archivo</button>
         </div>
+      </section>
+
+      <section class="history" id="history-panel" aria-labelledby="history-title">
+        <h2 class="history__title" id="history-title" data-i18n="history.title">Recientes</h2>
+        <p class="panel__detail" data-i18n="history.note">Se guardan solo en este navegador. El servidor borra los resultados pasado un día.</p>
+        <p class="panel__detail" id="history-empty" data-i18n="history.empty">Todavía no has subido nada desde este navegador.</p>
+        <ul class="history__list" id="history-list"></ul>
       </section>
 
       <!-- Anuncios para lector de pantalla: solo hitos (cada 25 %), no cada porcentaje. -->

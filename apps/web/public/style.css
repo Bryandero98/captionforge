@@ -128,6 +128,8 @@ textarea {
 
 .lang {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   flex-shrink: 0;
   padding: 3px;
   gap: 2px;
@@ -156,6 +158,7 @@ textarea {
 .lang__btn[aria-pressed="true"] {
   background: var(--surface-2);
   color: var(--text);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 main {
@@ -382,6 +385,17 @@ select:disabled {
 .panel--error p {
   max-width: 62ch;
 }
+/* Trabajo terminado con fallo: mismo color que el error de subida, sin cambiar el tamaño del panel. */
+.panel.is-failed {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+.panel.is-failed .panel__status {
+  color: var(--error-text);
+}
+.bar.is-done .bar__fill {
+  transform: scaleX(1);
+}
 
 @keyframes panel-in {
   from {
@@ -391,6 +405,7 @@ select:disabled {
 }
 
 .panel__status {
+  overflow-wrap: anywhere;
   margin: 0 0 14px;
   font-size: 1.0625rem;
   font-weight: 600;
@@ -403,6 +418,7 @@ select:disabled {
   margin: 0 0 10px;
 }
 .panel__detail {
+  overflow-wrap: anywhere;
   margin: 10px 0 0;
   color: var(--text-dim);
   font-size: 0.875rem;
@@ -424,12 +440,221 @@ select:disabled {
   margin-top: 18px;
 }
 
+/* ---------- resultado, subtítulos e historial ---------- */
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 0 0 4px;
+}
+.facts dt {
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+}
+.facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.batch {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.batch__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.batch__item[data-status="uploading"] {
+  border-left-color: var(--accent);
+}
+.batch__item[data-status="done"] {
+  border-left-color: var(--ok, #5fbf7a);
+}
+.batch__item[data-status="error"] {
+  border-left-color: var(--error-text);
+}
+.batch__name {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.batch__meta {
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.burn {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.burn__title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+.burn .options {
+  align-items: end;
+}
+.field--check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.field--check input {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--accent);
+}
+.burn .btn {
+  margin-top: 14px;
+}
+.burn__video {
+  display: block;
+  width: 100%;
+  max-height: 24rem;
+  margin-top: 14px;
+  background: #000;
+  border-radius: var(--radius);
+}
+.segments {
+  max-height: 22rem;
+  margin: 18px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+.seg {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 4px 12px;
+  padding: 10px 0 10px 10px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+.seg.is-dirty {
+  border-left-color: var(--accent);
+}
+.seg__times {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.seg__t,
+.seg__text {
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.seg__t {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.seg__text {
+  resize: vertical;
+  field-sizing: content;
+  min-height: 2.6rem;
+  overflow-wrap: anywhere;
+}
+.seg [aria-invalid="true"] {
+  border-color: var(--error-border);
+  outline: 1px solid var(--error-text);
+}
+.seg__issue {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--error-text);
+  font-size: 0.875rem;
+}
+.editor-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-top: 16px;
+  padding: 12px 0 4px;
+  background: var(--surface);
+}
+.editor-bar__state {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+.editor-bar .panel__actions {
+  margin-top: 10px;
+}
+.editor-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.btn[aria-disabled="true"] {
+  pointer-events: none;
+}
+@media (max-width: 480px) {
+  .seg {
+    grid-template-columns: 1fr;
+  }
+  .seg__times {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.history {
+  margin-top: 40px;
+}
+.history__title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+.history__list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.history__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.history__name {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.history__meta {
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+}
+
 /* ---------- barra de progreso ---------- */
 
 .bar {
   height: 8px;
   overflow: hidden;
-  background: var(--border);
+  background: var(--border-strong);
   border-radius: 999px;
 }
 .bar__fill {
@@ -461,13 +686,53 @@ select:disabled {
   .bar__fill {
     transition: none;
   }
+  /* Un fragmento fijo: un relleno completo, aunque atenuado, parecería una barra casi terminada. */
   .bar.is-indeterminate .bar__fill {
-    width: 100%;
+    width: 38%;
     transform: none;
     animation: none;
-    opacity: 0.55;
   }
   .btn:active:not(:disabled) {
     transform: none;
   }
+}
+
+.lang-notice:empty {
+  display: none;
+}
+.lang-notice {
+  margin: 0 0 var(--space-4, 1rem);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+}
+
+.guide {
+  margin-bottom: var(--space-4, 1rem);
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.guide > summary {
+  min-height: 32px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.guide__steps {
+  margin: 0.75rem 0 0.5rem;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+}
+.guide__steps p {
+  margin: 0.125rem 0 0;
+  color: var(--text-dim);
+  max-width: 65ch;
+}
+.guide__step {
+  margin: 0;
+  font-size: 1rem;
 }

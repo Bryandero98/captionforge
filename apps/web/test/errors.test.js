@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { ApiError, errorFromResponse, parseRetryAfter } from "../public/js/api/errors.js";
+import { MAX_FILES } from "../public/js/domain/batch.js";
 import { messages } from "../public/js/i18n/messages.js";
 
 describe("errorFromResponse: cada código HTTP del API tiene un código propio y una pista de reintento", () => {
@@ -122,7 +123,23 @@ describe("textos: todo código de error tiene mensaje en español e inglés", ()
     }
   });
 
-  it("es y en tienen exactamente las mismas claves", () => {
-    assert.deepEqual(Object.keys(messages.es).sort(), Object.keys(messages.en).sort());
+  it("todos los idiomas tienen exactamente las mismas claves que es", () => {
+    const keys = Object.keys(messages.es).sort();
+    for (const lang of Object.keys(messages)) assert.deepEqual(Object.keys(messages[lang]).sort(), keys, lang);
+  });
+
+  it("cada texto conserva exactamente los marcadores {x} del original y ninguno está vacío", () => {
+    const holes = (/** @type {string} */ text) => (text.match(/\{\w+\}/g) ?? []).sort();
+    for (const lang of Object.keys(messages)) {
+      for (const [key, text] of Object.entries(messages[lang])) {
+        assert.notEqual(text.trim(), "", `${lang} ${key}`);
+        assert.deepEqual(holes(text), holes(messages.es[key]), `${lang} ${key}`);
+        assert.doesNotMatch(text, /<[a-z/]/i, `${lang} ${key}: sin HTML`);
+      }
+    }
+  });
+
+  it("la guía menciona el máximo de videos de la cola en todos los idiomas", () => {
+    for (const lang of Object.keys(messages)) assert.match(messages[lang]["guide.s1.body"], new RegExp(String(MAX_FILES)), lang);
   });
 });

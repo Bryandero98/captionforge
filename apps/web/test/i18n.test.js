@@ -24,7 +24,8 @@ describe("createTranslator", () => {
   });
 
   it("un idioma desconocido usa español", () => {
-    assert.equal(createTranslator("fr")("action.cancel"), "Cancelar");
+    assert.equal(createTranslator("xx")("action.cancel"), "Cancelar");
+    assert.equal(createTranslator("__proto__")("action.cancel"), "Cancelar");
   });
 
   it("los valores no se interpretan como HTML ni como otra plantilla (no hay inyección por parámetros)", () => {
@@ -38,18 +39,23 @@ describe("detectLang", () => {
     assert.equal(detectLang("en", ["es-CO"]), "en");
   });
 
-  it("ignora un valor guardado que no es es/en", () => {
-    assert.equal(detectLang("fr", ["en-US"]), "en");
+  it("ignora un valor guardado que no es un idioma soportado", () => {
+    assert.equal(detectLang("xx", ["en-US"]), "en");
+    assert.equal(detectLang("constructor", ["pt-BR"]), "pt");
     assert.equal(detectLang("<script>", ["es"]), "es");
   });
 
   it("sin guardado, el primer idioma del navegador que conozcamos", () => {
-    assert.equal(detectLang(null, ["fr-FR", "en-GB", "es"]), "en");
+    assert.equal(detectLang(null, ["ja-JP", "en-GB", "es"]), "en");
+    assert.equal(detectLang(null, ["fr-CA", "en"]), "fr");
+    assert.equal(detectLang(null, ["de-AT"]), "de");
+    assert.equal(detectLang(null, ["it"]), "it");
+    assert.equal(detectLang(null, ["PT-br"]), "pt");
     assert.equal(detectLang(null, ["es-CO"]), "es");
   });
 
   it("sin nada conocido, español", () => {
-    assert.equal(detectLang(null, ["fr", "de"]), "es");
+    assert.equal(detectLang(null, ["ja", "ko"]), "es");
     assert.equal(detectLang(null, []), "es");
     assert.equal(detectLang(undefined, undefined), "es");
   });

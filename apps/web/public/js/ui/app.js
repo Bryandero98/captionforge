@@ -2,11 +2,20 @@
 // Todo texto entra con textContent: ningún dato (nombre de archivo, mensaje del servidor) se interpreta como HTML.
 
 import { ApiError } from "../api/errors.js";
+import { getJob } from "../api/jobs.js";
+import { followJob } from "../api/sse.js";
 import { precheckFile, uploadVideo } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
+import { MAX_FILES, addFiles, currentOf, emptyBatch, markCancelled, markDone, markError, markUploading, removeItem, summaryOf } from "../domain/batch.js";
+import { trackingViewOf } from "../domain/job-state.js";
 import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
-import { createTranslator, detectLang } from "../i18n/index.js";
+import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
+import { createBurn } from "./burn.js";
+import { createHistory } from "./history.js";
+import { detailText, statusText } from "./job-text.js";
+import { createResults } from "./results.js";
+import { createTracker } from "./tracker.js";
 
 const LANG_KEY = "captionforge_lang";
 /** Espera por defecto que se muestra en 429/503 si el servidor no manda Retry-After. */
@@ -19,9 +28,11 @@ const MODELS = ["base", "small", "medium"];
  *   win: Window,
  *   config: { baseUrl: string, maxBytes: number },
  *   uploader?: typeof uploadVideo,
+ *   follower?: typeof followJob,
+ *   fetchJob?: typeof getJob,
  * }} deps
  */
-export function createApp({ doc, win, config, uploader = uploadVideo }) {
+export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -34,11 +45,13 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     drop: $("drop"),
     input: $("file-input"),
     formats: $("drop-formats"),
+    langNotice: $("lang-notice"),
     problem: $("file-problem"),
     fileRow: $("file-row"),
     fileName: $("file-name"),
     fileSize: $("file-size"),
     fileRemove: $("file-remove"),
+    batchList: $("batch-list"),
     model: $("opt-model"),
     source: $("opt-source"),
     translate: $("opt-translate"),
@@ -59,6 +72,12 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     errorDetail: $("error-detail"),
     errorRetry: $("error-retry"),
     errorOther: $("error-other"),
+    jobPanel: $("job-panel"),
+    jobStatus: $("job-status"),
+    jobBar: $("job-bar"),
+    jobBarFill: $("job-bar-fill"),
+    jobDetail: $("job-detail"),
+    jobReconnect: $("job-reconnect"),
     announcer: $("announcer"),
   };
 
@@ -66,10 +85,11 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
   let lang = detectLang(readStored(win), win.navigator.languages);
   let t = createTranslator(lang);
   let state = initialState;
-  /** @type {File | null} */
-  let file = null;
-  /** @type {ApiError | null} */
-  let fileProblem = null;
+  // Cola de subida (domain/batch.js): los archivos elegidos, de uno en uno.
+  let batch = emptyBatch;
+  /** Archivos que no entraron en la cola, con su motivo. @type {{ name: string, problem: ApiError }[]} */
+  let rejected = [];
+  let overflow = 0;
   /** @type {AbortController | null} */
   let controller = null;
   /** @type {number | undefined} */
@@ -81,6 +101,29 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
   let waiting = false;
   let previousPhase = state.phase;
   let announcedStep = -1;
+  // Seguimiento del trabajo por SSE (ui/tracker.js), independiente de la subida: sigue tras «en cola».
+  const tracker = createTracker({ baseUrl: config.baseUrl, follower, onChange: () => renderJob() });
+  let trackedKind = "none";
+  let trackedStep = -1;
+  /** @type {string | null} */
+  let trackedStage = null;
+
+  const translate = (/** @type {string} */ key, /** @type {Record<string, string | number> | undefined} */ params) => t(key, params);
+  /** @type {ReturnType<typeof createBurn> | null} */
+  let burn = null;
+  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), onChange: () => burn?.refreshForm() });
+  const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
+  burn = createBurn({
+    doc,
+    win,
+    baseUrl: config.baseUrl,
+    t: translate,
+    announce: (text) => announce(text),
+    context: () => results.context,
+    onStarted: (job, parentName) => history.add({ id: job.id, name: parentName, kind: "BURN", at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
+    onOpenParent: (parentId) => void openJob(parentId),
+    follower,
+  });
 
   // ---------- estado ----------
 
@@ -90,14 +133,22 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     render();
   }
 
+  /**
+   * Sube el archivo que toca de la cola. Si hay más pendientes, al aceptarse uno sigue con el siguiente; si uno falla o se
+   * cancela, la cola se detiene ahí y «Reintentar» lo retoma.
+   */
   async function begin() {
-    if (file === null || fileProblem !== null || viewOf(state).busy || waiting) return;
+    const item = currentOf(batch);
+    if (item === null || viewOf(state).busy || waiting) return;
+    stopTracking();
+    batch = markUploading(batch, item.key);
     const abort = new AbortController();
     controller = abort;
-    dispatch({ type: "start", file: { name: file.name, size: file.size }, at: win.performance.now() });
+    dispatch({ type: "start", file: { name: item.file.name, size: item.file.size }, at: win.performance.now() });
+    let accepted = false;
     try {
       const job = await uploader({
-        file,
+        file: /** @type {File} */ (item.file),
         options: { modelSize: els.model.value, sourceLanguage: els.source.value, translateTo: els.translate.value },
         baseUrl: config.baseUrl,
         maxBytes: config.maxBytes,
@@ -107,36 +158,169 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
             ? dispatch({ type: "progress", loaded: event.loaded, total: event.total, at: win.performance.now() })
             : dispatch({ type: "sent" }),
       });
+      batch = markDone(batch, item.key, job.id);
       dispatch({ type: "accepted", job });
+      history.add({ id: job.id, name: item.file.name, kind: "TRANSCRIBE", at: Date.now() });
+      void tracker.follow(job.id);
+      accepted = true;
     } catch (error) {
       // Un fallo que no es del API (un bug) no debe pasar por «error de red» sin dejar rastro.
       if (!(error instanceof ApiError)) console.error(error);
-      dispatch({ type: "failed", error: error instanceof ApiError ? error : ApiError.network() });
+      const failure = error instanceof ApiError ? error : ApiError.network();
+      batch = failure.code === "aborted" ? markCancelled(batch, item.key) : markError(batch, item.key, failure);
+      dispatch({ type: "failed", error: failure });
     } finally {
       if (controller === abort) controller = null;
     }
+    if (accepted && summaryOf(batch).pending > 0) {
+      const { done, total } = summaryOf(batch);
+      announce(t("batch.progress", { done, total }));
+      void begin(); // el siguiente de la cola
+    }
+  }
+
+  /**
+   * Abre un trabajo del historial: si sigue en curso se retoma el seguimiento; si terminó, se muestra su estado final
+   * (y los subtítulos si es una transcripción completada). Un trabajo que el servidor ya no tiene se dice como tal.
+   */
+  async function openJob(/** @type {string} */ jobId) {
+    if (viewOf(state).busy) return; // hay una subida en curso: no se pisa
+    if (!confirmLeave()) return;
+    if (state.phase !== "idle") state = initialState;
+    render();
+    burn?.stop();
+    const { job, replaced } = await tracker.open(jobId, fetchJob);
+    if (replaced) return; // otra apertura lo reemplazó
+    if (job?.kind === "BURN") {
+      // Un quemado tiene su propio panel: el seguimiento principal no lo muestra.
+      tracker.stop();
+      burn?.adopt(job);
+      doc.getElementById("burn-panel")?.focus();
+      return;
+    }
+    els.jobPanel.focus();
+  }
+
+  function stopTracking() {
+    tracker.stop();
+    burn?.stop();
+    trackedKind = "none";
+    trackedStep = -1;
+  }
+
+  /** Con cambios sin guardar en los subtítulos, pregunta antes de abandonarlos. */
+  function confirmLeave() {
+    return !results.dirty || win.confirm(t("editor.leave"));
   }
 
   function startOver() {
+    if (!confirmLeave()) return;
+    stopTracking();
     clearFile();
     dispatch({ type: "reset" });
   }
 
   // ---------- archivo ----------
 
-  /** @param {File | undefined} chosen */
-  function selectFile(chosen) {
-    if (!chosen || viewOf(state).busy) return;
-    file = chosen;
-    fileProblem = precheckFile(chosen, { maxBytes: config.maxBytes });
-    if (state.phase !== "idle") state = initialState; // un archivo nuevo descarta el resultado anterior
+  /**
+   * Añade archivos a la cola. Si la anterior ya terminó, empieza una nueva. Los que no sirven no entran y se explica por qué.
+   * @param {ArrayLike<File> | null | undefined} chosen
+   */
+  function selectFiles(chosen) {
+    const files = Array.from(chosen ?? []);
+    if (files.length === 0 || viewOf(state).busy) return;
+    const fresh = currentOf(batch) === null;
+    const result = addFiles(fresh ? emptyBatch : batch, files, (candidate) => precheckFile(candidate, { maxBytes: config.maxBytes }));
+    batch = result.batch;
+    rejected = result.rejected;
+    overflow = result.overflow;
+    if (fresh && state.phase !== "idle") state = initialState; // archivos nuevos descartan el resultado anterior
+    els.input.value = ""; // permite volver a elegir el mismo archivo
     render();
+    if (batch.items.length > 1) announce(t("batch.added", { count: batch.items.length }));
   }
 
   function clearFile() {
-    file = null;
-    fileProblem = null;
+    batch = emptyBatch;
+    rejected = [];
+    overflow = 0;
     els.input.value = "";
+  }
+
+  /** Qué se dice de los archivos que no entraron en la cola. */
+  function rejectedText() {
+    if (rejected.length === 0 && overflow === 0) return "";
+    const parts = [];
+    const first = rejected[0];
+    if (rejected.length === 1 && first && overflow === 0 && batch.items.length === 0) return t(`error.${first.problem.code}`); // un solo archivo elegido y no sirve
+    if (rejected.length > 0) {
+      const shown = rejected.slice(0, 3).map((entry) => `${entry.name} (${t(`error.${entry.problem.code}`)})`);
+      const more = rejected.length - shown.length;
+      parts.push(t("batch.rejected", { count: rejected.length, list: shown.join("; ") + (more > 0 ? ` +${more}` : "") }));
+    }
+    if (overflow > 0) parts.push(t("batch.overflow", { max: MAX_FILES, count: overflow }));
+    return parts.join(" ");
+  }
+
+  const STATUS_KEY = /** @type {const} */ ({ pending: "batch.status.pending", uploading: "batch.status.uploading", done: "batch.status.done", error: "batch.status.error", cancelled: "batch.status.cancelled" });
+
+  /** Lo que se ve de la cola: si no cambia, la lista no se reconstruye (se perdería el foco con cada evento de progreso). */
+  let batchSignature = "";
+
+  /** La lista de la cola, solo cuando hay más de un archivo. */
+  function renderBatch() {
+    const many = batch.items.length > 1;
+    els.batchList.hidden = !many;
+    const signature = many ? `${lang}|${batch.items.map((item) => `${item.key}:${item.status}:${item.jobId ?? ""}:${item.file.name}:${item.file.size}`).join("|")}` : "";
+    if (signature === batchSignature) return;
+    batchSignature = signature;
+    if (!many) {
+      els.batchList.replaceChildren();
+      return;
+    }
+    els.batchList.setAttribute("aria-label", t("batch.title"));
+    els.batchList.replaceChildren(
+      ...batch.items.map((item) => {
+        const li = doc.createElement("li");
+        li.className = "batch__item";
+        li.dataset.status = item.status;
+        const name = doc.createElement("span");
+        name.className = "batch__name";
+        name.textContent = item.file.name;
+        const meta = doc.createElement("span");
+        meta.className = "batch__meta";
+        meta.textContent = `${formatBytes(item.file.size, lang)} · ${t(STATUS_KEY[item.status])}`;
+        li.append(name, meta);
+        if (item.status === "done" && item.jobId !== null) {
+          const jobId = item.jobId;
+          const open = doc.createElement("button");
+          open.type = "button";
+          open.className = "btn btn--ghost";
+          open.textContent = t("history.open");
+          open.setAttribute("aria-label", t("history.open.label", { name: item.file.name }));
+          open.addEventListener("click", () => void openJob(jobId));
+          li.append(open);
+        } else if (item.status !== "uploading") {
+          const remove = doc.createElement("button");
+          remove.type = "button";
+          remove.className = "btn btn--ghost";
+          remove.textContent = t("history.remove");
+          remove.setAttribute("aria-label", t("batch.remove.label", { name: item.file.name }));
+          remove.addEventListener("click", () => {
+            const index = batch.items.findIndex((candidate) => candidate.key === item.key);
+            batch = removeItem(batch, item.key);
+            render();
+            // El foco pasa a la fila que ocupa ahora ese sitio (o a la última); sin lista, al selector de archivos.
+            const buttons = els.batchList.querySelectorAll("li button");
+            const next = /** @type {HTMLElement | undefined} */ (buttons[Math.min(index, buttons.length - 1)]);
+            (next ?? els.input).focus();
+            announce(t("batch.removed", { name: item.file.name }));
+          });
+          li.append(remove);
+        }
+        return li;
+      }),
+    );
   }
 
   // ---------- pintado ----------
@@ -145,19 +329,27 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     const view = viewOf(state);
     const locked = view.busy || state.phase === "queued";
 
+    const current = currentOf(batch);
+    const waitingCount = batch.items.filter((item) => item.status === "pending" || item.status === "error" || item.status === "cancelled").length;
     els.fields.disabled = locked;
-    els.start.disabled = file === null || fileProblem !== null || locked;
-    els.fileRow.hidden = file === null;
-    if (file !== null) {
-      els.fileName.textContent = file.name;
-      els.fileSize.textContent = formatBytes(file.size, lang);
+    els.start.disabled = current === null || locked;
+    els.start.textContent = waitingCount > 1 ? t("action.startMany", { count: waitingCount }) : t("action.start");
+    els.fileRow.hidden = current === null || batch.items.length > 1;
+    if (current !== null) {
+      els.fileName.textContent = current.file.name;
+      els.fileSize.textContent = formatBytes(current.file.size, lang);
     }
-    els.problem.hidden = fileProblem === null;
-    els.problem.textContent = fileProblem === null ? "" : t(`error.${fileProblem.code}`);
+    const problem = rejectedText();
+    els.problem.hidden = problem === "";
+    // role="alert": reescribir el mismo texto en cada repintado lo haría anunciar de nuevo.
+    if (els.problem.textContent !== problem) els.problem.textContent = problem;
+    renderBatch();
 
     renderProgress(view);
     renderNotice(view);
     renderError(view);
+    renderJob();
+    history.setBusy(view.busy);
     manageFocusAndAnnouncements(view);
     previousPhase = state.phase;
   }
@@ -184,7 +376,85 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
       const eta = formatDuration(state.etaSeconds);
       if (eta !== "") parts.push(t("upload.eta", { time: eta }));
     }
-    els.progressDetail.textContent = state.phase === "finalizing" ? "" : parts.join(" · ");
+    const position = batch.items.length > 1 ? `${t("batch.position", { n: summaryOf(batch).done + 1, total: batch.items.length })} · ` : "";
+    els.progressDetail.textContent = state.phase === "finalizing" ? position.replace(/ · $/, "") : position + parts.join(" · ");
+  }
+
+  function renderJob() {
+    const view = trackingViewOf(tracker.state);
+    // Un quemado tiene su propio panel (ui/burn.js): el principal solo muestra transcripciones.
+    const hidden = view.kind === "none" || tracker.state.job?.kind === "BURN";
+    els.jobPanel.hidden = hidden;
+    if (hidden) {
+      results.hide();
+      return;
+    }
+    els.jobPanel.classList.toggle("is-failed", view.kind === "failed");
+    const trackedJob = tracker.state.job;
+    if (view.kind === "completed" && trackedJob?.kind === "TRANSCRIBE") results.show(trackedJob);
+    else results.hide();
+
+    const status = statusText(view, t);
+    els.jobStatus.textContent = status;
+
+    const showBar = view.kind === "queued" || view.kind === "running" || view.kind === "completed";
+    els.jobBar.hidden = !showBar;
+    els.jobBar.classList.toggle("is-indeterminate", view.indeterminate);
+    els.jobBar.classList.toggle("is-done", view.kind === "completed");
+    if (view.indeterminate) {
+      els.jobBar.removeAttribute("aria-valuenow");
+      els.jobBarFill.style.transform = "";
+    } else {
+      els.jobBar.setAttribute("aria-valuenow", String(view.percent));
+      els.jobBarFill.style.transform = `scaleX(${view.percent / 100})`;
+    }
+    els.jobBar.setAttribute("aria-valuetext", status);
+
+    const detail = detailText(view, t);
+    els.jobDetail.textContent = detail;
+    els.jobDetail.hidden = detail === "";
+    els.jobReconnect.hidden = !(view.kind === "lost" && view.error?.code !== "not_found");
+
+    // Anuncios: cada cambio de estado o de etapa y los hitos de 25 %, nunca cada porcentaje.
+    const kindChanged = view.kind !== trackedKind;
+    if (kindChanged) {
+      trackedKind = view.kind;
+      trackedStep = -1;
+      trackedStage = view.stage;
+      announce(status);
+      keepFocus(view);
+    } else if (view.kind === "running" && view.stage !== trackedStage) {
+      trackedStage = view.stage;
+      trackedStep = -1;
+      announce(status);
+    }
+    if (view.kind === "running" && !view.indeterminate) {
+      const step = Math.floor(view.percent / 25);
+      if (step > trackedStep && step > 0) {
+        trackedStep = step;
+        announce(status);
+      }
+    }
+  }
+
+  /**
+   * Vaciar y reponer el texto en otro momento: un mensaje idéntico al anterior (otra pérdida de conexión) o dos seguidos
+   * se leerían como uno solo, o ninguno.
+   */
+  function announce(/** @type {string} */ text) {
+    els.announcer.textContent = "";
+    win.setTimeout(() => {
+      els.announcer.textContent = text;
+    }, 50);
+  }
+
+  /** Si el elemento con el foco acaba de ocultarse (el botón usado), el foco no debe caer en el vacío. */
+  function keepFocus(/** @type {ReturnType<typeof trackingViewOf>} */ view) {
+    const active = doc.activeElement;
+    const lostFocus = active === null || active === doc.body || active.closest("[hidden]") !== null;
+    if (!lostFocus) return;
+    if (view.kind === "lost" && !els.jobReconnect.hidden) els.jobReconnect.focus();
+    else if (view.terminal || view.kind === "lost") els.jobPanel.focus();
   }
 
   /** @param {ReturnType<typeof viewOf>} view */
@@ -192,7 +462,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     const show = state.phase === "queued" || state.phase === "cancelled";
     els.notice.hidden = !show;
     if (!show) return;
-    els.noticeText.textContent = state.phase === "queued" ? t("upload.queued") : t("upload.cancelled");
+    els.noticeText.textContent =
+      state.phase === "queued" ? (summaryOf(batch).done > 1 ? t("batch.received", { count: summaryOf(batch).done }) : t("upload.queued")) : t("upload.cancelled");
     els.noticeJob.textContent = state.job ? t("upload.jobId", { id: state.job.id }) : "";
     els.noticeJob.hidden = state.job === null;
     els.noticeRetry.hidden = !view.canRetry;
@@ -298,6 +569,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     doc.title = t("app.title");
     els.formats.textContent = t("drop.formats", { max: formatBytes(config.maxBytes, lang) });
     for (const button of doc.querySelectorAll("[data-lang]")) button.setAttribute("aria-pressed", String(button.getAttribute("data-lang") === lang));
+    // Solo el español y el inglés están revisados por personas: en el resto se avisa de que es traducción automática.
+    // Región viva que solo cambia de contenido (ocultarla con `hidden` hace poco fiable el anuncio).
+    els.langNotice.textContent = REVIEWED_LANGS.includes(lang) ? "" : t("lang.notice");
     fillSelects();
   }
 
@@ -343,13 +617,16 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     } catch {
       // sin almacenamiento: la preferencia dura solo esta visita
     }
+    results.refresh();
+    history.refresh();
+    burn?.refresh();
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }
 
   // ---------- eventos ----------
 
-  els.input.addEventListener("change", () => selectFile(els.input.files?.[0]));
+  els.input.addEventListener("change", () => selectFiles(els.input.files));
   els.form.addEventListener("submit", (/** @type {Event} */ event) => {
     event.preventDefault();
     void begin();
@@ -357,13 +634,21 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
   els.cancel.addEventListener("click", () => controller?.abort());
   els.errorRetry.addEventListener("click", () => void begin());
   els.noticeRetry.addEventListener("click", () => void begin());
+  els.jobReconnect.addEventListener("click", () => {
+    if (tracker.state.jobId !== null) void tracker.follow(tracker.state.jobId);
+  });
   els.errorOther.addEventListener("click", startOver);
   els.noticeAgain.addEventListener("click", startOver);
   els.fileRemove.addEventListener("click", () => {
     if (viewOf(state).busy) return;
-    clearFile();
-    state = initialState;
+    const current = currentOf(batch);
+    if (current !== null) batch = removeItem(batch, current.key);
+    rejected = [];
+    overflow = 0;
+    els.input.value = "";
+    if (currentOf(batch) === null) state = initialState;
     render();
+    els.input.focus();
   });
   for (const button of doc.querySelectorAll("[data-lang]")) button.addEventListener("click", () => setLang(button.getAttribute("data-lang") ?? "es"));
 
@@ -376,12 +661,12 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
   for (const name of ["dragleave", "dragend"]) els.drop.addEventListener(name, () => els.drop.classList.remove("is-over"));
   els.drop.addEventListener("drop", (/** @type {Event} */ event) => {
     els.drop.classList.remove("is-over");
-    if (!els.fields.disabled) selectFile(/** @type {DragEvent} */ (event).dataTransfer?.files?.[0]);
+    if (!els.fields.disabled) selectFiles(/** @type {DragEvent} */ (event).dataTransfer?.files);
   });
 
   // Salir de la página corta la subida: se avisa solo mientras hay una en curso.
   win.addEventListener("beforeunload", (/** @type {BeforeUnloadEvent} */ event) => {
-    if (!viewOf(state).busy) return;
+    if (!viewOf(state).busy && !results.dirty) return;
     event.preventDefault();
     event.returnValue = "";
   });
