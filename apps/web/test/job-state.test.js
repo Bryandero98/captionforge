@@ -114,3 +114,10 @@ describe("seguimiento de un trabajo", () => {
     assert.equal(trackingViewOf(run({ type: "track", jobId: ID }, { type: "reset" })).kind, "none");
   });
 });
+
+describe("seguimiento: ids", () => {
+  it("compara los ids sin distinguir mayusculas", () => {
+    const state = run({ type: "track", jobId: ID }, { type: "job", job: job({ id: ID.toUpperCase(), percent: 70 }) });
+    assert.equal(trackingViewOf(state).percent, 70);
+  });
+});

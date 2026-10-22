@@ -204,8 +204,10 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
       if (!(error instanceof ApiError)) console.error(error);
       track({ type: "lost", error: error instanceof ApiError ? error : ApiError.network() });
     } finally {
-      if (trackController === abort) trackController = null;
-      els.jobPanel.focus();
+      if (trackController === abort) {
+        trackController = null;
+        els.jobPanel.focus(); // solo si no lo reemplazo otra apertura
+      }
     }
   }
 
@@ -261,6 +263,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     renderNotice(view);
     renderError(view);
     renderJob();
+    history.setBusy(view.busy);
     manageFocusAndAnnouncements(view);
     previousPhase = state.phase;
   }

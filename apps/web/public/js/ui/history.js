@@ -25,6 +25,7 @@ export function createHistory({ doc, win, t, lang, onOpen }) {
 
   /** @type {HistoryEntry[]} */
   let entries = read();
+  let busy = false;
 
   function read() {
     try {
@@ -67,6 +68,7 @@ export function createHistory({ doc, win, t, lang, onOpen }) {
         open.className = "btn btn--secondary";
         open.textContent = t("history.open");
         open.setAttribute("aria-label", t("history.open.label", { name: entry.name }));
+        open.disabled = busy; // con una subida en curso abrir otro trabajo no haria nada: se ve, en lugar de ignorar el clic
         open.addEventListener("click", () => onOpen(entry));
         const remove = doc.createElement("button");
         remove.type = "button";
@@ -91,7 +93,7 @@ export function createHistory({ doc, win, t, lang, onOpen }) {
 
   // Otra pestaña del mismo navegador cambió la lista.
   win.addEventListener("storage", (/** @type {StorageEvent} */ event) => {
-    if (event.key !== KEY) return;
+    if (event.storageArea !== win.localStorage || (event.key !== null && event.key !== KEY)) return; // otro almacen, u otra clave
     entries = read();
     render();
   });
@@ -105,6 +107,12 @@ export function createHistory({ doc, win, t, lang, onOpen }) {
       render();
     },
     refresh: render,
+    /** @param {boolean} next */
+    setBusy(next) {
+      if (busy === next) return;
+      busy = next;
+      render();
+    },
     get entries() {
       return entries;
     },

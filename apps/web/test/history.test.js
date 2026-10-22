@@ -66,3 +66,13 @@ describe("addEntry / removeEntry", () => {
     assert.deepEqual(removeEntry([entry(1), entry(2)], id(1)).map((e) => e.id), [id(2)]);
   });
 });
+
+describe("historial: fechas y entradas dudosas", () => {
+  it("una fecha fuera del rango de Date se descarta (romperia toLocaleString)", () => {
+    assert.deepEqual(parseHistory(JSON.stringify([entry(1, { at: 1e20 })])), []);
+  });
+
+  it("addEntry no guarda una entrada con un id que no es UUID", () => {
+    assert.deepEqual(addEntry([entry(1)], { id: "xyz", name: "a", kind: "TRANSCRIBE", at: 1 }).map((e) => e.id), [id(1)]);
+  });
+});

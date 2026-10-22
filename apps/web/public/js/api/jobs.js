@@ -116,7 +116,11 @@ export async function putSegments({ baseUrl, jobId, edits, etag, signal, fetchIm
 /** @param {unknown} value */
 function asSegments(value) {
   const data = /** @type {Record<string, unknown>} */ (value);
-  if (!isRecord(value) || !Array.isArray(data.segments) || typeof data.etag !== "string") {
+  const valid = (/** @type {unknown} */ item) => {
+    const segment = /** @type {Record<string, unknown>} */ (item);
+    return isRecord(item) && typeof segment.text === "string" && Number.isFinite(segment.start) && Number.isFinite(segment.end);
+  };
+  if (!isRecord(value) || !Array.isArray(data.segments) || typeof data.etag !== "string" || !data.segments.every(valid)) {
     throw new ApiError({ code: "bad_response", detail: "Subtítulos con una forma inesperada." });
   }
   return /** @type {{ segments: Segment[], etag: string }} */ (value);

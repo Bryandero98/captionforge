@@ -57,3 +57,32 @@ describe("segmentsToVtt", () => {
     assert.equal(vtt, "WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nhola\n");
   });
 });
+
+import { parseTimestamp } from "../public/js/domain/subtitles.js";
+
+describe("parseTimestamp", () => {
+  it("acepta SS, MM:SS y HH:MM:SS con decimales opcionales", () => {
+    assert.equal(parseTimestamp("5"), 5);
+    assert.equal(parseTimestamp("1:05"), 65);
+    assert.equal(parseTimestamp("1:01:05"), 3665);
+    assert.equal(parseTimestamp("00:00:02.500"), 2.5);
+    assert.equal(parseTimestamp("00:00:02,5"), 2.5);
+    assert.equal(parseTimestamp("  3.25  "), 3.25);
+  });
+
+  it("es el inverso de formatTimestamp", () => {
+    for (const seconds of [0, 0.001, 59.999, 61.5, 3661.25, 86399.999]) {
+      assert.equal(parseTimestamp(formatTimestamp(seconds, ".")), seconds);
+    }
+  });
+
+  it("rechaza lo que no es una marca de tiempo", () => {
+    for (const bad of ["", "abc", "1:2:3:4", "-1", "1:75", "1:60:00", "1.2345", "00:00:02.", "∞", "1e3", "12:34:56.789x"]) assert.equal(parseTimestamp(bad), null, bad);
+  });
+});
+
+describe("segmentsToVtt: linea de solo espacios", () => {
+  it("una linea con solo espacios dentro del texto tambien se colapsa", () => {
+    assert.ok(segmentsToVtt([{ start: 0, end: 1, text: "a\n \nb" }]).includes("a\nb"));
+  });
+});

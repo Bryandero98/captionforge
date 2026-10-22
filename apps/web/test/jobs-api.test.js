@@ -105,3 +105,12 @@ describe("startBurn / cancelJob", () => {
     assert.equal(calls[0].url, `/v1/jobs/${ID}/cancel`);
   });
 });
+
+describe("getSegments: validacion de cada subtitulo", () => {
+  it("un elemento nulo o con tipos raros es bad_response, no un fallo mas tarde al pintar", async () => {
+    for (const bad of [null, { start: 0, end: 1, text: 5 }, { start: "0", end: 1, text: "x" }, { start: 0, end: Number.NaN, text: "x" }]) {
+      const { fetchImpl } = fakeFetch(json({ segments: [bad], etag: "a".repeat(32) }));
+      await assert.rejects(getSegments({ baseUrl: "", jobId: ID, fetchImpl }), (error) => error.code === "bad_response");
+    }
+  });
+});

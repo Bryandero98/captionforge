@@ -15,7 +15,7 @@ function cleanEntry(value) {
   if (typeof raw.id !== "string" || !UUID.test(raw.id)) return null;
   if (typeof raw.name !== "string" || raw.name.trim() === "") return null;
   if (raw.kind !== "TRANSCRIBE" && raw.kind !== "BURN") return null;
-  if (typeof raw.at !== "number" || !Number.isFinite(raw.at)) return null;
+  if (typeof raw.at !== "number" || !Number.isFinite(new Date(raw.at).getTime())) return null;
   /** @type {HistoryEntry} */
   const entry = { id: raw.id.toLowerCase(), name: raw.name.slice(0, MAX_NAME), kind: raw.kind, at: raw.at };
   if (typeof raw.parentId === "string" && UUID.test(raw.parentId)) entry.parentId = raw.parentId.toLowerCase();
@@ -52,7 +52,9 @@ export function parseHistory(raw) {
  * @param {HistoryEntry} entry
  */
 export function addEntry(list, entry) {
-  return [entry, ...list.filter((other) => other.id !== entry.id)].slice(0, MAX_ENTRIES);
+  const clean = cleanEntry(entry);
+  if (clean === null) return list; // un id raro del servidor no se guarda: al recargar se descartaria igualmente
+  return [clean, ...list.filter((other) => other.id !== clean.id)].slice(0, MAX_ENTRIES);
 }
 
 /**

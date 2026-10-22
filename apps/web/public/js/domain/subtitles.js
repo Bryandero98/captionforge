@@ -23,6 +23,7 @@ function cueText(/** @type {string} */ text) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\r\n?/g, "\n")
+    .replace(/\n[ \t]*(?=\n)/g, "\n") // una linea de solo espacios tambien separa bloques en algunos lectores
     .replace(/\n{2,}/g, "\n")
     .trim();
 }
@@ -39,4 +40,21 @@ export function segmentsToVtt(segments) {
     blocks.push(`${blocks.length + 1}\n${formatTimestamp(segment.start, ".")} --> ${formatTimestamp(segment.end, ".")}\n${text}`);
   }
   return blocks.length === 0 ? "WEBVTT\n" : `WEBVTT\n\n${blocks.join("\n\n")}\n`;
+}
+
+/**
+ * Lo contrario de formatTimestamp: «SS», «MM:SS» o «HH:MM:SS», con decimales opcionales (punto o coma).
+ * Devuelve segundos, o null si el texto no es una marca de tiempo válida.
+ * @param {string} text
+ * @returns {number | null}
+ */
+export function parseTimestamp(text) {
+  const match = /^\s*(?:(?:(\d{1,3}):)?(\d{1,2}):)?(\d{1,6})(?:[.,](\d{1,3}))?\s*$/.exec(text);
+  if (match === null) return null;
+  const [, hours, minutes, seconds, fraction] = match;
+  const hasHours = hours !== undefined;
+  if (hasHours && Number(minutes) > 59) return null;
+  if ((hasHours || minutes !== undefined) && Number(seconds) > 59) return null;
+  const total = Number(hours ?? 0) * 3600 + Number(minutes ?? 0) * 60 + Number(seconds) + (fraction === undefined ? 0 : Number(fraction.padEnd(3, "0")) / 1000);
+  return Number.isFinite(total) ? total : null;
 }

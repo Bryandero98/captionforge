@@ -39,7 +39,7 @@ export function trackingReduce(state, event) {
       if (state.jobId !== event.jobId) return { ...initialTracking, jobId: event.jobId };
       return { ...state, lost: null, connection: "connecting", waitSeconds: 0 };
     case "job":
-      if (state.jobId === null || event.job.id !== state.jobId || isFinal(state)) return state;
+      if (state.jobId === null || event.job.id.toLowerCase() !== state.jobId.toLowerCase() || isFinal(state)) return state;
       return { ...state, job: event.job, lost: null };
     case "connection":
       if (state.jobId === null || isFinal(state)) return state;

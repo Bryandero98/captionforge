@@ -17,8 +17,18 @@ const CHUNK = 100;
  * @param {string} extension
  */
 export function downloadName(originalFilename, extension) {
-  const stem = originalFilename.replace(/\.[A-Za-z0-9]{1,10}$/, "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").trim().slice(0, 120);
-  return `${stem === "" ? "captionforge" : stem}.${extension}`;
+  const stem = Array.from(
+    originalFilename
+      .replace(/\.[A-Za-z0-9]{1,10}$/, "")
+      // Rutas, controles y marcas de direccion/formato Unicode (un U+202E invertiria la extension en el explorador).
+      .replace(/[\\/:*?"<>|\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/g, "_")
+      .replace(/^[.\s]+|[.\s]+$/g, ""),
+  )
+    .slice(0, 120) // por puntos de codigo: no parte un par sustituto
+    .join("");
+  // Nombres reservados de Windows (CON, NUL, COM1...) no son un nombre de archivo valido.
+  const safe = stem === "" ? "captionforge" : /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(stem) ? `_${stem}` : stem;
+  return `${safe}.${extension}`;
 }
 
 /**
@@ -145,7 +155,7 @@ export function createResults({ doc, win, baseUrl, t, lang, fetchSegments = getS
     const url = URL.createObjectURL(new Blob([segmentsToVtt(segments)], { type: "text/vtt" }));
     const link = doc.createElement("a");
     link.href = url;
-    link.download = downloadName(String(job.originalFilename), "vtt");
+    link.download = downloadName(typeof job.originalFilename === "string" ? job.originalFilename : "", "vtt");
     doc.body.append(link);
     link.click();
     link.remove();
@@ -165,7 +175,13 @@ export function createResults({ doc, win, baseUrl, t, lang, fetchSegments = getS
       shown = 0;
       els.list.replaceChildren();
       els.panel.hidden = false;
-      els.srt.href = artifactUrl(baseUrl, next.id, "srt");
+      try {
+        els.srt.href = artifactUrl(baseUrl, next.id, "srt");
+      } catch {
+        failure = ApiError.local("bad_response");
+        renderStatic();
+        return;
+      }
       renderStatic();
       void load();
     },
