@@ -75,6 +75,7 @@ jobs:
                    S3_ROOT_PASSWORD S3_API_SECRET_KEY S3_WORKER_SECRET_KEY; do
             echo "$v=$(openssl rand -hex 16)" >> .env
           done
+          echo "DEFAULT_API_KEY=cfk_$(openssl rand -hex 32)" >> .env
 
       - name: Validar docker-compose.yml (infraestructura y perfil app)
         run: npm run compose:check
@@ -100,6 +101,11 @@ jobs:
 
       - name: API Gateway - aplicar migraciones con el rol dueño (sin superusuario)
         run: npm run migrate -w @captionforge/api-gateway
+
+      - name: API Gateway - sembrar la clave por defecto (tenant Default)
+        run: |
+          npm run build -w @captionforge/api-gateway
+          npm run seed -w @captionforge/api-gateway
 
       - name: API Gateway - pruebas contra PostgreSQL, Redis y S3 reales
         run: npm test -w @captionforge/api-gateway
@@ -146,6 +152,7 @@ jobs:
                    S3_ROOT_PASSWORD S3_API_SECRET_KEY S3_WORKER_SECRET_KEY; do
             echo "$v=$(openssl rand -hex 16)" >> .env
           done
+          echo "DEFAULT_API_KEY=cfk_$(openssl rand -hex 32)" >> .env
 
       - name: Construir la imagen
         run: docker compose --profile app build ai-worker

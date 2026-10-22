@@ -5,11 +5,28 @@
 // (con Range) y comprueba que es un video real. La primera vez descarga el modelo (minutos).
 //
 // Variables: API_URL (http://127.0.0.1:3000), E2E_VIDEO (por defecto el clip de prueba del paquete
-// heredado, que puede no tener voz), E2E_MODEL (base), E2E_TIMEOUT_SECONDS (900).
+// heredado, que puede no tener voz), E2E_MODEL (base), E2E_TIMEOUT_SECONDS (900), E2E_API_KEY (por defecto, DEFAULT_API_KEY del .env).
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const api = process.env.API_URL ?? "http://127.0.0.1:3000";
+// Clave de API (ADR 0015): E2E_API_KEY, o la DEFAULT_API_KEY del .env de la raíz.
+async function apiKeyFromEnv() {
+  if (process.env.E2E_API_KEY) return process.env.E2E_API_KEY;
+  try {
+    const dotenv = await readFile(new URL("../../.env", import.meta.url), "utf8");
+    return /^DEFAULT_API_KEY=(.+)$/m.exec(dotenv)?.[1]?.trim();
+  } catch {
+    return undefined;
+  }
+}
+const apiKey = await apiKeyFromEnv();
+if (!apiKey) {
+  console.error("Falta la clave de API: define E2E_API_KEY o DEFAULT_API_KEY en el .env de la raíz.");
+  process.exit(1);
+}
+const realFetch = globalThis.fetch;
+globalThis.fetch = (url, init = {}) => realFetch(url, { ...init, headers: { ...init.headers, "x-api-key": apiKey } });
 const videoPath = process.env.E2E_VIDEO ?? fileURLToPath(new URL("../../legacy/tests/fixtures/tiny_test_clip.mp4", import.meta.url));
 const model = process.env.E2E_MODEL ?? "base";
 const timeoutMs = Number(process.env.E2E_TIMEOUT_SECONDS ?? 900) * 1000;

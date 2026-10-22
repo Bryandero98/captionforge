@@ -48,6 +48,13 @@ if exist ".env" (
   )
   echo .env creado. Guardalo: tiene las contrasenas de tu instalacion ^(no se sube a git^).
 )
+rem Un .env anterior a la tenencia ^(ADR 0015^) no trae DEFAULT_API_KEY: se anade sin tocar nada mas.
+powershell -NoProfile -ExecutionPolicy Bypass -File "tools\new-env.ps1" -EnsureKey
+if errorlevel 1 (
+  echo.
+  echo No se pudo continuar: no se pudo completar el .env con DEFAULT_API_KEY.
+  exit /b 1
+)
 
 rem --- 3. Levantar todo ----------------------------------------------------------------------
 echo Levantando PostgreSQL, Redis, S3, la API y el worker ^(la primera vez tarda unos minutos^)...

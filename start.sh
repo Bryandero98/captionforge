@@ -9,16 +9,18 @@ PORT="${CF_PORT:-3000}"
 URL="http://localhost:${PORT}"
 # Las ocho credenciales obligatorias de .env.example (solo letras y números: van dentro de URLs de conexión).
 SECRETS="POSTGRES_PASSWORD CF_OWNER_DB_PASSWORD CF_API_DB_PASSWORD CF_WORKER_DB_PASSWORD REDIS_PASSWORD S3_ROOT_PASSWORD S3_API_SECRET_KEY S3_WORKER_SECRET_KEY"
+# La clave de API del tenant por defecto (ADR 0015): cfk_ + 256 bits aleatorios.
 
 say() { printf '%s\n' "$*"; }
 fail() { printf '\nNo se pudo continuar: %s\n' "$*" >&2; exit 1; }
 
 random_secret() {
+  bytes="${1:-18}"
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 18
+    openssl rand -hex "$bytes"
   else
-    # 36 caracteres hexadecimales del generador del sistema operativo.
-    od -An -N18 -tx1 /dev/urandom | tr -d ' \n'
+    # Hexadecimal del generador del sistema operativo.
+    od -An -N"$bytes" -tx1 /dev/urandom | tr -d ' \n'
   fi
 }
 
@@ -43,11 +45,20 @@ else
         break
       fi
     done
+    if [ "$key" = "DEFAULT_API_KEY" ]; then line="DEFAULT_API_KEY=cfk_$(random_secret 32)"; fi
     printf '%s\n' "$line" >> .env.tmp
   done < .env.example
   mv .env.tmp .env
   chmod 600 .env
   say ".env creado. Guárdalo: tiene las contraseñas de tu instalación (no se sube a git)."
+fi
+# Un .env anterior a la tenencia (ADR 0015) no trae la clave de API: se añade sin tocar nada más.
+if ! grep -Eq '^DEFAULT_API_KEY=.+' .env; then
+  say "Añadiendo DEFAULT_API_KEY al .env (clave de la interfaz local)..."
+  grep -v '^DEFAULT_API_KEY=' .env > .env.tmp || true
+  printf 'DEFAULT_API_KEY=cfk_%s\n' "$(random_secret 32)" >> .env.tmp
+  mv .env.tmp .env
+  chmod 600 .env
 fi
 
 # --- 3. Levantar todo ----------------------------------------------------------------------------
