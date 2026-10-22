@@ -27,7 +27,18 @@ de trabajos huérfanos. Sus límites conocidos se declaran, no se esconden.
 > | **Paquete local** | `pip install` + `captionforge serve` (Python 3.10+): un proceso, un video a la vez, nada sale de tu equipo. | Publicado en PyPI. Ver [`legacy/`](legacy/README.es.md). |
 > | **Servicio (este monorepo)** | API Gateway + cola + AI Worker + almacenamiento de objetos, pensado para varios trabajos y varias personas. | API y worker hechos; cliente web y cuentas pendientes. |
 
-## Puesta en marcha (servicio)
+## Puesta en marcha (un solo comando)
+
+Lo único que hace falta es Docker (Docker Desktop en Windows y macOS).
+
+```sh
+./start.sh        # macOS / Linux
+start.bat         # Windows (doble clic o desde una terminal)
+```
+
+El script comprueba que `docker` y `docker compose` funcionan, crea `.env` desde `.env.example` con contraseñas aleatorias si no existe (un `.env` existente nunca se toca), ejecuta `docker compose --profile app up -d --build`, espera a la API y muestra la dirección: **http://localhost:3000**. La primera vez construye las imágenes (varios minutos) y la primera transcripción descarga el modelo de Whisper. Todo se publica solo en `127.0.0.1`. Se apaga con `docker compose --profile app down`. La identificación de hablantes y la GPU son opcionales y necesitan pasos extra (ver la [guía de uso](docs/guia-de-uso.md#activar-la-identificación-de-hablantes) y el compose).
+
+## Puesta en marcha (desarrollo)
 
 Requisitos: Docker, Node >= 22 y Python >= 3.11.
 

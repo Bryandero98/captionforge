@@ -64,7 +64,7 @@ set "READY="
 for /l %%i in (1,1,90) do (
   if not defined READY (
     curl.exe -fsS "%URL%/health" >nul 2>&1 && set "READY=1"
-    if not defined READY timeout /t 2 /nobreak >nul
+    if not defined READY ping -n 3 127.0.0.1 >nul
   )
 )
 if not defined READY (
