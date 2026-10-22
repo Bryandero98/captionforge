@@ -44,8 +44,8 @@ class Segment:
     end: float
     text: str
     words: list[WordTiming] | None = None
-    # Quién habla (opcional): solo existe si se pidió identificar hablantes. Los renderizadores de .srt/.vtt/.ass no
-    # lo usan; la web puede anteponerlo al texto al descargar.
+    # Quién habla (opcional): solo existe si se pidió identificarlo. Los renderizadores de .srt/.vtt/.ass
+    # no lo usan; la web puede anteponerlo al texto al descargar.
     speaker: str | None = None
 
 
