@@ -2,8 +2,10 @@
 // Todo texto entra con textContent: ningún dato (nombre de archivo, mensaje del servidor) se interpreta como HTML.
 
 import { ApiError } from "../api/errors.js";
+import { followJob } from "../api/sse.js";
 import { precheckFile, uploadVideo } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
+import { initialTracking, trackingReduce, trackingViewOf } from "../domain/job-state.js";
 import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang } from "../i18n/index.js";
@@ -19,9 +21,10 @@ const MODELS = ["base", "small", "medium"];
  *   win: Window,
  *   config: { baseUrl: string, maxBytes: number },
  *   uploader?: typeof uploadVideo,
+ *   follower?: typeof followJob,
  * }} deps
  */
-export function createApp({ doc, win, config, uploader = uploadVideo }) {
+export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -59,6 +62,12 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     errorDetail: $("error-detail"),
     errorRetry: $("error-retry"),
     errorOther: $("error-other"),
+    jobPanel: $("job-panel"),
+    jobStatus: $("job-status"),
+    jobBar: $("job-bar"),
+    jobBarFill: $("job-bar-fill"),
+    jobDetail: $("job-detail"),
+    jobReconnect: $("job-reconnect"),
     announcer: $("announcer"),
   };
 
@@ -81,6 +90,12 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
   let waiting = false;
   let previousPhase = state.phase;
   let announcedStep = -1;
+  // Seguimiento del trabajo por SSE (api/sse.js), independiente de la subida: sigue tras «en cola».
+  let tracking = initialTracking;
+  /** @type {AbortController | null} */
+  let trackController = null;
+  let trackedKind = "none";
+  let trackedStep = -1;
 
   // ---------- estado ----------
 
@@ -92,6 +107,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
 
   async function begin() {
     if (file === null || fileProblem !== null || viewOf(state).busy || waiting) return;
+    stopTracking();
     const abort = new AbortController();
     controller = abort;
     dispatch({ type: "start", file: { name: file.name, size: file.size }, at: win.performance.now() });
@@ -108,6 +124,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
             : dispatch({ type: "sent" }),
       });
       dispatch({ type: "accepted", job });
+      void follow(job.id);
     } catch (error) {
       // Un fallo que no es del API (un bug) no debe pasar por «error de red» sin dejar rastro.
       if (!(error instanceof ApiError)) console.error(error);
@@ -117,7 +134,46 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     }
   }
 
+  /** @param {Parameters<typeof trackingReduce>[1]} event */
+  function track(event) {
+    tracking = trackingReduce(tracking, event);
+    renderJob();
+  }
+
+  /** Sigue el trabajo hasta un estado final; el trabajo vive en el servidor, así que cortar el seguimiento no lo cancela. */
+  async function follow(/** @type {string} */ jobId) {
+    stopTracking();
+    const abort = new AbortController();
+    trackController = abort;
+    track({ type: "track", jobId });
+    try {
+      await follower({
+        baseUrl: config.baseUrl,
+        jobId,
+        signal: abort.signal,
+        onJob: (job) => track({ type: "job", job }),
+        onConnection: (state) => track({ type: "connection", state }),
+      });
+    } catch (error) {
+      if (abort.signal.aborted) return; // se dejó de seguir a propósito
+      if (!(error instanceof ApiError)) console.error(error);
+      track({ type: "lost", error: error instanceof ApiError ? error : ApiError.network() });
+    } finally {
+      if (trackController === abort) trackController = null;
+    }
+  }
+
+  function stopTracking() {
+    trackController?.abort();
+    trackController = null;
+    tracking = initialTracking;
+    trackedKind = "none";
+    trackedStep = -1;
+    renderJob();
+  }
+
   function startOver() {
+    stopTracking();
     clearFile();
     dispatch({ type: "reset" });
   }
@@ -158,6 +214,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
     renderProgress(view);
     renderNotice(view);
     renderError(view);
+    renderJob();
     manageFocusAndAnnouncements(view);
     previousPhase = state.phase;
   }
@@ -185,6 +242,67 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
       if (eta !== "") parts.push(t("upload.eta", { time: eta }));
     }
     els.progressDetail.textContent = state.phase === "finalizing" ? "" : parts.join(" · ");
+  }
+
+  /** Texto de `key`, o el de `fallback` si esa clave no está traducida (una etapa o un código nuevo del servidor). */
+  function textOr(/** @type {string} */ key, /** @type {string} */ fallback, /** @type {Record<string, string | number>} */ params = {}) {
+    const text = t(key, params);
+    return text === key ? fallback : text;
+  }
+
+  function renderJob() {
+    const view = trackingViewOf(tracking);
+    els.jobPanel.hidden = view.kind === "none";
+    if (view.kind === "none") return;
+    els.jobPanel.classList.toggle("is-failed", view.kind === "failed");
+
+    let status = "";
+    if (view.kind === "queued") status = t("job.queued");
+    else if (view.kind === "running") {
+      status = view.stage === null ? t("job.preparing") : t("job.running", { stage: textOr(`stage.${view.stage}`, view.stage), percent: view.percent });
+    } else if (view.kind === "completed") status = t("job.completed");
+    else if (view.kind === "cancelled") status = t("job.cancelled");
+    else if (view.kind === "failed") status = textOr(`job.error.${view.failure?.code}`, t("job.error.INTERNAL"));
+    else status = view.error?.code === "not_found" ? t("job.lost.not_found") : t("job.lost");
+    els.jobStatus.textContent = status;
+
+    const showBar = view.kind === "queued" || view.kind === "running" || view.kind === "completed";
+    els.jobBar.hidden = !showBar;
+    els.jobBar.classList.toggle("is-indeterminate", view.indeterminate);
+    els.jobBar.classList.toggle("is-done", view.kind === "completed");
+    if (view.indeterminate) {
+      els.jobBar.removeAttribute("aria-valuenow");
+      els.jobBarFill.style.transform = "";
+    } else {
+      els.jobBar.setAttribute("aria-valuenow", String(view.percent));
+      els.jobBarFill.style.transform = `scaleX(${view.percent / 100})`;
+    }
+    els.jobBar.setAttribute("aria-valuetext", status);
+
+    let detail = "";
+    if (view.kind === "failed" && view.failure?.message) detail = t("error.detail", { detail: view.failure.message.slice(0, 300) });
+    else if (!view.terminal && view.kind !== "lost") {
+      if (view.connection === "waiting") detail = t("job.conn.waiting", { seconds: view.waitSeconds });
+      else if (view.connection === "reconnecting") detail = t("job.conn.reconnecting");
+      else detail = view.message ?? "";
+    }
+    els.jobDetail.textContent = detail;
+    els.jobDetail.hidden = detail === "";
+    els.jobReconnect.hidden = !(view.kind === "lost" && view.error?.code !== "not_found");
+
+    // Anuncios: cada cambio de estado y los hitos de 25 %, nunca cada porcentaje.
+    if (view.kind !== trackedKind) {
+      trackedKind = view.kind;
+      trackedStep = -1;
+      if (view.kind === "completed" || view.kind === "failed" || view.kind === "cancelled" || view.kind === "lost") els.announcer.textContent = status;
+    }
+    if (view.kind === "running" && !view.indeterminate) {
+      const step = Math.floor(view.percent / 25);
+      if (step > trackedStep && step > 0) {
+        trackedStep = step;
+        els.announcer.textContent = status;
+      }
+    }
   }
 
   /** @param {ReturnType<typeof viewOf>} view */
@@ -357,6 +475,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo }) {
   els.cancel.addEventListener("click", () => controller?.abort());
   els.errorRetry.addEventListener("click", () => void begin());
   els.noticeRetry.addEventListener("click", () => void begin());
+  els.jobReconnect.addEventListener("click", () => {
+    if (tracking.jobId !== null) void follow(tracking.jobId);
+  });
   els.errorOther.addEventListener("click", startOver);
   els.noticeAgain.addEventListener("click", startOver);
   els.fileRemove.addEventListener("click", () => {

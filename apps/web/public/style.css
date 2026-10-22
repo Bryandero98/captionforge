@@ -382,6 +382,17 @@ select:disabled {
 .panel--error p {
   max-width: 62ch;
 }
+/* Trabajo terminado con fallo: mismo color que el error de subida, sin cambiar el tamaño del panel. */
+.panel.is-failed {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+.panel.is-failed .panel__status {
+  color: var(--error-text);
+}
+.bar.is-done .bar__fill {
+  transform: scaleX(1);
+}
 
 @keyframes panel-in {
   from {

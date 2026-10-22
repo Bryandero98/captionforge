@@ -19,7 +19,7 @@ import { PrismaService } from "../src/prisma/prisma.service.js";
 // Las funciones de waitForFunction se ejecutan dentro del navegador; solo se declara lo que usan (sin cargar la librería DOM).
 declare const localStorage: { setItem(key: string, value: string): void };
 declare const document: {
-  querySelector(selector: string): { getAttribute(name: string): string | null } | null;
+  querySelector(selector: string): { getAttribute(name: string): string | null; textContent: string | null } | null;
   activeElement: { id: string } | null;
 };
 
@@ -42,7 +42,7 @@ let dir = "";
 let browser: Browser;
 let prisma: PrismaService;
 
-type Overrides = { maxUploadBytes?: number; uploadRateLimitPerMinute?: number };
+type Overrides = { maxUploadBytes?: number; uploadRateLimitPerMinute?: number; eventStreamMaxMs?: number };
 
 async function startApi(overrides: Overrides = {}): Promise<string> {
   const app = await createApp(
@@ -61,7 +61,7 @@ async function startApi(overrides: Overrides = {}): Promise<string> {
         uploadRateWindowMs: 30_000,
         maxEventStreams: 0,
         maxEventStreamsPerClient: 0,
-        eventStreamMaxMs: 0,
+        eventStreamMaxMs: overrides.eventStreamMaxMs ?? 0,
         allowedOrigins: [],
         allowedHosts: ["localhost", "127.0.0.1", "[::1]"],
       },
@@ -226,6 +226,89 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     expect(message).toContain("tamaño máximo");
     expect(await isVisible(page, "#error-retry")).toBe(false); // reintentar el mismo archivo no serviría de nada
     expect(await isVisible(page, "#error-other")).toBe(true);
+    await page.close();
+  }, 60_000);
+
+  /** Hace de worker: escribe el estado del trabajo en PostgreSQL y el SSE real del API lo reenvía al navegador. */
+  async function workerSays(name: string, data: { status?: "RUNNING" | "COMPLETED" | "FAILED"; stage?: string; percent?: number; message?: string; errorCode?: string; errorMessage?: string }) {
+    const [job] = await jobsNamed(name);
+    await prisma.job.update({ where: { id: job!.id }, data: { ...data, ...(data.status === "COMPLETED" || data.status === "FAILED" ? { finishedAt: new Date() } : {}) } });
+  }
+
+  const jobText = (page: Page) => text(page, "#job-status");
+  const waitForJobText = (page: Page, expected: string) =>
+    page.waitForFunction((value) => (document.querySelector("#job-status")?.textContent ?? "").includes(value), { timeout: 15_000 }, expected);
+
+  async function uploadAndFollow(page: Page, name: string): Promise<void> {
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+  }
+
+  it("seguimiento: la etapa y el porcentaje del worker llegan por SSE a la interfaz y el flujo se cierra al completarse", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const eventRequests: string[] = [];
+    page.on("request", (request) => request.url().endsWith("/events") && eventRequests.push(request.url()));
+    const name = "sigue.mp4";
+    await uploadAndFollow(page, name);
+    await waitForJobText(page, "En cola");
+    expect(await isVisible(page, "#job-bar")).toBe(true);
+
+    await workerSays(name, { status: "RUNNING", stage: "extracting_audio", percent: 10 });
+    await waitForJobText(page, "Extrayendo el audio · 10 %");
+    await workerSays(name, { stage: "transcribing", percent: 55 });
+    await waitForJobText(page, "Transcribiendo · 55 %");
+    expect(await page.$eval("#job-bar", (bar) => bar.getAttribute("aria-valuenow"))).toBe("55");
+
+    await workerSays(name, { status: "COMPLETED", stage: "uploading", percent: 100 });
+    await waitForJobText(page, "Listo");
+    expect(await page.$eval("#job-bar", (bar) => bar.getAttribute("aria-valuenow"))).toBe("100");
+    expect(await text(page, "#announcer")).toContain("Listo");
+
+    // Estado final: no se vuelve a abrir el flujo.
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(eventRequests).toHaveLength(1);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it("seguimiento: un trabajo que falla muestra su causa en el idioma de la interfaz y se puede empezar de nuevo", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const name = "falla.mp4";
+    await uploadAndFollow(page, name);
+    await workerSays(name, { status: "FAILED", errorCode: "FFMPEG_FAILED", errorMessage: "ffmpeg salió con código 1" });
+    await waitForJobText(page, "No se pudo leer el audio");
+    expect(await page.$eval("#job-panel", (panel) => panel.classList.contains("is-failed"))).toBe(true);
+    expect(await isVisible(page, "#job-bar")).toBe(false);
+    expect(await text(page, "#job-detail")).toContain("ffmpeg salió con código 1");
+
+    await page.click("#lang-en");
+    expect(await jobText(page)).toContain("could not be read");
+    await page.click("#notice-again");
+    expect(await isVisible(page, "#job-panel")).toBe(false);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it("seguimiento: si el servidor corta el flujo (tope de duración) la interfaz reconecta sola y sigue recibiendo", async () => {
+    const base = await startApi({ eventStreamMaxMs: 1200 });
+    const { page, spy } = await openPage(base);
+    const eventRequests: string[] = [];
+    page.on("request", (request) => request.url().endsWith("/events") && eventRequests.push(request.url()));
+    const name = "reconecta.mp4";
+    await uploadAndFollow(page, name);
+    await workerSays(name, { status: "RUNNING", stage: "transcribing", percent: 20 });
+    await waitForJobText(page, "Transcribiendo · 20 %");
+
+    await page.waitForFunction(() => true); // deja correr al menos dos cortes del servidor
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    expect(eventRequests.length).toBeGreaterThanOrEqual(2);
+    await workerSays(name, { stage: "transcribing", percent: 80 });
+    await waitForJobText(page, "Transcribiendo · 80 %");
+    expect(await text(page, "#job-detail")).toBe("");
+    expect(spy.problems).toEqual([]);
     await page.close();
   }, 60_000);
 

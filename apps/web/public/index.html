@@ -94,6 +94,18 @@
         </div>
       </section>
 
+      <section class="panel" id="job-panel" hidden aria-labelledby="job-title">
+        <h2 class="visually-hidden" id="job-title" data-i18n="job.title">Estado del trabajo</h2>
+        <p class="panel__status" id="job-status"></p>
+        <div class="bar" id="job-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="job-status">
+          <div class="bar__fill" id="job-bar-fill"></div>
+        </div>
+        <p class="panel__detail" id="job-detail"></p>
+        <div class="panel__actions">
+          <button type="button" class="btn btn--primary" id="job-reconnect" hidden data-i18n="job.reconnect">Volver a conectar</button>
+        </div>
+      </section>
+
       <section class="panel panel--error" id="error-panel" role="group" aria-labelledby="error-title" hidden>
         <h2 class="panel__status" id="error-title" data-i18n="error.title">No se pudo subir el video</h2>
         <p id="error-message"></p>
