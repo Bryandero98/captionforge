@@ -188,6 +188,19 @@ const fr = {
   "result.cleaned.no": "Non",
   "result.cleaned.fallback": "Impossible de réduire le bruit de fond, l'audio d'origine a donc été transcrit. Les sous-titres peuvent contenir plus d'erreurs ; relis-les avec attention.",
   "guide.s2.clean": "Réduire le bruit de fond : active-le s'il y a de la musique ou un bruit fort par-dessus la voix. C'est plus long. Si le nettoyage n'est pas possible, l'audio d'origine est utilisé et tu en es informé.",
+  "options.diarize": "Identifier qui parle (plus lent, pour les entretiens et les réunions)",
+  "options.diarize.unavailable": "Indisponible sur ce serveur : il faut un jeton Hugging Face (voir le guide).",
+  "stage.downloading_diarization_model": "Téléchargement du modèle d'identification des locuteurs",
+  "stage.diarizing": "Identification de qui parle",
+  "result.speakers": "Locuteurs identifiés",
+  "result.speakers.no": "Non",
+  "result.speakers.fallback": "Impossible d'identifier qui parle : la transcription normale a été livrée, sans noms de locuteurs.",
+  "speakers.title": "Locuteurs",
+  "speakers.hint": "Modifiez le nom d'un locuteur et il s'applique à tous ses sous-titres. Enregistrez les modifications pour le conserver.",
+  "speakers.label": "Nom de {name}",
+  "speakers.default": "Locuteur {n}",
+  "speakers.prefix": "Mettre le nom du locuteur avant le texte dans le .srt et le .vtt",
+  "guide.s2.diarize": "Identifier qui parle : indique pour chaque sous-titre qui le prononce (entretiens, réunions). C'est plus long et le serveur doit avoir un jeton Hugging Face ; sans lui, la case est désactivée. En cas d'échec, la transcription normale est livrée et vous en êtes informé. Ensuite, vous pouvez renommer chaque locuteur.",
 };
 
 export default fr;

@@ -86,6 +86,7 @@ it. With `API_KEY` set (see `.env.example`) every route requires `Authorization:
 | Method and route | What it does |
 |---|---|
 | `POST /v1/jobs/transcribe` | Multipart. Streams the video to S3 as it arrives. `202` |
+| `GET /v1/capabilities` | Optional features this server offers (`{ "diarization": { "enabled": true } }`); the web hides or disables what is missing |
 | `GET /v1/jobs/:id` | State, stage, percentage, error and result |
 | `GET /v1/jobs/:id/events` | Progress over SSE until a final state |
 | `POST /v1/jobs/:id/cancel` | Cancels: removed from the queue, or the worker is told to stop |
@@ -174,7 +175,7 @@ The full picture, including what is **not** covered yet, is in
 
 After the web client, ideas worth doing, deliberately not started:
 
-- **Speaker diarization** ("who said what") via [pyannote.audio](https://github.com/pyannote/pyannote-audio) - [issue #4](https://github.com/Bryandero98/captionforge/issues/4).
+- **Speaker diarization** ("who said what") - [issue #4](https://github.com/Bryandero98/captionforge/issues/4): implemented as an opt-in "identify who is speaking" option for the service (pyannote 3.1 in a subprocess, needs a read-only Hugging Face token on the worker, falls back to the plain transcription on failure; see [ADR 0014](docs/adr/0014-identificar-quien-habla-pyannote.md) and the [user guide](docs/user-guide.md#turning-on-speaker-identification)).
 - **Vocal/source separation** before transcription for noisy audio - [issue #5](https://github.com/Bryandero98/captionforge/issues/5): implemented as an opt-in "clean background noise" option for the service (Demucs in a subprocess, falls back to the original audio on failure; see [ADR 0013](docs/adr/0013-limpieza-de-audio-demucs-en-subproceso.md)).
 - **A complete native installer** for the local package (multi-platform, signed, ffmpeg bundled) - [issue #2](https://github.com/Bryandero98/captionforge/issues/2); a first step exists in [`legacy/`](legacy/README.md).
 - **Isolating ffmpeg** in its own user or container (the minimal environment prevents accidental

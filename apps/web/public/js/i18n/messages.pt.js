@@ -188,6 +188,19 @@ const pt = {
   "result.cleaned.no": "Não",
   "result.cleaned.fallback": "Não foi possível reduzir o ruído de fundo, então o áudio original foi transcrito. As legendas podem ter mais erros; revise-as com atenção.",
   "guide.s2.clean": "Reduzir o ruído de fundo: ative se houver música ou ruído alto sobre a voz. Demora mais. Se não for possível limpar, o áudio original é usado e você é avisado.",
+  "options.diarize": "Identificar quem está falando (mais lento, para entrevistas e reuniões)",
+  "options.diarize.unavailable": "Indisponível neste servidor: precisa de um token do Hugging Face (veja o guia).",
+  "stage.downloading_diarization_model": "Baixando o modelo de identificação de falantes",
+  "stage.diarizing": "Identificando quem está falando",
+  "result.speakers": "Falantes identificados",
+  "result.speakers.no": "Não",
+  "result.speakers.fallback": "Não foi possível identificar quem está falando, então a transcrição normal foi entregue, sem nomes de falantes.",
+  "speakers.title": "Falantes",
+  "speakers.hint": "Altere o nome de um falante e a mudança vale para todas as legendas dele. Salve as alterações para mantê-la.",
+  "speakers.label": "Nome de {name}",
+  "speakers.default": "Falante {n}",
+  "speakers.prefix": "Colocar o nome do falante antes do texto no .srt e no .vtt",
+  "guide.s2.diarize": "Identificar quem está falando: marque cada legenda com quem a diz (entrevistas, reuniões). Demora mais e exige que o servidor tenha um token do Hugging Face; sem ele, a caixa fica desativada. Se falhar, a transcrição normal é entregue e você é avisado. Depois você pode renomear cada falante.",
 };
 
 export default pt;

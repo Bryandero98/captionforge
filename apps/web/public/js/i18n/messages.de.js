@@ -188,6 +188,19 @@ const de = {
   "result.cleaned.no": "Nein",
   "result.cleaned.fallback": "Die Hintergrundgeräusche konnten nicht reduziert werden, deshalb wurde das Original-Audio transkribiert. Die Untertitel können mehr Fehler enthalten; prüfe sie sorgfältig.",
   "guide.s2.clean": "Hintergrundgeräusche reduzieren: Aktiviere das, wenn Musik oder laute Geräusche die Stimme überdecken. Es dauert länger. Lässt sich das Audio nicht bereinigen, wird das Original verwendet und du wirst darauf hingewiesen.",
+  "options.diarize": "Sprecher erkennen (langsamer, für Interviews und Besprechungen)",
+  "options.diarize.unavailable": "Auf diesem Server nicht verfügbar: Es wird ein Hugging-Face-Token benötigt (siehe Anleitung).",
+  "stage.downloading_diarization_model": "Das Modell zur Sprechererkennung wird heruntergeladen",
+  "stage.diarizing": "Sprecher werden erkannt",
+  "result.speakers": "Sprecher erkannt",
+  "result.speakers.no": "Nein",
+  "result.speakers.fallback": "Der Sprecher konnte nicht erkannt werden, daher wurde die normale Transkription ohne Sprechernamen geliefert.",
+  "speakers.title": "Sprecher",
+  "speakers.hint": "Ändern Sie den Namen eines Sprechers, und er gilt für alle seine Untertitel. Speichern Sie die Änderungen, um ihn zu behalten.",
+  "speakers.label": "Name von {name}",
+  "speakers.default": "Sprecher {n}",
+  "speakers.prefix": "Den Sprechernamen im .srt und .vtt vor den Text setzen",
+  "guide.s2.diarize": "Sprecher erkennen: Jeder Untertitel erhält den Namen dessen, der ihn spricht (Interviews, Besprechungen). Das dauert länger und setzt ein Hugging-Face-Token auf dem Server voraus; ohne Token ist das Kontrollkästchen deaktiviert. Bei einem Fehler wird die normale Transkription geliefert und Sie werden benachrichtigt. Danach können Sie jeden Sprecher umbenennen.",
 };
 
 export default de;

@@ -188,6 +188,19 @@ const it = {
   "result.cleaned.no": "No",
   "result.cleaned.fallback": "Non è stato possibile ridurre il rumore di fondo, quindi è stato trascritto l'audio originale. I sottotitoli potrebbero contenere più errori; controllali con attenzione.",
   "guide.s2.clean": "Riduci il rumore di fondo: attivalo se ci sono musica o rumori forti sopra la voce. Richiede più tempo. Se non si riesce a ripulire, viene usato l'audio originale e ti viene segnalato.",
+  "options.diarize": "Identificare chi parla (più lento, per interviste e riunioni)",
+  "options.diarize.unavailable": "Non disponibile su questo server: serve un token di Hugging Face (vedi la guida).",
+  "stage.downloading_diarization_model": "Download del modello di identificazione dei parlanti",
+  "stage.diarizing": "Identificazione di chi parla",
+  "result.speakers": "Parlanti identificati",
+  "result.speakers.no": "No",
+  "result.speakers.fallback": "Non è stato possibile identificare chi parla, quindi è stata consegnata la trascrizione normale, senza nomi dei parlanti.",
+  "speakers.title": "Parlanti",
+  "speakers.hint": "Cambia il nome di un parlante e si applica a tutti i suoi sottotitoli. Salva le modifiche per conservarlo.",
+  "speakers.label": "Nome di {name}",
+  "speakers.default": "Parlante {n}",
+  "speakers.prefix": "Mettere il nome del parlante prima del testo nel .srt e nel .vtt",
+  "guide.s2.diarize": "Identificare chi parla: indica per ogni sottotitolo chi lo pronuncia (interviste, riunioni). Richiede più tempo e il server deve avere un token di Hugging Face; senza, la casella è disattivata. Se fallisce, viene consegnata la trascrizione normale e ne sei informato. Dopo puoi rinominare ogni parlante.",
 };
 
 export default it;

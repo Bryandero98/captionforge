@@ -7,7 +7,9 @@
 
 import { ApiError } from "../api/errors.js";
 import { getSegments, putSegments } from "../api/jobs.js";
-import { dirtyCount, discard, editsOf, issueOf, issuesOf, openEditor, saved, setText, setTime } from "../domain/editor-state.js";
+import { dirtyCount, discard, editsOf, issueOf, issuesOf, openEditor, renameSpeaker, saved, setText, setTime, speakerIdsOf, speakerNameOf, speakerOf } from "../domain/editor-state.js";
+import { displayName, speakerColor } from "../domain/speakers.js";
+import { MAX_SPEAKER_CHARS } from "../domain/limits.js";
 import { formatTimestamp, parseTimestamp } from "../domain/subtitles.js";
 
 const CHUNK = 100;
@@ -40,6 +42,8 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     conflict: $("editor-conflict"),
     reload: $("editor-reload"),
     overwrite: $("editor-overwrite"),
+    speakers: $("speakers-panel"),
+    speakerList: $("speakers-list"),
   };
 
   /** @type {string | null} */
@@ -54,11 +58,17 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
   let message = null;
   /** Campos de tiempo con un texto que no se pudo leer (`índice:campo`): bloquean guardar hasta corregirlos. @type {Set<string>} */
   const badTimes = new Set();
-  /** @typedef {{ row: HTMLElement, start: HTMLInputElement, end: HTMLInputElement, text: HTMLTextAreaElement, issue: HTMLElement }} Row */
+  /** @typedef {{ row: HTMLElement, start: HTMLInputElement, end: HTMLInputElement, text: HTMLTextAreaElement, issue: HTMLElement, speaker: HTMLElement }} Row */
   /** @type {Map<number, Row>} */
   const rows = new Map();
   /** Confirma el valor escrito en un campo de tiempo (lo mismo que al salir del campo). @type {WeakMap<EventTarget, () => void>} */
   const commits = new WeakMap();
+
+  /** Nombre legible de un hablante GUARDADO (SPEAKER_01 -> «Hablante 1»; un nombre puesto por la persona, tal cual). */
+  const speakerLabel = (/** @type {string} */ name) => displayName(name, (n) => t("speakers.default", { n }));
+
+  /** Identificadores de hablante guardados, por orden de aparición: la posición fija el color aunque se renombre. @type {string[]} */
+  let speakerOrder = [];
 
   function refreshBar() {
     const count = state === null ? 0 : dirtyCount(state);
@@ -83,6 +93,14 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     }
     const text = draft?.text ?? original.text;
     if (entry.text.value !== text) entry.text.value = text;
+    const who = speakerOf(state, index);
+    entry.speaker.hidden = who === undefined;
+    if (who !== undefined && original.speaker !== undefined) {
+      const name = speakerLabel(who);
+      entry.speaker.textContent = name;
+      entry.speaker.title = name;
+      entry.speaker.className = `seg__speaker speaker-${speakerColor(Math.max(0, speakerOrder.indexOf(original.speaker)))}`;
+    }
     entry.row.classList.toggle("is-dirty", draft !== undefined);
 
     const badStart = badTimes.has(`${index}:start`);
@@ -117,6 +135,10 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     row.className = "seg";
     const times = doc.createElement("div");
     times.className = "seg__times";
+    const speaker = doc.createElement("span");
+    speaker.className = "seg__speaker";
+    speaker.hidden = true;
+    times.append(speaker);
     const makeTime = (/** @type {"start" | "end"} */ field) => {
       const input = doc.createElement("input");
       input.type = "text";
@@ -164,8 +186,55 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
       if (event.target !== null) commits.get(event.target)?.();
       void persist();
     });
-    rows.set(index, { row, start, end, text, issue });
+    rows.set(index, { row, start, end, text, issue, speaker });
     return row;
+  }
+
+  /** Repinta los subtítulos de un hablante (o todos). */
+  function paintSpeaker(/** @type {string | null} */ id) {
+    if (state === null) return;
+    for (const [index] of rows) if (id === null || state.segments[index]?.speaker === id) paintRow(index);
+  }
+
+  /** El panel «Hablantes»: un campo de nombre por hablante guardado. Renombrar cambia todos sus subtítulos (un borrador por subtítulo). */
+  function renderSpeakers() {
+    if (state === null) {
+      speakerOrder = [];
+      els.speakers.hidden = true;
+      els.speakerList.replaceChildren();
+      return;
+    }
+    speakerOrder = speakerIdsOf(state);
+    els.speakers.hidden = speakerOrder.length === 0;
+    const items = speakerOrder.map((id, position) => {
+      const item = doc.createElement("li");
+      item.className = "speakers__item";
+      const swatch = doc.createElement("span");
+      swatch.className = `speakers__swatch speaker-${speakerColor(position)}`;
+      swatch.setAttribute("aria-hidden", "true");
+      const input = doc.createElement("input");
+      input.type = "text";
+      input.className = "speakers__name";
+      input.maxLength = MAX_SPEAKER_CHARS;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.setAttribute("aria-label", t("speakers.label", { name: speakerLabel(id) }));
+      const show = () => {
+        if (state !== null) input.value = speakerLabel(speakerNameOf(state, id));
+      };
+      show();
+      input.addEventListener("input", () => {
+        if (state === null) return;
+        if (!conflict) message = null;
+        state = renameSpeaker(state, id, input.value);
+        paintSpeaker(id);
+        refreshBar();
+      });
+      input.addEventListener("change", show); // al salir, un campo vacío vuelve al nombre que tiene
+      item.append(swatch, input);
+      return item;
+    });
+    els.speakerList.replaceChildren(...items);
   }
 
   function renderRows() {
@@ -216,6 +285,8 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
       const result = await save({ baseUrl, jobId: id, edits: sent, etag });
       if (mine !== generation || state === null) return; // se abrió otro trabajo o se cerró este: la respuesta ya no aplica
       state = saved(state, result.segments, result.etag, sent);
+      renderSpeakers();
+      paintSpeaker(null);
       for (const edit of sent) paintRow(edit.index);
       message = dirtyCount(state) > 0 ? null : t("editor.saved");
     } catch (error) {
@@ -243,6 +314,7 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     badTimes.clear();
     message = null;
     conflict = false;
+    renderSpeakers();
     for (const index of rows.keys()) paintRow(index);
     refreshBar();
   });
@@ -277,6 +349,7 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     badTimes.clear();
     rows.clear();
     els.list.replaceChildren();
+    renderSpeakers();
     renderRows();
     refreshBar();
   }
@@ -294,6 +367,7 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
       badTimes.clear();
       rows.clear();
       els.list.replaceChildren();
+      renderSpeakers();
       els.more.hidden = true;
       refreshBar();
     },
@@ -315,8 +389,13 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
         paintRow(index);
       }
       if (state !== null) els.more.textContent = t("result.more", { count: Math.max(0, state.segments.length - shown) });
+      if (!els.speakers.contains(doc.activeElement)) renderSpeakers();
       refreshBar();
     },
     persist,
+    /** Nombre legible del hablante de un subtítulo GUARDADO, o null si no tiene. @param {{ speaker?: string }} segment */
+    speakerNameOf(segment) {
+      return typeof segment.speaker === "string" && segment.speaker !== "" ? speakerLabel(segment.speaker) : null;
+    },
   };
 }

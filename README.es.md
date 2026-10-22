@@ -86,6 +86,7 @@ Todo cuelga de `/v1/jobs`. El worker escribe el estado del trabajo en PostgreSQL
 | Método y ruta | Qué hace |
 |---|---|
 | `POST /v1/jobs/transcribe` | Multipart. Sube el video a S3 mientras llega. `202` |
+| `GET /v1/capabilities` | Funciones opcionales de este servidor (`{ "diarization": { "enabled": true } }`); la web oculta o desactiva lo que falte |
 | `GET /v1/jobs/:id` | Estado, etapa, porcentaje, error y resultado |
 | `GET /v1/jobs/:id/events` | Progreso por SSE hasta un estado final |
 | `POST /v1/jobs/:id/cancel` | Cancela: en cola se quita; en curso se avisa al worker |
@@ -176,7 +177,7 @@ El cuadro completo, con lo que **todavía no** está cubierto, está en
 
 Después del cliente web, ideas que valen la pena y que no se han empezado a propósito:
 
-- **Diarización de hablantes** («quién dijo qué») con [pyannote.audio](https://github.com/pyannote/pyannote-audio) - [issue #4](https://github.com/Bryandero98/captionforge/issues/4).
+- **Diarización de hablantes** («quién dijo qué») - [issue #4](https://github.com/Bryandero98/captionforge/issues/4): implementada como opción «identificar quién habla» del servicio (pyannote 3.1 en un subproceso, necesita un token de Hugging Face de solo lectura en el worker y vuelve a la transcripción normal si falla; ver el [ADR 0014](docs/adr/0014-identificar-quien-habla-pyannote.md) y la [guía de uso](docs/guia-de-uso.md#activar-la-identificación-de-hablantes)).
 - **Separación de voz y fuente** antes de transcribir, para audio con ruido - [issue #5](https://github.com/Bryandero98/captionforge/issues/5).
 - **Un instalador nativo completo** del paquete local (multiplataforma, firmado, con ffmpeg incluido) - [issue #2](https://github.com/Bryandero98/captionforge/issues/2); ya existe un primer paso en [`legacy/`](legacy/README.es.md).
 - **Aislar ffmpeg** en su propio usuario o contenedor (el entorno mínimo evita la herencia accidental
