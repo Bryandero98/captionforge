@@ -129,12 +129,12 @@ describe("POST /v1/jobs/transcribe", () => {
 
   it("aplica valores por defecto cuando no se mandan opciones", async () => {
     const job = await createJob(undefined);
-    expect(job.options).toEqual({ modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false });
+    expect(job.options).toEqual({ modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false, diarize: false });
   });
 
   it("cleanAudio: se acepta, se guarda, se devuelve en JobView y viaja en el payload de BullMQ hacia el worker", async () => {
     const job = await createJob({ cleanAudio: true });
-    expect(job.options).toEqual({ modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: true });
+    expect(job.options).toEqual({ modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: true, diarize: false });
     const row = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
     expect(row.options).toMatchObject({ cleanAudio: true });
     const view = (await (await fetch(`${base}/v1/jobs/${job.id}`)).json()) as { options: { cleanAudio: boolean }; result: { audioCleaned?: boolean } };

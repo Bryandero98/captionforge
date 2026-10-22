@@ -129,3 +129,41 @@ describe("parseSegments", () => {
     expect(parseSegments([{ start: 0, end: 1, text: "x" }, { start: 1, end: 2, text: "y", words: [] }]).map((s) => s.words)).toEqual([null, null]);
   });
 });
+
+describe("speaker (quién habla)", () => {
+  const base = { start: 0, end: 2, text: " Hola", words: null };
+
+  it("parseSegments conserva el speaker y no inventa la clave cuando no hay (los vectores dorados no cambian)", () => {
+    expect(parseSegments([{ ...base, speaker: "SPEAKER_00" }])[0]).toEqual({ ...base, speaker: "SPEAKER_00" });
+    expect(Object.keys(parseSegments([base])[0]!)).not.toContain("speaker");
+    expect(Object.keys(parseSegments([{ ...base, speaker: null }])[0]!)).not.toContain("speaker");
+  });
+
+  it("parseSegments rechaza un speaker que no es texto razonable", () => {
+    for (const bad of [5, true, "", " ", "x".repeat(65), "dos\nlíneas", "ctrl\u0007", {}]) {
+      expect(() => parseSegments([{ ...base, speaker: bad }]), JSON.stringify(bad)).toThrow(SegmentsError);
+    }
+  });
+
+  it("parseEdits acepta speaker (texto o null para quitarlo) y rechaza el resto", () => {
+    expect(parseEdits({ segments: [{ index: 0, speaker: "Ana" }, { index: 1, speaker: null }] }).edits).toEqual([
+      { index: 0, text: undefined, start: undefined, end: undefined, speaker: "Ana" },
+      { index: 1, text: undefined, start: undefined, end: undefined, speaker: null },
+    ]);
+    for (const bad of [3, "", "  ", "x".repeat(65), "a\nb", ["Ana"]]) {
+      expect(() => parseEdits({ segments: [{ index: 0, speaker: bad }] }), JSON.stringify(bad)).toThrow(SegmentsError);
+    }
+  });
+
+  it("applyEdits cambia, conserva y quita el speaker sin tocar el resto", () => {
+    const segments = parseSegments([{ ...base, speaker: "SPEAKER_00" }, { ...base, start: 3, end: 5 }]);
+    const out = applyEdits(segments, [{ index: 0, speaker: "Ana" }, { index: 1, speaker: "Luis" }]);
+    expect(out.map((s) => s.speaker)).toEqual(["Ana", "Luis"]);
+    // Editar solo el texto conserva el speaker.
+    expect(applyEdits(segments, [{ index: 0, text: "Hola de nuevo" }])[0]).toMatchObject({ speaker: "SPEAKER_00", text: "Hola de nuevo" });
+    // Editar solo los tiempos también.
+    expect(applyEdits(segments, [{ index: 0, end: 4 }])[0]).toMatchObject({ speaker: "SPEAKER_00", end: 4 });
+    // null lo quita (la clave desaparece).
+    expect(Object.keys(applyEdits(segments, [{ index: 0, speaker: null }])[0]!)).not.toContain("speaker");
+  });
+});

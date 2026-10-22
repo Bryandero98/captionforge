@@ -2,6 +2,7 @@ import { type DynamicModule, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
 import { APP_CONFIG, type AppConfig } from "./config/config.js";
+import { CapabilitiesController } from "./capabilities/capabilities.controller.js";
 import { HealthController } from "./health/health.controller.js";
 import { JobsController } from "./jobs/jobs.controller.js";
 import { JobsService } from "./jobs/jobs.service.js";
@@ -18,7 +19,7 @@ export class AppModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, JobsController],
+      controllers: [HealthController, CapabilitiesController, JobsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         PrismaService,
