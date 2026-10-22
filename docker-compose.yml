@@ -204,6 +204,14 @@ services:
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-4294967296}
       # Clave que la interfaz web local recibe en /web-config.json (ADR 0015). El puerto solo se publica en 127.0.0.1.
       WEB_API_KEY: ${DEFAULT_API_KEY:-}
+      # Inicio de sesión de personas (ADR 0016). LOCAL_MODE=true (por defecto): instalación de una persona, sin inicio de sesión.
+      # LOCAL_MODE=false: la interfaz pide entrar con GitHub o Google y no recibe ninguna clave.
+      LOCAL_MODE: ${LOCAL_MODE:-true}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
       UPLOAD_RATE_LIMIT_PER_MINUTE: ${UPLOAD_RATE_LIMIT_PER_MINUTE:-10}
       MAX_CONCURRENT_UPLOADS: ${MAX_CONCURRENT_UPLOADS:-4}
