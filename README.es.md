@@ -38,6 +38,10 @@ start.bat         # Windows (doble clic o desde una terminal)
 
 El script comprueba que `docker` y `docker compose` funcionan, crea `.env` desde `.env.example` con contraseñas aleatorias si no existe (un `.env` existente nunca se toca), ejecuta `docker compose --profile app up -d --build`, espera a la API y muestra la dirección: **http://localhost:3000**. La primera vez construye las imágenes (varios minutos) y la primera transcripción descarga el modelo de Whisper. Todo se publica solo en `127.0.0.1`. Se apaga con `docker compose --profile app down`. La identificación de hablantes y la GPU son opcionales y necesitan pasos extra (ver la [guía de uso](docs/guia-de-uso.md#activar-la-identificación-de-hablantes) y el compose).
 
+### Solución de problemas
+
+- **Un trabajo se queda en `QUEUED` y no se procesa** (visto una vez en el primer arranque en frío, sin reproducirse después): reinicia el worker con `docker compose --profile app restart ai-worker`. El trabajo en cola se retoma enseguida; no se pierde nada.
+
 ## Puesta en marcha (desarrollo)
 
 Requisitos: Docker, Node >= 22 y Python >= 3.11.
