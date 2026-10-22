@@ -105,15 +105,21 @@ BEGIN
 END
 $$;
 
--- Tenencia (ADR 0015): lo mismo para sus tablas. cf_api solo LEE Tenant y ApiKey y anota ApiKey.lastUsedAt (no crea ni borra
--- claves, tenants ni personas); cf_worker no las ve. Se repite aquí lo que concede la migración de tenencia, para que
--- re-ejecutar este archivo no lo deshaga.
+-- Tenencia y sesiones (ADR 0015 y 0016): lo mismo para sus tablas. cf_api crea tenants, personas, sesiones y claves (el inicio
+-- de sesión lo hace el API) pero no borra tenants, personas ni claves, ni cambia hashes ni dueños; cf_worker no las ve. Se
+-- repite aquí lo que conceden las migraciones, para que re-ejecutar este archivo no lo deshaga.
 DO $$
 BEGIN
   IF to_regclass('public."Tenant"') IS NOT NULL THEN
     REVOKE ALL ON "Tenant", "User", "ApiKey" FROM cf_api, cf_worker;
-    GRANT SELECT ON "Tenant", "ApiKey" TO cf_api;
-    GRANT UPDATE ("lastUsedAt") ON "ApiKey" TO cf_api;
+    GRANT SELECT, INSERT ON "Tenant" TO cf_api;
+    GRANT SELECT, INSERT ON "User" TO cf_api;
+    GRANT SELECT, INSERT ON "ApiKey" TO cf_api;
+    GRANT UPDATE ("lastUsedAt", "revokedAt") ON "ApiKey" TO cf_api;
+  END IF;
+  IF to_regclass('public."Session"') IS NOT NULL THEN
+    REVOKE ALL ON "Session" FROM cf_api, cf_worker;
+    GRANT SELECT, INSERT, DELETE ON "Session" TO cf_api;
   END IF;
 END
 $$;

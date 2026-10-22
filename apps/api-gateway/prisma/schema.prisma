@@ -48,10 +48,26 @@ model User {
   subject   String?
   createdAt DateTime @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sessions Session[]
 
   @@unique([provider, subject])
   @@index([tenantId])
+}
+
+// Sesión de navegador tras iniciar sesión con GitHub o Google (ADR 0016). La cookie lleva un token aleatorio de 256 bits y
+// aquí solo se guarda su SHA-256: un volcado de la tabla no da sesiones utilizables. Caduca a los 30 días.
+model Session {
+  id        String   @id @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // Clave de API de un tenant para scripts y servicios. El valor completo solo se ve al crearla: aquí se guarda su

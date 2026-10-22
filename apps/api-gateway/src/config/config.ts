@@ -2,7 +2,16 @@ import { isIP } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { PROVIDERS, type ProviderEndpoints, type ProviderId } from "../auth/providers.js";
+
 export const APP_CONFIG = Symbol("APP_CONFIG");
+
+/** Credenciales de un proveedor de inicio de sesión. `endpoints` solo se cambia en las pruebas (un proveedor falso). */
+export interface ProviderConfig {
+  clientId: string;
+  clientSecret: string;
+  endpoints: ProviderEndpoints;
+}
 
 export interface AppConfig {
   host: string;
@@ -22,6 +31,15 @@ export interface AppConfig {
   maxUploadBytes: number;
   /** Carpeta de la interfaz web que sirve el propio API (mismo origen: sin CORS). undefined = no se sirve (despliegue solo de API). */
   webRoot: string | undefined;
+  /** Inicio de sesión de personas (ADR 0016). */
+  auth: {
+    /** Dirección pública del servicio (esquema://host[:puerto], sin ruta): de aquí salen el callback de OAuth y la marca Secure de las cookies. */
+    publicUrl: string;
+    /** true = instalación de una sola persona: la interfaz recibe la clave por defecto en /web-config.json y no pide iniciar sesión. */
+    localMode: boolean;
+    sessionTtlMs: number;
+    providers: { github?: ProviderConfig; google?: ProviderConfig };
+  };
   /** Funciones opcionales que el servidor anuncia en GET /v1/capabilities. */
   features: { diarization: boolean };
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
@@ -132,6 +150,35 @@ function parseDiarization(env: NodeJS.ProcessEnv): boolean {
   throw new Error(`DIARIZATION_ENABLED debe ser true o false (recibido "${env.DIARIZATION_ENABLED}")`);
 }
 
+/**
+ * GITHUB_CLIENT_ID/SECRET y GOOGLE_CLIENT_ID/SECRET: un proveedor se activa si tiene las dos; con una sola, el arranque falla
+ * (una configuración a medias suele ser un secreto mal copiado, y es mejor verlo ahora que en el primer inicio de sesión).
+ */
+function parseProvider(env: NodeJS.ProcessEnv, id: ProviderId): ProviderConfig | undefined {
+  const prefix = id.toUpperCase();
+  const clientId = (env[`${prefix}_CLIENT_ID`] ?? "").trim();
+  const clientSecret = (env[`${prefix}_CLIENT_SECRET`] ?? "").trim();
+  if (clientId === "" && clientSecret === "") return undefined;
+  if (clientId === "" || clientSecret === "") throw new Error(`${prefix}_CLIENT_ID y ${prefix}_CLIENT_SECRET deben definirse juntos`);
+  return { clientId, clientSecret, endpoints: PROVIDERS[id].endpoints };
+}
+
+/** PUBLIC_URL: origen público del servicio. Sin valor, el de la dirección local. */
+function parsePublicUrl(raw: string | undefined, port: number): string {
+  const value = (raw ?? "").trim();
+  if (value === "") return `http://localhost:${port}`;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`PUBLIC_URL "${value}" no es una URL válida (esquema://host[:puerto], p. ej. https://captions.ejemplo.com)`);
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.pathname !== "/" || url.search !== "" || url.hash !== "" || url.username !== "") {
+    throw new Error(`PUBLIC_URL "${value}" debe ser solo esquema://host[:puerto] con http o https, sin ruta ni credenciales`);
+  }
+  return url.origin;
+}
+
 /** Lee y valida el entorno; falla al arrancar (no a mitad de una petición) si falta algo. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const need = (name: string): string => {
@@ -148,7 +195,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
     return value;
   };
-  const webApiKey = env.WEB_API_KEY || undefined;
+  // Fuera del modo local la interfaz inicia sesión como cualquiera: no se le entrega ninguna clave.
+  const localMode = (env.LOCAL_MODE ?? "true").trim().toLowerCase() !== "false";
+  const webApiKey = localMode ? env.WEB_API_KEY || undefined : undefined;
   if (webApiKey !== undefined && webApiKey.length < 32) {
     throw new Error("WEB_API_KEY debe tener al menos 32 caracteres (es la DEFAULT_API_KEY del .env)");
   }
@@ -169,6 +218,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     maxUploadBytes: integer("MAX_UPLOAD_BYTES", 4 * 1024 ** 3),
     webRoot: parseWebRoot(env.WEB_ROOT),
+    auth: {
+      publicUrl: parsePublicUrl(env.PUBLIC_URL, integer("PORT", 3000)),
+      localMode: (env.LOCAL_MODE ?? "true").trim().toLowerCase() !== "false",
+      sessionTtlMs: integer("SESSION_TTL_DAYS", 30, { max: 365 }) * 86_400_000,
+      providers: { github: parseProvider(env, "github"), google: parseProvider(env, "google") },
+    },
     features: { diarization: parseDiarization(env) },
     reaper: {
       intervalMs: integer("REAPER_INTERVAL_SECONDS", 60, { allowZero: true }) * 1000,

@@ -2,6 +2,9 @@ import { type DynamicModule, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
 import { APP_CONFIG, type AppConfig } from "./config/config.js";
+import { AccountController } from "./auth/account.controller.js";
+import { AuthController } from "./auth/auth.controller.js";
+import { AuthService } from "./auth/auth.service.js";
 import { CapabilitiesController } from "./capabilities/capabilities.controller.js";
 import { HealthController } from "./health/health.controller.js";
 import { JobsController } from "./jobs/jobs.controller.js";
@@ -19,13 +22,14 @@ export class AppModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, CapabilitiesController, JobsController],
+      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, JobsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         PrismaService,
         StorageService,
         QueueService,
         JobsService,
+        AuthService,
         ReaperService,
         ConnectionLimits,
         { provide: APP_GUARD, useClass: TenantAuthGuard },

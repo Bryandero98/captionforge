@@ -77,8 +77,8 @@ async function registerBrowserGuard(app: NestFastifyApplication, config: AppConf
   if (allowedOrigins.length > 0) {
     await app.register(cors, {
       origin: allowedOrigins,
-      methods: ["GET", "HEAD", "POST", "PUT", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "If-Match", "Authorization", "X-API-Key", "Range"],
+      methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "If-Match", "Authorization", "X-API-Key", "X-Requested-With", "Range"],
       exposedHeaders: ["ETag", "Content-Disposition", "Content-Range", "Content-Length", "Accept-Ranges", "Retry-After"],
       credentials: false, // el API no usa cookies: nunca se piden credenciales cross-origin
       maxAge: 600,
