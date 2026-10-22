@@ -9,9 +9,9 @@ import { JobsService } from "./jobs/jobs.service.js";
 import { ReaperService } from "./jobs/reaper.service.js";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { QueueService } from "./queue/queue.service.js";
-import { ApiKeyGuard } from "./security/api-key.guard.js";
 import { ConnectionLimits } from "./security/connection-limits.js";
 import { StorageService } from "./storage/storage.service.js";
+import { TenantAuthGuard } from "./tenancy/tenant-auth.guard.js";
 
 @Module({})
 export class AppModule {
@@ -28,7 +28,7 @@ export class AppModule {
         JobsService,
         ReaperService,
         ConnectionLimits,
-        { provide: APP_GUARD, useClass: ApiKeyGuard },
+        { provide: APP_GUARD, useClass: TenantAuthGuard },
       ],
     };
   }

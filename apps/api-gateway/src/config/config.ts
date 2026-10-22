@@ -26,9 +26,13 @@ export interface AppConfig {
   features: { diarization: boolean };
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
-  /** Protección opcional del API: clave compartida y límites de uso por IP (0 = sin límite). */
+  /** Seguridad del API: clave por defecto de la interfaz web y límites de uso por IP (0 = sin límite). */
   security: {
-    apiKey: string | undefined;
+    /**
+     * Clave que la interfaz web local recibe en GET /web-config.json (el MVP no tiene inicio de sesión: ADR 0015). Es
+     * la misma DEFAULT_API_KEY que la semilla da de alta. Sin ella la ruta no existe y la clave se pega a mano en la interfaz.
+     */
+    webApiKey: string | undefined;
     rateLimitPerMinute: number;
     uploadRateLimitPerMinute: number;
     /** Lista de redes de confianza (IP o CIDR) o booleano. `true` confía en TODA cabecera X-Forwarded-For. */
@@ -144,9 +148,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
     return value;
   };
-  const apiKey = env.API_KEY || undefined;
-  if (apiKey !== undefined && apiKey.length < 24) {
-    throw new Error("API_KEY debe tener al menos 24 caracteres (genera una con: openssl rand -hex 24)");
+  const webApiKey = env.WEB_API_KEY || undefined;
+  if (webApiKey !== undefined && webApiKey.length < 32) {
+    throw new Error("WEB_API_KEY debe tener al menos 32 caracteres (es la DEFAULT_API_KEY del .env)");
   }
 
   return {
@@ -173,7 +177,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       queuedGraceMs: integer("QUEUED_GRACE_MINUTES", 5) * 60_000,
     },
     security: {
-      apiKey,
+      webApiKey,
       rateLimitPerMinute: integer("RATE_LIMIT_PER_MINUTE", 240, { allowZero: true }),
       uploadRateLimitPerMinute: integer("UPLOAD_RATE_LIMIT_PER_MINUTE", 10, { allowZero: true }),
       trustProxy: parseTrustProxy(env.TRUST_PROXY),

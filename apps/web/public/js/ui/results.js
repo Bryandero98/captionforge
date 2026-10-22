@@ -2,6 +2,7 @@
 // y el editor de subtítulos (ui/segment-editor.js). Todo texto entra con textContent.
 
 import { ApiError } from "../api/errors.js";
+import { fetchArtifact, saveBlobAs } from "../api/download.js";
 import { artifactUrl, getSegments } from "../api/jobs.js";
 import { cleanAudioStatus } from "../domain/clean-audio.js";
 import { formatDuration } from "../domain/format.js";
@@ -174,13 +175,31 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
 
   els.vtt.addEventListener("click", downloadVtt);
   els.srt.addEventListener("click", (/** @type {Event} */ event) => {
-    if (editor.dirty) event.preventDefault();
-    else if (els.prefix.checked && !els.panel.hidden && editor.segments.length > 0) {
+    // Un enlace no puede mandar la clave de API: el .srt del servidor se pide con fetch y se entrega como archivo.
+    event.preventDefault();
+    if (editor.dirty || job === null) return;
+    if (els.prefix.checked && !els.panel.hidden && editor.segments.length > 0) {
       // El .srt del servidor no lleva nombres: con la casilla marcada se arma aquí con los guardados.
-      event.preventDefault();
       saveBlob(segmentsToSrtWithSpeakers(editor.segments, (segment) => editor.speakerNameOf(segment)), "application/x-subrip", "srt");
+      return;
     }
+    void downloadServerSrt();
   });
+
+  /** Baja el .srt del servidor con la clave de API. Un fallo se muestra en el estado del panel, como los demás. */
+  async function downloadServerSrt() {
+    const current = job;
+    if (current === null) return;
+    try {
+      const response = await fetchArtifact({ baseUrl, jobId: current.id, name: "srt" });
+      const blob = await response.blob();
+      saveBlobAs({ doc, win, blob, filename: downloadName(typeof current.originalFilename === "string" ? current.originalFilename : "", "srt") });
+    } catch (error) {
+      if (!(error instanceof ApiError)) console.error(error);
+      failure = error instanceof ApiError ? error : ApiError.network();
+      renderStatic();
+    }
+  }
   els.retry.addEventListener("click", () => void load());
 
   return {

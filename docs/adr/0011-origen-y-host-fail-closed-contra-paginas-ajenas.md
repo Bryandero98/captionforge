@@ -105,7 +105,8 @@ registra la política efectiva (hosts y orígenes aceptados) para que un error d
   aplican Private Network Access bloquean que una página pública llegue a `127.0.0.1` en el preflight; no se
   habilita a propósito y no hace falta para el cliente web, que el propio API sirve desde su mismo origen (`apps/web/public`, `WEB_ROOT`): sin CORS,
   con CSP restrictiva (`connect-src 'self'`, por lo que un `cf-api-base` de otro origen queda bloqueado) y fuera de
-  `API_KEY` y del límite de uso. Con `API_KEY` activa la interfaz web no funciona: no está soportado.
+  `API_KEY` y del límite de uso. *(Actualización, ADR 0015: la `API_KEY` compartida se sustituyó por claves por tenant y la interfaz web
+  ya las manda; esta guardia protege además `/web-config.json`, que entrega la clave por defecto.)*
 - **Pruebas:** la función `evaluate` se prueba de forma exhaustiva (`test/request-guard.spec.ts`) y el
   comportamiento completo contra el API real (`test/origin.e2e.spec.ts`): un POST multipart con `Origin` ajeno
   devolvía 202 y ahora 403 sin crear el trabajo.

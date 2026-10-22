@@ -90,18 +90,19 @@ curl -N http://127.0.0.1:3000/v1/jobs/<id>/events
 curl -OJ http://127.0.0.1:3000/v1/jobs/<id>/artifacts/srt
 ```
 
-With `API_KEY` set, add `-H "Authorization: Bearer <key>"` to every call.
+Every call needs your API key: add `-H "X-API-Key: <key>"` (the `DEFAULT_API_KEY` in your `.env`; `Authorization: Bearer <key>` also works). A job belongs to the tenant that owns the key: another key gets `404` for it, never `403`.
 
 ## API
 
 Everything hangs off `/v1/jobs`. The worker writes the job state in PostgreSQL and the API reads
-it. With `API_KEY` set (see `.env.example`) every route requires `Authorization: Bearer <key>`;
-`/health` stays open.
+it. Every route under `/v1/jobs` requires `X-API-Key: <key>` (or `Authorization: Bearer <key>`); `/health` and
+`/v1/capabilities` stay open. Keys and tenants are described in [ADR 0015](docs/adr/0015-tenencia-y-claves-de-api.md).
 
 | Method and route | What it does |
 |---|---|
 | `POST /v1/jobs/transcribe` | Multipart. Streams the video to S3 as it arrives. `202` |
 | `GET /v1/capabilities` | Optional features this server offers (`{ "diarization": { "enabled": true } }`); the web hides or disables what is missing |
+| `GET /v1/jobs` | Your jobs, newest first (`?limit=` 1-100, `?cursor=<last id>`); only those of the key's tenant |
 | `GET /v1/jobs/:id` | State, stage, percentage, error and result |
 | `GET /v1/jobs/:id/events` | Progress over SSE until a final state |
 | `POST /v1/jobs/:id/cancel` | Cancels: removed from the queue, or the worker is told to stop |

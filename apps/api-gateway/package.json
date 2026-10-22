@@ -14,6 +14,7 @@
     "start": "node dist/main.js",
     "dev": "node scripts/with-env.mjs api -- node --watch dist/main.js",
     "migrate": "node scripts/with-env.mjs owner -- prisma migrate deploy",
+    "seed": "node scripts/with-env.mjs owner -- node dist/tenancy/seed.js",
     "test": "node scripts/with-env.mjs api -- vitest run"
   },
   "dependencies": {

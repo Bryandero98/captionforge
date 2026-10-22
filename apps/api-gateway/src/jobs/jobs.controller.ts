@@ -10,6 +10,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   Res,
   ServiceUnavailableException,
@@ -23,12 +24,16 @@ import { Observable } from "rxjs";
 import { clientKey } from "../security/client-key.js";
 import { ConnectionLimits } from "../security/connection-limits.js";
 import { StorageService } from "../storage/storage.service.js";
+import { TenantId } from "../tenancy/tenant-auth.guard.js";
 import { JobIdPipe } from "./job-id.pipe.js";
 import { JobsService, contentDisposition, isTerminal, toView, type JobView } from "./jobs.service.js";
 
 const ARTIFACTS = ["srt", "segments", "waveform", "video"] as const;
 const POLL_MS = 1000;
 const HEARTBEAT_MS = 15_000;
+const DEFAULT_PAGE = 20;
+const MAX_PAGE = 100;
+const jobIdPipe = new JobIdPipe();
 
 @Controller("v1/jobs")
 export class JobsController {
@@ -44,7 +49,11 @@ export class JobsController {
    */
   @Post("transcribe")
   @HttpCode(202)
-  async transcribe(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply): Promise<JobView> {
+  async transcribe(
+    @TenantId() tenantId: string,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<JobView> {
     if (!req.isMultipart()) throw new UnsupportedMediaTypeException("Se esperaba multipart/form-data.");
 
     // Cada subida retiene ~15 MiB de partes en memoria: sin tope, unas cuantas a la vez agotan el contenedor.
@@ -58,13 +67,13 @@ export class JobsController {
         : new ServiceUnavailableException("Hay demasiadas subidas en curso; reintenta en unos segundos.");
     }
     try {
-      return await this.receiveUpload(req);
+      return await this.receiveUpload(tenantId, req);
     } finally {
       slot.release();
     }
   }
 
-  private async receiveUpload(req: FastifyRequest): Promise<JobView> {
+  private async receiveUpload(tenantId: string, req: FastifyRequest): Promise<JobView> {
     let options: unknown = {};
     for await (const part of req.parts()) {
       if (part.type === "field") {
@@ -81,7 +90,7 @@ export class JobsController {
         part.file.resume();
         continue;
       }
-      return this.jobs.createTranscription({
+      return this.jobs.createTranscription(tenantId, {
         stream: part.file,
         filename: part.filename,
         mimetype: part.mimetype,
@@ -91,15 +100,29 @@ export class JobsController {
     throw new BadRequestException('Falta el campo "file".');
   }
 
+  /** Los trabajos del tenant, del más reciente al más antiguo: `?limit=` (1 a 100, por defecto 20) y `?cursor=<id del último>`. */
+  @Get()
+  list(
+    @TenantId() tenantId: string,
+    @Query("limit") rawLimit?: string,
+    @Query("cursor") rawCursor?: string,
+  ): Promise<{ jobs: JobView[]; nextCursor: string | null }> {
+    const limit = rawLimit === undefined ? DEFAULT_PAGE : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE) {
+      throw new BadRequestException(`limit debe ser un entero de 1 a ${MAX_PAGE}.`);
+    }
+    return this.jobs.list(tenantId, { limit, cursor: rawCursor === undefined ? undefined : jobIdPipe.transform(rawCursor) });
+  }
+
   @Get(":id")
-  get(@Param("id", JobIdPipe) id: string): Promise<JobView> {
-    return this.jobs.get(id);
+  get(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string): Promise<JobView> {
+    return this.jobs.get(tenantId, id);
   }
 
   @Post(":id/cancel")
   @HttpCode(202)
-  cancel(@Param("id", JobIdPipe) id: string): Promise<JobView> {
-    return this.jobs.cancel(id);
+  cancel(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string): Promise<JobView> {
+    return this.jobs.cancel(tenantId, id);
   }
 
   /**
@@ -108,6 +131,7 @@ export class JobsController {
    */
   @Sse(":id/events")
   async events(
+    @TenantId() tenantId: string,
     @Param("id", JobIdPipe) id: string,
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
@@ -128,7 +152,7 @@ export class JobsController {
     reply.raw.once("close", slot.release);
     try {
       // Antes de abrir el flujo: una vez enviadas las cabeceras 200 ya no se puede responder 404.
-      await this.jobs.get(id);
+      await this.jobs.get(tenantId, id);
     } catch (error) {
       slot.release();
       throw error;
@@ -143,7 +167,7 @@ export class JobsController {
 
       const tick = async (): Promise<void> => {
         try {
-          const job = await this.jobs.find(id);
+          const job = await this.jobs.find(tenantId, id);
           if (stopped) return;
           if (!job) {
             subscriber.error(new NotFoundException("No existe ese trabajo."));
@@ -181,8 +205,8 @@ export class JobsController {
 
   /** Los subtítulos actuales de una transcripción terminada, con el `etag` que se pasa al editarlos. */
   @Get(":id/segments")
-  segments(@Param("id", JobIdPipe) id: string): Promise<unknown> {
-    return this.jobs.getSegments(id);
+  segments(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string): Promise<unknown> {
+    return this.jobs.getSegments(tenantId, id);
   }
 
   /**
@@ -190,19 +214,20 @@ export class JobsController {
    * El `etag` es opcional; si se manda y los subtítulos cambiaron, responde 409.
    */
   @Put(":id/segments")
-  updateSegments(@Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<unknown> {
-    return this.jobs.updateSegments(id, body);
+  updateSegments(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<unknown> {
+    return this.jobs.updateSegments(tenantId, id, body);
   }
 
   /** Quema los subtítulos actuales sobre el video: { "style": "modern", "karaoke": false } (ambos opcionales). */
   @Post(":id/burn")
   @HttpCode(202)
-  burn(@Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
-    return this.jobs.createBurn(id, body);
+  burn(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
+    return this.jobs.createBurn(tenantId, id, body);
   }
 
   @Get(":id/artifacts/:name")
   async artifact(
+    @TenantId() tenantId: string,
     @Param("id", JobIdPipe) id: string,
     @Param("name") name: string,
     @Req() req: FastifyRequest,
@@ -211,7 +236,7 @@ export class JobsController {
     if (!(ARTIFACTS as readonly string[]).includes(name)) {
       throw new NotFoundException("Artefacto desconocido.");
     }
-    const artifact = await this.jobs.artifactKey(id, name);
+    const artifact = await this.jobs.artifactKey(tenantId, id, name);
     if (!artifact) throw new NotFoundException("Ese artefacto todavía no existe.");
     // HEAD (Fastify lo expone solo): responder con la cabecera de S3, sin abrir el objeto. Con GetObject el
     // video entero se leía y se descartaba, una amplificación de lectura de S3 a coste casi nulo del cliente.

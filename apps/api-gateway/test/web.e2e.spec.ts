@@ -11,11 +11,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { loadConfig } from "../src/config/config.js";
 import { createApp } from "../src/main.js";
+import { disposeTestTenants, sharedTenant, type TestTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 let parent = "";
 let root = "";
+let tenant: TestTenant;
 
 beforeAll(() => {
   parent = mkdtempSync(join(tmpdir(), "cf-web-"));
@@ -30,17 +32,19 @@ beforeAll(() => {
 
 afterAll(async () => {
   for (const app of apps) await app.close();
+  await disposeTestTenants();
   rmSync(parent, { recursive: true, force: true });
 });
 
-async function start(overrides: { webRoot?: string | undefined; rateLimitPerMinute?: number } = {}): Promise<number> {
+async function start(overrides: { webRoot?: string | undefined; rateLimitPerMinute?: number; webApiKey?: string } = {}): Promise<number> {
+  tenant = await sharedTenant();
   const app = await createApp(
     {
       ...baseConfig,
       webRoot: "webRoot" in overrides ? overrides.webRoot : root,
       reaper: { ...baseConfig.reaper, intervalMs: 0 },
       security: {
-        apiKey: undefined,
+        webApiKey: overrides.webApiKey,
         rateLimitPerMinute: overrides.rateLimitPerMinute ?? 0,
         uploadRateLimitPerMinute: 0,
         trustProxy: false,
@@ -67,7 +71,7 @@ type Reply = { status: number; headers: http.IncomingHttpHeaders; body: string }
 /** http.request y no fetch: fetch normaliza rutas (`/..`) y no deja fijar Host ni Origin. */
 function send(port: number, method: string, path: string, headers: Record<string, string> = {}): Promise<Reply> {
   return new Promise((resolve, reject) => {
-    const request = http.request({ host: "127.0.0.1", port, method, path, headers }, (response) => {
+    const request = http.request({ host: "127.0.0.1", port, method, path, headers: { ...tenant.headers, ...headers } }, (response) => {
       const parts: Buffer[] = [];
       response.on("data", (part: Buffer) => parts.push(part));
       response.on("end", () => resolve({ status: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(parts).toString() }));
@@ -137,7 +141,7 @@ describe("CSP y cabeceras de seguridad de la estática", () => {
     expect(csp.get("script-src")).toEqual(["'self'"]);
     expect(csp.get("style-src")).toEqual(["'self'"]);
     expect(csp.get("img-src")).toEqual(["'self'", "data:"]);
-    expect(csp.get("media-src")).toEqual(["'self'"]);
+    expect(csp.get("media-src")).toEqual(["'self'", "blob:"]);
     expect(csp.get("object-src")).toEqual(["'none'"]);
     expect(csp.get("base-uri")).toEqual(["'none'"]);
     expect(csp.get("form-action")).toEqual(["'self'"]);
@@ -260,5 +264,39 @@ describe("límite de uso", () => {
     const codes: number[] = [];
     for (let i = 0; i < 6; i++) codes.push((await send(port, "GET", `/v1/jobs/${randomUUID()}`)).status);
     expect(codes.filter((code) => code === 429).length).toBeGreaterThan(0);
+  });
+});
+
+describe("GET /web-config.json (clave por defecto de la interfaz local, ADR 0015)", () => {
+  const KEY = `cfk_${"a".repeat(64)}`;
+
+  it("sin WEB_API_KEY la ruta no existe", async () => {
+    const port = await start();
+    expect((await send(port, "GET", "/web-config.json")).status).toBe(404);
+  });
+
+  it("con WEB_API_KEY entrega la clave al mismo origen, sin caché", async () => {
+    const port = await start({ webApiKey: KEY });
+    const host = `127.0.0.1:${port}`;
+    const reply = await send(port, "GET", "/web-config.json", { host, origin: `http://${host}` });
+    expect(reply.status).toBe(200);
+    expect(reply.headers["content-type"]).toMatch(/^application\/json/);
+    expect(JSON.parse(reply.body)).toEqual({ apiKey: KEY });
+    expect(reply.headers["cache-control"]).toBe("no-store");
+    expect(reply.headers["cross-origin-resource-policy"]).toBe("same-origin");
+    expect(reply.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("una página ajena no la lee: Origin ajeno 403, Host ajeno 421 y Sec-Fetch-Site cross-site 403", async () => {
+    const port = await start({ webApiKey: KEY });
+    for (const [headers, status] of [
+      [{ origin: "http://evil.example" }, 403],
+      [{ host: "evil.example" }, 421],
+      [{ "sec-fetch-site": "cross-site" }, 403],
+    ] as [Record<string, string>, number][]) {
+      const reply = await send(port, "GET", "/web-config.json", headers);
+      expect(reply.status, JSON.stringify(headers)).toBe(status);
+      expect(reply.body).not.toContain(KEY);
+    }
   });
 });

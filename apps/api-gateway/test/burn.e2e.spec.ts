@@ -10,6 +10,7 @@ import { assertContract } from "../src/contracts/validators.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
 import { QueueService } from "../src/queue/queue.service.js";
 import { QUEUES } from "../src/queue/names.js";
+import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 import { StorageService } from "../src/storage/storage.service.js";
 
 const config = loadConfig();
@@ -86,6 +87,7 @@ const put = async (path: string, body: unknown): Promise<Response> =>
   fetch(`${base}${path}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 beforeAll(async () => {
+  await sharedTenant();
   app = await createApp(config, { logger: ["error"] });
   await app.listen(0, "127.0.0.1");
   base = await app.getUrl();
@@ -110,6 +112,7 @@ afterAll(async () => {
   await transcribeQueue.close();
   await burnQueue.close();
   await app.close();
+  await disposeTestTenants();
 });
 
 describe("GET /v1/jobs/:id/segments", () => {

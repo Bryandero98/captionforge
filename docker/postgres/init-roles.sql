@@ -104,3 +104,16 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Tenencia (ADR 0015): lo mismo para sus tablas. cf_api solo LEE Tenant y ApiKey y anota ApiKey.lastUsedAt (no crea ni borra
+-- claves, tenants ni personas); cf_worker no las ve. Se repite aquí lo que concede la migración de tenencia, para que
+-- re-ejecutar este archivo no lo deshaga.
+DO $$
+BEGIN
+  IF to_regclass('public."Tenant"') IS NOT NULL THEN
+    REVOKE ALL ON "Tenant", "User", "ApiKey" FROM cf_api, cf_worker;
+    GRANT SELECT ON "Tenant", "ApiKey" TO cf_api;
+    GRANT UPDATE ("lastUsedAt") ON "ApiKey" TO cf_api;
+  END IF;
+END
+$$;

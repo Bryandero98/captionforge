@@ -5,18 +5,20 @@ import { afterAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/config.js";
 import { createApp } from "../src/main.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
+import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
 async function start(diarization: boolean): Promise<{ base: string; prisma: PrismaService }> {
+  await sharedTenant();
   const app = await createApp({
     ...baseConfig,
     port: 0,
     webRoot: undefined,
     features: { diarization },
     reaper: { ...baseConfig.reaper, intervalMs: 0 },
-    security: { ...baseConfig.security, apiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0 },
+    security: { ...baseConfig.security, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0 },
   });
   apps.push(app);
   await app.listen(0, "127.0.0.1");
@@ -26,6 +28,7 @@ async function start(diarization: boolean): Promise<{ base: string; prisma: Pris
 
 afterAll(async () => {
   for (const app of apps) await app.close();
+  await disposeTestTenants();
 });
 
 function form(options: unknown): FormData {

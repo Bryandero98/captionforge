@@ -2,11 +2,13 @@
 // quemado, que es un trabajo aparte con su propio seguimiento SSE (ui/tracker.js). Al terminar muestra el video
 // (con Range, el navegador salta sin bajarlo entero) y su descarga.
 
+import { PREVIEW_MAX_BYTES, fetchArtifact, saveBlobAs } from "../api/download.js";
 import { ApiError } from "../api/errors.js";
-import { artifactUrl, cancelJob, startBurn } from "../api/jobs.js";
+import { cancelJob, startBurn } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { trackingViewOf } from "../domain/job-state.js";
 import { detailText, statusText } from "./job-text.js";
+import { downloadName } from "./results.js";
 import { createTracker } from "./tracker.js";
 
 export const BURN_STYLES = /** @type {const} */ (["modern", "tiktok", "youtube", "minimal"]);
@@ -56,6 +58,13 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   let epoch = 0;
   /** @type {string | null} */
   let shownVideoFor = null;
+  /** El video se pide con la clave de API (un <video src> no puede mandarla) y se muestra desde un Blob. */
+  /** @type {AbortController | null} */
+  let videoLoad = null;
+  /** @type {string | null} */
+  let videoObjectUrl = null;
+  /** @type {Blob | null} */
+  let videoBlob = null;
 
   function fillStyles() {
     const keep = els.style.value || "modern";
@@ -74,11 +83,63 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
 
   /** Suelta el video: sin esto sigue sonando y con la conexión abierta aunque el panel esté oculto. */
   function clearVideo() {
+    videoLoad?.abort();
+    videoLoad = null;
     els.video.pause();
     els.video.removeAttribute("src");
     els.video.load();
+    if (videoObjectUrl !== null) URL.revokeObjectURL(videoObjectUrl);
+    videoObjectUrl = null;
+    videoBlob = null;
     shownVideoFor = null;
   }
+
+  /** Baja el video con la clave. Si es demasiado grande para la memoria de la página, no se previsualiza (sí se descarga). */
+  async function loadVideo(/** @type {string} */ id) {
+    const abort = new AbortController();
+    videoLoad = abort;
+    try {
+      const response = await fetchArtifact({ baseUrl, jobId: id, name: "video", signal: abort.signal });
+      const size = Number(response.headers.get("content-length"));
+      if (Number.isFinite(size) && size > PREVIEW_MAX_BYTES) {
+        await response.body?.cancel().catch(() => {});
+        els.video.hidden = true;
+        return;
+      }
+      const blob = await response.blob();
+      if (abort.signal.aborted || shownVideoFor !== id) return;
+      videoBlob = blob;
+      videoObjectUrl = URL.createObjectURL(blob);
+      els.video.src = videoObjectUrl;
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      if (!(error instanceof ApiError)) console.error(error);
+      els.video.hidden = true; // la descarga sigue disponible: si el fallo es de verdad, ahí se verá el error
+    } finally {
+      if (videoLoad === abort) videoLoad = null;
+    }
+  }
+
+  /** «Descargar video»: con la clave de API, desde el Blob ya cargado o pidiéndolo de nuevo. */
+  async function downloadVideo() {
+    const id = tracker.state.jobId;
+    if (id === null) return;
+    try {
+      const blob = videoBlob ?? (await (await fetchArtifact({ baseUrl, jobId: id, name: "video" })).blob());
+      const original = tracker.state.job?.originalFilename;
+      saveBlobAs({ doc, win, blob, filename: downloadName(typeof original === "string" ? original : "", "captioned.mp4") });
+    } catch (error) {
+      if (!(error instanceof ApiError)) console.error(error);
+      const code = error instanceof ApiError ? error.code : "network";
+      startProblem = t(`error.${code}`, { seconds: error instanceof ApiError ? (error.retryAfter ?? 10) : 10 });
+      announce(startProblem);
+      refreshForm();
+    }
+  }
+  els.download.addEventListener("click", (/** @type {Event} */ event) => {
+    event.preventDefault();
+    void downloadVideo();
+  });
 
   /** El formulario solo aparece con una transcripción abierta, y solo se puede enviar con los cambios guardados. */
   function refreshForm() {
@@ -129,15 +190,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
       if (shownVideoFor !== null) clearVideo();
     } else if (shownVideoFor !== id) {
       shownVideoFor = id;
-      try {
-        const url = artifactUrl(baseUrl, id, "video");
-        els.download.href = url;
-        els.video.src = url;
-      } catch (error) {
-        console.error(error);
-        els.video.hidden = true;
-        els.download.hidden = true;
-      }
+      void loadVideo(id);
     }
     const parentId = tracker.state.job?.parentJobId;
     els.parent.hidden = !(typeof parentId === "string" && context()?.job.id !== parentId);

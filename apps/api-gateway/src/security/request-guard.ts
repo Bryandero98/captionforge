@@ -2,8 +2,8 @@
  * Defensa del API frente a páginas web ajenas que actúan desde el navegador de quien lo usa (H10).
  *
  * El API no usa cookies ni sesiones, así que un token anti-CSRF no protegería nada: ese token defiende
- * credenciales que el navegador envía solo. Lo que sí está expuesto, sobre todo sin `API_KEY` en
- * 127.0.0.1, es:
+ * credenciales que el navegador envía solo. Lo que sí está expuesto, sobre todo con la clave
+ * por defecto de la interfaz local (ADR 0015) en 127.0.0.1, es:
  *   - CSRF por petición simple: un `POST multipart/form-data` cross-origin no necesita preflight y
  *     cualquier página abierta puede crear, cancelar o quemar trabajos.
  *   - DNS rebinding: un dominio atacante que resuelve a 127.0.0.1 hace que el navegador lo trate como
@@ -96,8 +96,10 @@ export function evaluate(info: RequestInfo, policy: Policy): Verdict {
     return allowed ? null : { status: 403, message: "Origen no permitido." };
   }
 
-  // Las lecturas de otro sitio (enlaces, descargas) pasan; las que modifican y /health no.
-  if ((isHealth || !SAFE_METHODS.has(method)) && fromAnotherSite) {
+  // Las lecturas de otro sitio (enlaces, descargas) pasan; las que modifican, /health y /web-config.json (entrega la clave
+  // por defecto de la interfaz, ADR 0015) no.
+  const isWebConfig = info.path.split("?")[0] === "/web-config.json";
+  if ((isHealth || isWebConfig || !SAFE_METHODS.has(method)) && fromAnotherSite) {
     return { status: 403, message: "Petición de otro sitio no permitida." };
   }
   return null;

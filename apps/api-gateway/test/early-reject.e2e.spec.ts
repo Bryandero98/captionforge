@@ -12,20 +12,23 @@ import { afterAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/config.js";
 import { DISCARD_LIMIT_BYTES, DISCARD_TIMEOUT_MS, createApp } from "../src/main.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
+import { disposeTestTenants, sharedTenant, type TestTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 const token = `early-${randomUUID().slice(0, 8)}`;
 let prisma: PrismaService | undefined;
+let tenant: TestTenant;
 
 async function start(overrides: { maxUploadBytes?: number; uploadRateLimitPerMinute?: number } = {}): Promise<number> {
+  tenant = await sharedTenant();
   const app = await createApp(
     {
       ...baseConfig,
       maxUploadBytes: overrides.maxUploadBytes ?? 1024 * 1024,
       reaper: { ...baseConfig.reaper, intervalMs: 0 },
       security: {
-        apiKey: undefined,
+        webApiKey: undefined,
         rateLimitPerMinute: 0,
         uploadRateLimitPerMinute: overrides.uploadRateLimitPerMinute ?? 0,
         trustProxy: false,
@@ -95,6 +98,7 @@ function upload(port: number, totalBytes: number, headers: Record<string, string
     const requestHead = [
       "POST /v1/jobs/transcribe HTTP/1.1",
       `Host: ${headers.host ?? "127.0.0.1"}`,
+      `X-API-Key: ${tenant.apiKey}`,
       `Content-Type: multipart/form-data; boundary=${BOUNDARY}`,
       "Transfer-Encoding: chunked",
       "",

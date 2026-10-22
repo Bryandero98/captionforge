@@ -16,6 +16,7 @@ import { loadConfig } from "../src/config/config.js";
 import { createApp } from "../src/main.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
 import { StorageService } from "../src/storage/storage.service.js";
+import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 
 // Las funciones de waitForFunction se ejecutan dentro del navegador; solo se declara lo que usan (sin cargar la librería DOM).
 declare const localStorage: { setItem(key: string, value: string): void; getItem(key: string): string | null };
@@ -48,6 +49,7 @@ let storage: StorageService;
 type Overrides = { maxUploadBytes?: number; uploadRateLimitPerMinute?: number; eventStreamMaxMs?: number; diarization?: boolean };
 
 async function startApi(overrides: Overrides = {}): Promise<string> {
+  const tenant = await sharedTenant();
   const app = await createApp(
     {
       ...baseConfig,
@@ -55,7 +57,7 @@ async function startApi(overrides: Overrides = {}): Promise<string> {
       features: { diarization: overrides.diarization ?? false },
       reaper: { ...baseConfig.reaper, intervalMs: 0 },
       security: {
-        apiKey: undefined,
+        webApiKey: tenant.apiKey,
         rateLimitPerMinute: 0,
         uploadRateLimitPerMinute: overrides.uploadRateLimitPerMinute ?? 0,
         trustProxy: false,
@@ -145,6 +147,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await browser?.close();
     if (prisma !== undefined) await prisma.job.deleteMany({ where: { originalFilename: { contains: token } } }).catch(() => undefined);
     for (const app of apps) await app.close();
+    await disposeTestTenants();
     rmSync(dir, { recursive: true, force: true });
   }, 60_000);
 
@@ -540,14 +543,12 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     expect(await page.$eval("#result-segments li:first-child .seg__text", (area) => (area as unknown as { value: string }).value)).toContain("<b>todos</b>");
     expect(await page.$$eval("#result-segments b", (nodes) => nodes.length)).toBe(0);
 
-    const srtHref = await page.$eval("#dl-srt", (link) => link.getAttribute("href"));
-    expect(srtHref).toMatch(/\/v1\/jobs\/[0-9a-f-]{36}\/artifacts\/srt$/);
-    const srt = await page.evaluate(async (href) => {
-      const response = await fetch(href as string);
-      return { status: response.status, disposition: response.headers.get("content-disposition"), body: await response.text() };
-    }, srtHref);
-    expect(srt.status).toBe(200);
-    expect(srt.disposition).toContain("entrevista.srt");
+    // El .srt del servidor se baja con fetch + la clave de API (un enlace no puede mandarla) y se entrega como archivo.
+    await page.click("#dl-srt");
+    const foundSrt = () => readdirSync(downloads).find((entry) => entry.endsWith(".srt"));
+    for (let i = 0; i < 150 && foundSrt() === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(foundSrt()).toBe(`${token}-entrevista.srt`);
+    expect(readFileSync(join(downloads, foundSrt()!), "utf8")).toContain("-->");
 
     await page.click("#dl-vtt");
     // El nombre es el del video subido (con el prefijo único de la prueba) y la extensión .vtt.
@@ -767,6 +768,9 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
   it("quemado: se crea un trabajo propio, se sigue su progreso y al terminar aparecen el video y su descarga", async () => {
     const base = await startApi();
     const { page, spy, jobId } = await openEditorFor(base, "quema.mp4");
+    const downloads = mkdtempSync(join(tmpdir(), "cf-dl-"));
+    const session = await browser.target().createCDPSession();
+    await session.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloads });
     // Estos subtítulos no traen tiempos por palabra: el karaoke no se puede elegir y se dice por qué.
     expect(await page.$eval("#burn-karaoke", (box) => (box as unknown as { disabled: boolean }).disabled)).toBe(true);
     expect(await text(page, "#burn-hint")).toContain("tiempos por palabra");
@@ -788,15 +792,21 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
 
     await workerFinishesBurn(burn.id);
     await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("Video listo"), { timeout: 10_000 });
+    // Un <video src> no puede mandar la clave de API: la interfaz baja el video con fetch y lo muestra desde un Blob.
+    await page.waitForFunction(() => (document.querySelector("#burn-video")?.getAttribute("src") ?? "").startsWith("blob:"), { timeout: 10_000 });
     expect(await isVisible(page, "#burn-video")).toBe(true);
-    expect(await page.$eval("#burn-video", (video) => video.getAttribute("src"))).toMatch(/\/v1\/jobs\/[0-9a-f-]{36}\/artifacts\/video$/);
-    expect(await page.$eval("#burn-download", (link) => link.getAttribute("href"))).toMatch(/\/artifacts\/video$/);
-    // El navegador puede pedir rangos del video (saltar sin bajarlo entero).
-    const range = await page.evaluate(async (href) => {
-      const response = await fetch(href as string, { headers: { Range: "bytes=0-9" } });
-      return { status: response.status, length: (await response.arrayBuffer()).byteLength };
-    }, await page.$eval("#burn-video", (video) => video.getAttribute("src")));
-    expect(range).toEqual({ status: 206, length: 10 });
+    // Sin la clave el servidor no entrega el video, y con ella sí admite rangos.
+    const videoUrl = `${base}/v1/jobs/${burn.id}/artifacts/video`;
+    expect((await fetch(videoUrl, { headers: { "x-api-key": "" } })).status).toBe(401);
+    const range = await fetch(videoUrl, { headers: { Range: "bytes=0-9" } });
+    expect({ status: range.status, length: (await range.arrayBuffer()).byteLength }).toEqual({ status: 206, length: 10 });
+    // «Descargar video» baja el archivo con la clave (nombre del video original + .captioned.mp4).
+    await page.click("#burn-download");
+    const foundVideo = () => readdirSync(downloads).find((entry) => entry.endsWith(".captioned.mp4"));
+    for (let i = 0; i < 150 && foundVideo() === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(foundVideo()).toBe(`${token}-quema.captioned.mp4`);
+    expect(readFileSync(join(downloads, foundVideo()!)).length).toBe(4096);
+    await session.detach();
     expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(false);
     expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(2);
     expect(spy.problems).toEqual([]);

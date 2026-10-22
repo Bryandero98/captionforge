@@ -9,6 +9,7 @@
 //    Con cuerpos mayores el navegador puede ver solo un corte (status 0): por eso 'network' es ambiguo y precheckFile
 //    es la defensa real del tamaño.
 
+import { authHeaders } from "./auth.js";
 import { ApiError, errorFromResponse } from "./errors.js";
 
 /** Extensión -> tipo que el API acepta. */
@@ -126,6 +127,7 @@ export function uploadVideo({ file, options, baseUrl = "", maxBytes = DEFAULT_MA
     };
 
     xhr.open("POST", `${baseUrl}/v1/jobs/transcribe`);
+    for (const [name, value] of Object.entries(authHeaders())) xhr.setRequestHeader(name, value);
     xhr.responseType = "text";
     xhr.timeout = 0; // un video grande puede tardar horas; lo lento lo corta el API con 408
 

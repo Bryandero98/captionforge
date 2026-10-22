@@ -13,6 +13,7 @@ import { loadConfig } from "../src/config/config.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
 import { StorageService } from "../src/storage/storage.service.js";
 import { QUEUES } from "../src/queue/names.js";
+import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 
 const config = loadConfig();
 const created: string[] = []; // ids de trabajos creados por estas pruebas, para limpiarlos al final
@@ -55,6 +56,7 @@ async function listenForCancellations(): Promise<() => void> {
 }
 
 beforeAll(async () => {
+  await sharedTenant();
   app = await createApp(config, { logger: ["error"] });
   await app.listen(0, "127.0.0.1");
   base = await app.getUrl();
@@ -78,6 +80,7 @@ afterAll(async () => {
   await worker.end();
   await queue.close();
   await app.close();
+  await disposeTestTenants();
 });
 
 describe("GET /health", () => {
@@ -450,7 +453,7 @@ describe("subida interrumpida por el cliente", () => {
       await new Promise<void>((resolve) => socket.once("connect", resolve));
       // Content-Length promete 1 MB y solo se envían 2 KB: luego se corta de golpe.
       socket.write(
-        `POST /v1/jobs/transcribe HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\n` +
+        `POST /v1/jobs/transcribe HTTP/1.1\r\nHost: 127.0.0.1\r\nX-API-Key: ${(await sharedTenant()).apiKey}\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\n` +
           `Content-Length: ${head.length + 1_000_000}\r\n\r\n${head}${"A".repeat(2048)}`,
       );
       await new Promise((r) => setTimeout(r, 400));

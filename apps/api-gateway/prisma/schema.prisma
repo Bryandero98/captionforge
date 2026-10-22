@@ -25,15 +25,62 @@ enum JobStatus {
   CANCELLED
 }
 
+// Espacio de trabajo: la unidad de aislamiento. Todo Job pertenece a un Tenant y nadie ve los de otro (ADR 0015).
+// En la Fase 5b cada persona tiene el suyo (1 persona = 1 tenant), pero el modelo ya admite varias personas por tenant.
+model Tenant {
+  id        String   @id @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+
+  users   User[]
+  apiKeys ApiKey[]
+  jobs    Job[]
+}
+
+// Persona. `provider` + `subject` identifican la cuenta en el proveedor de inicio de sesión (github, google): los
+// rellena el issue #7; hasta entonces quedan vacíos.
+model User {
+  id        String   @id @db.Uuid
+  tenantId  String   @db.Uuid
+  email     String?  @unique
+  name      String?
+  provider  String?
+  subject   String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, subject])
+  @@index([tenantId])
+}
+
+// Clave de API de un tenant para scripts y servicios. El valor completo solo se ve al crearla: aquí se guarda su
+// SHA-256 (las claves son aleatorias de 256 bits, así que no hace falta un hash lento) y un prefijo para reconocerla.
+model ApiKey {
+  id         String    @id @db.Uuid
+  tenantId   String    @db.Uuid
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+}
+
 model Job {
-  id               String    @id @db.Uuid
-  kind             JobKind
-  status           JobStatus @default(QUEUED)
+  id       String    @id @db.Uuid
+  tenantId String    @db.Uuid
+  kind     JobKind
+  status   JobStatus @default(QUEUED)
 
   // Progreso (lo actualiza el worker): etapa del contrato job-progress y porcentaje 0-100.
-  stage            String?
-  percent          Float     @default(0)
-  message          String?
+  stage   String?
+  percent Float   @default(0)
+  message String?
 
   // Archivo de entrada y prefijo de salida, siempre como bucket + objectKey (ADR 0002).
   inputBucket      String
@@ -45,18 +92,22 @@ model Job {
   options          Json
 
   // Un trabajo de quemado apunta a la transcripción de la que parte.
-  parentJobId      String?   @db.Uuid
+  parentJobId String? @db.Uuid
 
   // Resultado: errorCode es un código del contrato job-error; result es transcribe/burn-result.
-  errorCode        String?
-  errorMessage     String?
-  result           Json?
+  errorCode    String?
+  errorMessage String?
+  result       Json?
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  startedAt        DateTime?
-  finishedAt       DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([status, createdAt])
   @@index([parentJobId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status])
 }

@@ -20,6 +20,8 @@ from ai_worker.storage import Storage
 
 REPO = Path(__file__).resolve().parents[3]
 CLIP = REPO / "legacy" / "tests" / "fixtures" / "tiny_test_clip.mp4"
+# Tenant "Default" que crea la migración de tenencia (ADR 0015): todo trabajo pertenece a un tenant.
+DEFAULT_TENANT_ID = "00000000-0000-4000-8000-000000000001"
 
 
 def env(name: str) -> str:
@@ -60,10 +62,10 @@ def new_job(api_db, storage: Storage, config: WorkerConfig):
             storage.upload_file(CLIP, input_key, "video/mp4")
         merged = {"modelSize": "base", "sourceLanguage": None, "translateTo": None, **(options or {})}
         api_db.execute(
-            """INSERT INTO "Job" (id, kind, "inputBucket", "inputKey", "originalFilename", "contentType",
+            """INSERT INTO "Job" (id, "tenantId", kind, "inputBucket", "inputKey", "originalFilename", "contentType",
                  "sizeBytes", "outputPrefix", options, "updatedAt")
-               VALUES (%s, 'TRANSCRIBE', %s, %s, %s, 'video/mp4', %s, %s, %s::jsonb, now())""",
-            (job_id, config.s3_bucket, input_key, filename, CLIP.stat().st_size, output_prefix, __import__("json").dumps(merged)),
+               VALUES (%s, %s, 'TRANSCRIBE', %s, %s, %s, 'video/mp4', %s, %s, %s::jsonb, now())""",
+            (job_id, DEFAULT_TENANT_ID, config.s3_bucket, input_key, filename, CLIP.stat().st_size, output_prefix, __import__("json").dumps(merged)),
         )
         created.append(job_id)
         payload = {
@@ -129,10 +131,10 @@ def new_burn_job(api_db, storage: Storage, config: WorkerConfig, new_job, tmp_pa
         output_prefix = f"jobs/{burn_id}/out/"
         options = {"style": style, "karaoke": karaoke}
         api_db.execute(
-            """INSERT INTO "Job" (id, kind, "parentJobId", "inputBucket", "inputKey", "originalFilename", "contentType",
+            """INSERT INTO "Job" (id, "tenantId", kind, "parentJobId", "inputBucket", "inputKey", "originalFilename", "contentType",
                  "sizeBytes", "outputPrefix", options, "updatedAt")
-               VALUES (%s, 'BURN', %s, %s, %s, 'entrevista.mp4', 'video/mp4', %s, %s, %s::jsonb, now())""",
-            (burn_id, parent_id, config.s3_bucket, parent_payload["input"]["objectKey"], CLIP.stat().st_size, output_prefix, json.dumps(options)),
+               VALUES (%s, %s, 'BURN', %s, %s, %s, 'entrevista.mp4', 'video/mp4', %s, %s, %s::jsonb, now())""",
+            (burn_id, DEFAULT_TENANT_ID, parent_id, config.s3_bucket, parent_payload["input"]["objectKey"], CLIP.stat().st_size, output_prefix, json.dumps(options)),
         )
         created.append(burn_id)
         payload = {

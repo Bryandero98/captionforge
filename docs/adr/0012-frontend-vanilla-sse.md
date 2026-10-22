@@ -58,6 +58,7 @@ Restricciones del API que condicionan al cliente:
   réplicas haría falta un bloqueo en BD o un PUT condicional en S3.
 - **Rechazo temprano de cuerpos >16 MiB:** el API descarta hasta 16 MiB/10 s tras rechazar (ADR 0011); por encima, el
   navegador ve un error de red en lugar del 413.
-- **`API_KEY` bloquea la interfaz web** y un `cf-api-base` de otro origen lo impide la CSP (ADR 0011).
+- **`API_KEY` bloqueaba la interfaz web** y un `cf-api-base` de otro origen lo impide la CSP (ADR 0011). *(Actualización, ADR 0015: la
+  interfaz manda `X-API-Key` en `fetch`, XHR y SSE; las descargas van por `fetch` + Blob.)*
 - **El video quemado puede mostrar una versión anterior** si se edita el texto después de crearlo (hay que volver a
   crearlo).
