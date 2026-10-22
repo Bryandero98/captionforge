@@ -59,8 +59,11 @@ la suya, `Cache-Control: no-store`.
 La guardia se registra **antes** que multipart, CORS y el límite de uso: una petición ya identificada como ajena
 no debe consumir cuota ni procesar su cuerpo.
 
-Las respuestas 403 y 421 llevan `connection: close`: el cuerpo de la petición rechazada no se lee y la conexión no
-se reutiliza. Los mensajes de error son fijos y no reflejan el `Host` ni el `Origin` recibidos. Al arrancar, el API
+Las respuestas de error con el cuerpo sin leer (403, 421, 413, 429...) no cierran la conexión de golpe: un cierre
+brusco hace que el navegador reciba un reinicio de la conexión y pierda la respuesta (XMLHttpRequest no entrega nada
+hasta terminar de subir). El API lee y descarta el resto del cuerpo con tope de 16 MiB y 10 s y entonces corta (como el
+«lingering close» de nginx). Límite conocido: un rechazo temprano con un cuerpo de más de 16 MiB acaba como error de red
+en el navegador; la comprobación previa del cliente (tamaño máximo) es la defensa real. Los mensajes de error son fijos y no reflejan el `Host` ni el `Origin` recibidos. Al arrancar, el API
 registra la política efectiva (hosts y orígenes aceptados) para que un error de configuración se vea en el log.
 
 ## Alternativas consideradas
@@ -100,7 +103,9 @@ registra la política efectiva (hosts y orígenes aceptados) para que un error d
   `Origin` de esta guardia se mantiene como defensa en profundidad.
 - **Acceso a redes privadas:** el API no responde `Access-Control-Allow-Private-Network`. Los navegadores que
   aplican Private Network Access bloquean que una página pública llegue a `127.0.0.1` en el preflight; no se
-  habilita a propósito y no hace falta para el cliente web, que se sirve desde un origen listado.
+  habilita a propósito y no hace falta para el cliente web, que el propio API sirve desde su mismo origen (`apps/web/public`, `WEB_ROOT`): sin CORS,
+  con CSP restrictiva (`connect-src 'self'`, por lo que un `cf-api-base` de otro origen queda bloqueado) y fuera de
+  `API_KEY` y del límite de uso. Con `API_KEY` activa la interfaz web no funciona: no está soportado.
 - **Pruebas:** la función `evaluate` se prueba de forma exhaustiva (`test/request-guard.spec.ts`) y el
   comportamiento completo contra el API real (`test/origin.e2e.spec.ts`): un POST multipart con `Origin` ajeno
   devolvía 202 y ahora 403 sin crear el trabajo.

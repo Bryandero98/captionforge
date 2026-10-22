@@ -1,6 +1,7 @@
 import "reflect-metadata";
 
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { HttpException, Logger, type LogLevel } from "@nestjs/common";
@@ -8,6 +9,7 @@ import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import multipart from "@fastify/multipart";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyRequest } from "fastify";
 
@@ -30,6 +32,9 @@ export async function createApp(
   // La guardia va PRIMERO: los ganchos corren en orden de registro, y ni el CORS ni el límite de uso ni el
   // procesado del cuerpo deben ocurrir para una petición que ya se sabe ajena.
   await registerBrowserGuard(app, config);
+  // La interfaz web va ANTES del límite de uso: @fastify/rate-limit solo envuelve las rutas que se registran después de él,
+  // así que cargar la interfaz (HTML, CSS, módulos) no gasta el contador de la API de nadie.
+  await registerWeb(app, config);
   await app.register(multipart, {
     limits: {
       files: 1,
@@ -66,8 +71,7 @@ async function registerBrowserGuard(app: NestFastifyApplication, config: AppConf
     if (verdict === null) return;
     // Misma forma que las excepciones de Nest, para que los clientes vean un solo formato de error.
     const error = verdict.status === 421 ? "Misdirected Request" : "Forbidden";
-    // `connection: close`: el cuerpo de la petición rechazada no se lee, así que la conexión no se reutiliza.
-    return reply.code(verdict.status).header("connection", "close").send({ statusCode: verdict.status, message: verdict.message, error });
+    return reply.code(verdict.status).send({ statusCode: verdict.status, message: verdict.message, error });
   });
 
   if (allowedOrigins.length > 0) {
@@ -81,10 +85,83 @@ async function registerBrowserGuard(app: NestFastifyApplication, config: AppConf
     });
   }
 
-  fastify.addHook("onSend", async (_request, reply) => {
+  fastify.addHook("onSend", async (request, reply) => {
+    // Rechazo con el cuerpo de la petición sin leer (413, 408, 403, 421, 429...): ver discardRemainingBody.
+    if (reply.statusCode >= 400 && !request.raw.complete) discardRemainingBody(request.raw);
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Referrer-Policy", "no-referrer");
     if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
+  });
+}
+
+/** Cuánto del cuerpo restante se descarta tras un rechazo, y durante cuánto tiempo, antes de cortar la conexión. */
+export const DISCARD_LIMIT_BYTES = 16 * 1024 * 1024;
+export const DISCARD_TIMEOUT_MS = 10_000;
+
+/**
+ * Tras responder un error con el cuerpo sin leer, cerrar la conexión de golpe (o con `connection: close`) no sirve: el cliente sigue enviando, el
+ * sistema operativo responde con un reinicio de la conexión y el navegador pierde la respuesta (verías un «error de
+ * red» en lugar del 413). Y no cerrarla deja al cliente atascado contra una conexión que nadie lee. Se hace lo que
+ * nginx con su «lingering close»: se lee y descarta el resto con tope de bytes y de tiempo, y entonces se corta.
+ */
+function discardRemainingBody(request: FastifyRequest["raw"]): void {
+  if (request.destroyed || request.readableEnded) return; // el cliente ya cortó: no hay nada que vaciar ni temporizador que armar
+  let discarded = 0;
+  const cut = (): void => {
+    request.destroy();
+  };
+  const timer = setTimeout(cut, DISCARD_TIMEOUT_MS);
+  timer.unref();
+  request.once("close", () => clearTimeout(timer));
+  request.on("data", (chunk: Buffer) => {
+    discarded += chunk.length;
+    if (discarded > DISCARD_LIMIT_BYTES) cut();
+  });
+  request.resume();
+}
+
+/**
+ * Política de contenido de la interfaz: todo del mismo origen y nada en línea. El cliente es JavaScript de módulos ES
+ * sin compilar ni scripts en línea, así que no hace falta 'unsafe-inline' ni 'unsafe-eval' (con una CSP así, un
+ * nombre de archivo o un subtítulo que acabara en el HTML no se podría ejecutar). `data:` es para la flecha de los
+ * <select> (un SVG en el CSS). Si más adelante se leen miniaturas con <video>, habrá que añadir `blob:` a media-src.
+ */
+export const WEB_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "media-src 'self'",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+/**
+ * Sirve la interfaz (apps/web/public) desde el propio API: mismo origen, así que no hace falta CORS ni ALLOWED_ORIGINS
+ * y la guardia de Host/Origin la deja pasar. `wildcard: false` registra solo los archivos que existen al arrancar:
+ * ninguna ruta del API puede acabar en la estática y no hay recorrido de directorios que vigilar. La caché es la de
+ * @fastify/static (ETag y revalidación): el gancho de seguridad solo pone `no-store` si falta Cache-Control.
+ */
+async function registerWeb(app: NestFastifyApplication, config: AppConfig): Promise<void> {
+  const { webRoot } = config;
+  if (webRoot === undefined) return;
+  // Se sirve TODO lo que haya bajo la raíz, sin clave de API ni límite de uso: exigir un index.html evita servir por
+  // error una carpeta cualquiera (WEB_ROOT=. o /) con código fuente, esquemas y dependencias.
+  if (!existsSync(join(webRoot, "index.html"))) {
+    new Logger("Web").warn(`WEB_ROOT (${webRoot}) no tiene index.html: la interfaz no se sirve. Usa WEB_ROOT=off para silenciarlo.`);
+    return;
+  }
+  await app.register(fastifyStatic, {
+    root: webRoot,
+    wildcard: false,
+    index: "index.html",
+    dotfiles: "ignore",
+    setHeaders: (reply) => {
+      reply.header("Content-Security-Policy", WEB_CSP);
+    },
   });
 }
 

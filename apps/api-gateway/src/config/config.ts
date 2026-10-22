@@ -1,4 +1,6 @@
 import { isIP } from "node:net";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const APP_CONFIG = Symbol("APP_CONFIG");
 
@@ -18,6 +20,8 @@ export interface AppConfig {
     forcePathStyle: boolean;
   };
   maxUploadBytes: number;
+  /** Carpeta de la interfaz web que sirve el propio API (mismo origen: sin CORS). undefined = no se sirve (despliegue solo de API). */
+  webRoot: string | undefined;
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
   /** Protección opcional del API: clave compartida y límites de uso por IP (0 = sin límite). */
@@ -99,6 +103,17 @@ function parseAllowedHosts(raw: string | undefined): string[] {
   return entries;
 }
 
+/**
+ * WEB_ROOT: carpeta de la interfaz. Por defecto `apps/web/public`, que queda a la misma distancia del API tanto
+ * en el código fuente (src/config) como compilado (dist/config). `off`, `none` o `false` la desactivan.
+ */
+function parseWebRoot(raw: string | undefined): string | undefined {
+  const value = (raw ?? "").trim();
+  if (value === "") return fileURLToPath(new URL("../../../web/public", import.meta.url));
+  if (["off", "none", "false"].includes(value.toLowerCase())) return undefined;
+  return resolve(value);
+}
+
 /** Lee y valida el entorno; falla al arrancar (no a mitad de una petición) si falta algo. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const need = (name: string): string => {
@@ -135,6 +150,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       forcePathStyle: (env.S3_FORCE_PATH_STYLE ?? "true") === "true",
     },
     maxUploadBytes: integer("MAX_UPLOAD_BYTES", 4 * 1024 ** 3),
+    webRoot: parseWebRoot(env.WEB_ROOT),
     reaper: {
       intervalMs: integer("REAPER_INTERVAL_SECONDS", 60, { allowZero: true }) * 1000,
       // Más que cualquier fase sin progreso del worker (ffmpeg corta a los 5 min sin actividad).

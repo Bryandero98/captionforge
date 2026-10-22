@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <!-- Configuración de despliegue (ver js/config.js). Vacío = mismo origen, que es lo normal: sin CORS. -->
+  <meta name="cf-api-base" content="">
+  <meta name="cf-max-upload-bytes" content="4294967296">
+  <title>CaptionForge</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/js/main.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="a11y.skip">Saltar al contenido</a>
+
+  <div class="page">
+    <header class="top">
+      <div class="top__text">
+        <h1 class="brand" data-i18n="app.title">CaptionForge</h1>
+        <p class="tagline" data-i18n="app.tagline">Subtítulos automáticos para tus videos.</p>
+      </div>
+      <div class="lang" role="group" data-i18n-aria-label="lang.label" aria-label="Idioma de la interfaz">
+        <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es">ES</button>
+        <button type="button" class="lang__btn" id="lang-en" data-lang="en" aria-pressed="false" lang="en">EN</button>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <form id="upload-form" novalidate>
+        <fieldset class="form" id="form-fields">
+          <legend class="visually-hidden" data-i18n="file.selected">Video elegido</legend>
+
+          <label class="drop" id="drop">
+            <input class="visually-hidden" type="file" id="file-input" accept=".mp4,.mov,.mkv,.webm,.avi,video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo">
+            <svg class="drop__icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 16V4"/>
+              <path d="m7 9 5-5 5 5"/>
+              <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+            </svg>
+            <span class="drop__title" data-i18n="drop.title">Arrastra un video aquí</span>
+            <span class="drop__or"><span data-i18n="drop.or">o</span> <span class="drop__choose" data-i18n="drop.choose">Elige un archivo</span></span>
+            <span class="drop__formats" id="drop-formats"></span>
+          </label>
+
+          <p class="problem" id="file-problem" role="alert" hidden></p>
+
+          <div class="file" id="file-row" hidden>
+            <div class="file__info">
+              <span class="file__name" id="file-name"></span>
+              <span class="file__size" id="file-size"></span>
+            </div>
+            <button type="button" class="btn btn--ghost" id="file-remove" data-i18n="file.remove">Quitar</button>
+          </div>
+
+          <div class="options">
+            <div class="field">
+              <label for="opt-model" data-i18n="options.model">Modelo</label>
+              <select id="opt-model"></select>
+            </div>
+            <div class="field">
+              <label for="opt-source" data-i18n="options.source">Idioma del audio</label>
+              <select id="opt-source"></select>
+            </div>
+            <div class="field">
+              <label for="opt-translate" data-i18n="options.translate">Traducir a</label>
+              <select id="opt-translate"></select>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn--primary btn--wide" id="start" disabled data-i18n="action.start">Generar subtítulos</button>
+        </fieldset>
+      </form>
+
+      <section class="panel" id="progress-panel" tabindex="-1" hidden aria-labelledby="progress-title">
+        <h2 class="visually-hidden" id="progress-title" data-i18n="upload.progress">Progreso de la subida</h2>
+        <p class="panel__status" id="progress-status"></p>
+        <div class="bar" id="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="progress-title">
+          <div class="bar__fill" id="bar-fill"></div>
+        </div>
+        <p class="panel__detail" id="progress-detail"></p>
+        <div class="panel__actions">
+          <button type="button" class="btn btn--secondary" id="cancel" data-i18n="action.cancel">Cancelar</button>
+        </div>
+      </section>
+
+      <section class="panel panel--notice" id="notice-panel" hidden>
+        <p class="panel__status" id="notice-text"></p>
+        <p class="panel__detail panel__detail--mono" id="notice-job"></p>
+        <div class="panel__actions">
+          <button type="button" class="btn btn--primary" id="notice-retry" hidden data-i18n="action.retry">Reintentar</button>
+          <button type="button" class="btn btn--secondary" id="notice-again" data-i18n="action.again">Subir otro video</button>
+        </div>
+      </section>
+
+      <section class="panel panel--error" id="error-panel" role="group" aria-labelledby="error-title" hidden>
+        <h2 class="panel__status" id="error-title" data-i18n="error.title">No se pudo subir el video</h2>
+        <p id="error-message"></p>
+        <p class="panel__detail" id="error-detail" hidden></p>
+        <div class="panel__actions">
+          <button type="button" class="btn btn--primary" id="error-retry" data-i18n="action.retry">Reintentar</button>
+          <button type="button" class="btn btn--secondary" id="error-other" data-i18n="action.chooseOther">Elegir otro archivo</button>
+        </div>
+      </section>
+
+      <!-- Anuncios para lector de pantalla: solo hitos (cada 25 %), no cada porcentaje. -->
+      <p class="visually-hidden" id="announcer" aria-live="polite" aria-atomic="true"></p>
+    </main>
+  </div>
+</body>
+</html>

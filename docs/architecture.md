@@ -87,7 +87,7 @@ de RAM.
 | 2 | API Gateway NestJS + Prisma (incluye la migración que concede UPDATE por columna a `cf_worker`) | Hecha |
 | 3 | AI Worker Python (modelo cargado una vez, reutiliza los módulos de `legacy`, [ADR 0009](adr/0009-worker-reutiliza-el-paquete-heredado.md)) | Hecha |
 | 4a | Flujo de quemado: edición de subtítulos, cola `burn`, descarga con `Range` | Hecha |
-| 4b | Adaptación del cliente web al nuevo API | Pendiente |
+| 4b | Cliente web (apps/web) servido por el API: estática + CSP y subida con progreso/cancelación hechas; SSE, resultados, editor y cola pendientes | En curso |
 | 5a | Endurecimiento: clave de API opcional, límites de uso, cierre de trabajos huérfanos, pool de conexiones ([ADR 0010](adr/0010-endurecimiento-del-api-y-trabajos-huerfanos.md)) | Hecha |
 | 5b | Autenticación de personas usuarias, observabilidad (métricas, trazas) y despliegue | Pendiente |
 
