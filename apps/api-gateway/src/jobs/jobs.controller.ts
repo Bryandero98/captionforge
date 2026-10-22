@@ -50,8 +50,9 @@ export class JobsController {
     // Cada subida retiene ~15 MiB de partes en memoria: sin tope, unas cuantas a la vez agotan el contenedor.
     const slot = this.limits.uploads.tryAcquire(clientKey(req.ip));
     if ("denied" in slot) {
-      // El cuerpo no se ha leído: se cierra la conexión en vez de dejar al cliente enviándolo a nadie.
-      reply.header("retry-after", "10").header("connection", "close");
+      // El cuerpo no se ha leído: el descarte acotado de main.ts (discardRemainingBody) lo vacía y corta. Con
+      // `connection: close` Node cerraría el socket al responder y el navegador perdería este mensaje.
+      reply.header("retry-after", "10");
       throw slot.denied === "key"
         ? new HttpException("Ya tienes demasiadas subidas en curso; espera a que termine alguna.", HttpStatus.TOO_MANY_REQUESTS)
         : new ServiceUnavailableException("Hay demasiadas subidas en curso; reintenta en unos segundos.");

@@ -137,7 +137,7 @@ describe("CSP y cabeceras de seguridad de la estática", () => {
     expect(csp.get("script-src")).toEqual(["'self'"]);
     expect(csp.get("style-src")).toEqual(["'self'"]);
     expect(csp.get("img-src")).toEqual(["'self'", "data:"]);
-    expect(csp.get("media-src")).toEqual(["'self'", "blob:"]);
+    expect(csp.get("media-src")).toEqual(["'self'"]);
     expect(csp.get("object-src")).toEqual(["'none'"]);
     expect(csp.get("base-uri")).toEqual(["'none'"]);
     expect(csp.get("form-action")).toEqual(["'self'"]);
@@ -207,6 +207,13 @@ describe("la estática convive con el API", () => {
     const reply = await send(port, "GET", "/v1/no-existe");
     expect(reply.status).toBe(404);
     expect(JSON.parse(reply.body)).toMatchObject({ statusCode: 404 });
+  });
+
+  it("una raíz sin index.html no se sirve (WEB_ROOT mal puesto no publica una carpeta cualquiera)", async () => {
+    const port = await start({ webRoot: parent }); // `parent` contiene secreto.txt pero no index.html
+    const reply = await send(port, "GET", "/secreto.txt");
+    expect(reply.status).toBe(404);
+    expect(reply.body).not.toContain("no debe salir");
   });
 
   it("sin raíz web configurada no se sirve nada en /", async () => {

@@ -1,6 +1,7 @@
 import "reflect-metadata";
 
 import { existsSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { HttpException, Logger, type LogLevel } from "@nestjs/common";
@@ -70,8 +71,7 @@ async function registerBrowserGuard(app: NestFastifyApplication, config: AppConf
     if (verdict === null) return;
     // Misma forma que las excepciones de Nest, para que los clientes vean un solo formato de error.
     const error = verdict.status === 421 ? "Misdirected Request" : "Forbidden";
-    // `connection: close`: el cuerpo de la petición rechazada no se lee, así que la conexión no se reutiliza.
-    return reply.code(verdict.status).header("connection", "close").send({ statusCode: verdict.status, message: verdict.message, error });
+    return reply.code(verdict.status).send({ statusCode: verdict.status, message: verdict.message, error });
   });
 
   if (allowedOrigins.length > 0) {
@@ -85,25 +85,53 @@ async function registerBrowserGuard(app: NestFastifyApplication, config: AppConf
     });
   }
 
-  fastify.addHook("onSend", async (_request, reply) => {
+  fastify.addHook("onSend", async (request, reply) => {
+    // Rechazo con el cuerpo de la petición sin leer (413, 408, 403, 421, 429...): ver discardRemainingBody.
+    if (reply.statusCode >= 400 && !request.raw.complete) discardRemainingBody(request.raw);
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Referrer-Policy", "no-referrer");
     if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
   });
 }
 
+/** Cuánto del cuerpo restante se descarta tras un rechazo, y durante cuánto tiempo, antes de cortar la conexión. */
+export const DISCARD_LIMIT_BYTES = 16 * 1024 * 1024;
+export const DISCARD_TIMEOUT_MS = 10_000;
+
+/**
+ * Tras responder un error con el cuerpo sin leer, cerrar la conexión de golpe (o con `connection: close`) no sirve: el cliente sigue enviando, el
+ * sistema operativo responde con un reinicio de la conexión y el navegador pierde la respuesta (verías un «error de
+ * red» en lugar del 413). Y no cerrarla deja al cliente atascado contra una conexión que nadie lee. Se hace lo que
+ * nginx con su «lingering close»: se lee y descarta el resto con tope de bytes y de tiempo, y entonces se corta.
+ */
+function discardRemainingBody(request: FastifyRequest["raw"]): void {
+  if (request.destroyed || request.readableEnded) return; // el cliente ya cortó: no hay nada que vaciar ni temporizador que armar
+  let discarded = 0;
+  const cut = (): void => {
+    request.destroy();
+  };
+  const timer = setTimeout(cut, DISCARD_TIMEOUT_MS);
+  timer.unref();
+  request.once("close", () => clearTimeout(timer));
+  request.on("data", (chunk: Buffer) => {
+    discarded += chunk.length;
+    if (discarded > DISCARD_LIMIT_BYTES) cut();
+  });
+  request.resume();
+}
+
 /**
  * Política de contenido de la interfaz: todo del mismo origen y nada en línea. El cliente es JavaScript de módulos ES
  * sin compilar ni scripts en línea, así que no hace falta 'unsafe-inline' ni 'unsafe-eval' (con una CSP así, un
- * nombre de archivo o un subtítulo que acabara en el HTML no se podría ejecutar). `data:` es para las miniaturas
- * del historial y `blob:` para el <video> con el que se leen la duración y la miniatura antes de subir.
+ * nombre de archivo o un subtítulo que acabara en el HTML no se podría ejecutar). `data:` es para la flecha de los
+ * <select> (un SVG en el CSS). Si más adelante se leen miniaturas con <video>, habrá que añadir `blob:` a media-src.
  */
 export const WEB_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self' data:",
-  "media-src 'self' blob:",
+  "media-src 'self'",
   "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
@@ -120,8 +148,10 @@ export const WEB_CSP = [
 async function registerWeb(app: NestFastifyApplication, config: AppConfig): Promise<void> {
   const { webRoot } = config;
   if (webRoot === undefined) return;
-  if (!existsSync(webRoot)) {
-    new Logger("Web").warn(`WEB_ROOT no existe (${webRoot}): la interfaz no se sirve. Usa WEB_ROOT=off para silenciarlo.`);
+  // Se sirve TODO lo que haya bajo la raíz, sin clave de API ni límite de uso: exigir un index.html evita servir por
+  // error una carpeta cualquiera (WEB_ROOT=. o /) con código fuente, esquemas y dependencias.
+  if (!existsSync(join(webRoot, "index.html"))) {
+    new Logger("Web").warn(`WEB_ROOT (${webRoot}) no tiene index.html: la interfaz no se sirve. Usa WEB_ROOT=off para silenciarlo.`);
     return;
   }
   await app.register(fastifyStatic, {

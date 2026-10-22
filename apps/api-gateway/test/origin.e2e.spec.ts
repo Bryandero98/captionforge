@@ -120,12 +120,11 @@ describe("CSRF: un POST de otra página no llega a crear trabajos", () => {
 });
 
 describe("respuestas de la guardia", () => {
-  it("el 403 y el 421 cierran la conexión: el cuerpo sin leer no deja un keep-alive abierto", async () => {
+  it("el 403 y el 421 llevan un cuerpo de error fijo (el manejo de un cuerpo sin leer está en early-reject.e2e.spec.ts)", async () => {
     const { port } = await start();
     const forbidden = await send(port, "POST", "/v1/jobs/transcribe", { origin: "http://evil.example" });
     const misdirected = await send(port, "GET", `/v1/jobs/${randomUUID()}`, { host: "evil.example" });
-    expect(forbidden.headers.connection).toBe("close");
-    expect(misdirected.headers.connection).toBe("close");
+    expect(misdirected.status).toBe(421);
     expect(JSON.parse(forbidden.body)).toEqual({ statusCode: 403, message: "Origen no permitido.", error: "Forbidden" });
   });
 
