@@ -63,3 +63,18 @@ def test_write_clips_instead_of_overflowing(tmp_path: Path) -> None:
     separate_cli.write_wav_mono(out, 16000, [2.0, -2.0, 0.5])
     _, data = separate_cli.read_wav_mono(out)
     assert list(data) == pytest.approx([32767 / 32768, -1.0, 0.5], abs=1e-4)
+
+
+def test_chunk_windows_cover_every_sample_exactly_once_with_context() -> None:
+    """Cada trozo se procesa con contexto a los lados pero solo se conserva su parte propia: sin huecos ni solapes."""
+    for total in (1, 479, 480, 481, 1000, 4800):
+        windows = separate_cli.chunk_windows(total, step=480, context=160)
+        kept = [index for lo, keep_from, keep_to, hi in windows for index in range(keep_from, keep_to)]
+        assert kept == list(range(total)), total
+        for lo, keep_from, keep_to, hi in windows:
+            assert 0 <= lo <= keep_from < keep_to <= hi <= total
+            assert keep_from - lo <= 160 and hi - keep_to <= 160
+
+
+def test_chunk_windows_of_an_empty_file_are_empty() -> None:
+    assert separate_cli.chunk_windows(0, step=480, context=160) == []

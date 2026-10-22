@@ -35,7 +35,16 @@ WORKDIR /repo
 COPY apps/ai-worker/constraints.txt apps/ai-worker/constraints.txt
 
 # torch solo en versión CPU: argostranslate (stanza) lo exige y la rueda por defecto trae CUDA (~2 GB).
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Con --build-arg WITH_SEPARATION=1 se fija torch/torchaudio 2.11 y se instala Demucs para la limpieza de audio
+# (cleanAudio, ADR 0013); sin él, la imagen es la de siempre y los trabajos que la pidan siguen con el audio original.
+ARG WITH_SEPARATION=0
+COPY apps/ai-worker/requirements-separation.txt apps/ai-worker/requirements-separation.txt
+RUN if [ "$WITH_SEPARATION" = "1" ]; then \
+      pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cpu \
+      && pip install --no-deps -r apps/ai-worker/requirements-separation.txt; \
+    else \
+      pip install torch --index-url https://download.pytorch.org/whl/cpu; \
+    fi
 
 # Dependencias locales primero (cambian poco); el código del worker después.
 COPY legacy/pyproject.toml legacy/README.md legacy/

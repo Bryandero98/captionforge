@@ -5,7 +5,8 @@ salida estándar; la traza de un error va a stderr y el código de salida es dis
 la VRAM vuelve al sistema (ver separation.py).
 
 Entrada y salida son WAV PCM de 16 bits mono (lo que produce el ffmpeg del pipeline y lo que espera Whisper). El
-audio se procesa en trozos de CHUNK_SECONDS para que la memoria no crezca con la duración del video.
+audio se procesa en trozos de CHUNK_SECONDS, con CONTEXT_SECONDS de contexto a cada lado que se descarta, para que la
+memoria no crezca con la duración del video y el avance sea real.
 """
 
 from __future__ import annotations
@@ -18,10 +19,17 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 MODEL_NAME = "htdemucs"
-CHUNK_SECONDS = 600
+CHUNK_SECONDS = 30  # Demucs 4.0.1 no avisa del avance por dentro: el avance real es el de los trozos
+CONTEXT_SECONDS = 1.5  # audio extra a cada lado de un trozo que se procesa pero se descarta (evita costuras)
 
 Emit = Callable[[str, float], None]
 Engine = Callable[[Path, Path, Emit], None]
+
+
+def chunk_windows(total: int, step: int, context: int) -> list[tuple[int, int, int, int]]:
+    """Trozos de `step` muestras como (lo, conservar_desde, conservar_hasta, hi): se procesa [lo, hi) y solo se conserva
+    [desde, hasta). Las partes conservadas cubren [0, total) exactamente una vez."""
+    return [(max(0, pos - context), pos, min(total, pos + step), min(total, pos + step + context)) for pos in range(0, total, step)]
 
 
 def read_wav_mono(path: Path) -> tuple[int, list[float]]:
@@ -48,9 +56,9 @@ def write_wav_mono(path: Path, rate: int, samples: Sequence[float]) -> None:
 def demucs_engine(source: Path, target: Path, emit: Emit) -> None:  # pragma: no cover - necesita torch y demucs; se mide en el benchmark
     """Aísla la voz con htdemucs (stem `vocals`), por trozos, en GPU si hay y en CPU si no (o si la GPU se queda sin memoria)."""
     import torch
-    import torchaudio.functional as audio_functional
     from demucs.apply import apply_model
     from demucs.pretrained import get_model
+    from julius import resample_frac  # lo trae demucs; torchaudio ya no sigue a torch (se quedó en 2.11), así que no se usa
 
     emit("downloading_separation_model", 0.0)
     model = get_model(MODEL_NAME)  # los pesos se descargan una vez y se comprueba su hash
@@ -67,28 +75,22 @@ def demucs_engine(source: Path, target: Path, emit: Emit) -> None:  # pragma: no
             writer.setnchannels(1)
             writer.setsampwidth(2)
             writer.setframerate(rate)
-            step = CHUNK_SECONDS * rate
-            done = 0
-            while done < total:
-                frames = reader.readframes(min(step, total - done))
+            for lo, keep_from, keep_to, hi in chunk_windows(total, CHUNK_SECONDS * rate, round(CONTEXT_SECONDS * rate)):
+                reader.setpos(lo)
+                frames = reader.readframes(hi - lo)
                 chunk = torch.frombuffer(bytearray(frames), dtype=torch.int16).float() / 32768
-                mix = audio_functional.resample(chunk, rate, model.samplerate)[None].repeat(model.audio_channels, 1)
+                mix = resample_frac(chunk, rate, model.samplerate)[None].repeat(model.audio_channels, 1)
                 mean, std = mix.mean(), mix.std() + 1e-8
-                base = done / total
-
-                def on_segment(info: dict, base: float = base, size: int = len(chunk)) -> None:
-                    length = info.get("audio_length") or 1
-                    inner = min(max(info.get("segment_offset", 0) / length, 0.0), 1.0)
-                    emit("separating_voice", base + (size / total) * inner)
-
                 with torch.no_grad():
-                    stems = apply_model(model, ((mix - mean) / std)[None], device=device, split=True, overlap=0.25, shifts=0, progress=False, callback=on_segment)[0]
+                    stems = apply_model(model, ((mix - mean) / std)[None], device=device, split=True, overlap=0.25, shifts=0, progress=False)[0]
                 voice = (stems[vocals] * std + mean).mean(dim=0)
-                voice = audio_functional.resample(voice, model.samplerate, rate).clamp(-1.0, 1.0)
-                writer.writeframes((voice * 32767).to(torch.int16).cpu().numpy().tobytes())
-                done += len(chunk)
-                emit("separating_voice", done / total)
-                del mix, stems, voice, chunk
+                voice = resample_frac(voice, model.samplerate, rate).clamp(-1.0, 1.0)
+                if len(voice) < hi - lo:  # el remuestreo puede dejar una muestra de menos
+                    voice = torch.nn.functional.pad(voice, (0, hi - lo - len(voice)))
+                kept = voice[keep_from - lo : keep_to - lo]
+                writer.writeframes((kept * 32767).to(torch.int16).cpu().numpy().tobytes())
+                emit("separating_voice", keep_to / total)
+                del mix, stems, voice, chunk, kept
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     try:
