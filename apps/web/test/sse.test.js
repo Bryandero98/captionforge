@@ -65,6 +65,17 @@ describe("SseParser: formato text/event-stream", () => {
     assert.deepEqual(parse("event: job\ndata: 1\n\ndata: 2\n\n").map((event) => event.type), ["job", "message"]);
   });
 
+  it("un flujo sin fin de línea o de evento no crece sin límite", () => {
+    const parser = new SseParser(() => {});
+    assert.throws(() => parser.push("x".repeat(1024 * 1024 + 1)), (error) => error.code === "bad_response");
+    const lines = new SseParser(() => {});
+    const feed = () => {
+      for (let i = 0; i < 2000; i++) lines.push(`data: ${"y".repeat(1000)}
+`);
+    };
+    assert.throws(feed, (error) => error.code === "bad_response");
+  });
+
   it("un evento incompleto al cortarse el flujo no se entrega", () => {
     assert.deepEqual(parse("event: job\ndata: {"), []);
   });
@@ -205,6 +216,12 @@ describe("streamJobEvents", () => {
   });
 });
 
+/** Reloj falso: cada lectura avanza 10 s, así que toda conexión «dura» 10 s. */
+function clock() {
+  let time = 0;
+  return () => (time += 10_000);
+}
+
 /** Sleep falso: anota las esperas y no espera. */
 function fakeSleep() {
   const waits = [];
@@ -223,11 +240,11 @@ describe("followJob: reconexión", () => {
     assert.equal(final.status, "COMPLETED");
   });
 
-  it("si el flujo se cierra sin estado final reconecta de inmediato y sigue", async () => {
+  it("si un flujo sano (dio datos y duró) se cierra sin estado final, reconecta de inmediato y sigue", async () => {
     const responses = [sseResponse([frame("job", view({ percent: 10 }))]), sseResponse([frame("job", view({ status: "COMPLETED", percent: 100 }))])];
     const { sleep, waits } = fakeSleep();
     const states = [];
-    const final = await followJob({ baseUrl: "", jobId: ID, fetchImpl: async () => responses.shift(), sleep, onJob: (job) => states.push(job.percent), onConnection: (state) => states.push(state.kind) });
+    const final = await followJob({ baseUrl: "", jobId: ID, fetchImpl: async () => responses.shift(), sleep, now: clock(), onJob: (job) => states.push(job.percent), onConnection: (state) => states.push(state.kind) });
     assert.equal(final.status, "COMPLETED");
     assert.deepEqual(waits, []); // el flujo había dado datos: no hay espera
     assert.ok(states.includes("reconnecting"));
@@ -278,9 +295,25 @@ describe("followJob: reconexión", () => {
       return calls < 8 ? sseResponse([frame("job", view({ percent: calls }))]) : sseResponse([frame("job", view({ status: "COMPLETED", percent: 100 }))]);
     };
     const { sleep, waits } = fakeSleep();
-    const final = await followJob({ baseUrl: "", jobId: ID, fetchImpl, sleep, onJob() {}, maxFailures: 2 });
+    const final = await followJob({ baseUrl: "", jobId: ID, fetchImpl, sleep, now: clock(), onJob() {}, maxFailures: 2 });
     assert.equal(final.status, "COMPLETED");
     assert.ok(waits.every((ms) => ms === 1000)); // nunca pasa del primer escalón
+  });
+
+  it("un flujo que da un evento y se cierra enseguida, una y otra vez, no genera un bucle sin pausa: espera y acaba rindiéndose", async () => {
+    let calls = 0;
+    const fetchImpl = async () => (calls++, sseResponse([frame("job", view())]));
+    const { sleep, waits } = fakeSleep();
+    await assert.rejects(followJob({ baseUrl: "", jobId: ID, fetchImpl, sleep, now: () => 0, onJob() {}, maxFailures: 4 }), (error) => error.code === "network");
+    assert.equal(calls, 4);
+    assert.deepEqual(waits, [1000, 2000, 4000]);
+  });
+
+  it("Retry-After: 0 no se convierte en un bucle sin espera", async () => {
+    const responses = [sseResponse([], { status: 503, headers: { "retry-after": "0" } }), sseResponse([frame("job", view({ status: "COMPLETED", percent: 100 }))])];
+    const { sleep, waits } = fakeSleep();
+    await followJob({ baseUrl: "", jobId: ID, fetchImpl: async () => responses.shift(), sleep, onJob() {} });
+    assert.deepEqual(waits, [1000]);
   });
 
   it("abortar durante la espera termina sin más peticiones", async () => {

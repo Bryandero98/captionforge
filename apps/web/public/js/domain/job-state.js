@@ -23,6 +23,7 @@ const isFinal = (/** @type {Tracking} */ state) => state.job !== null && FINAL.h
 /**
  * @param {Tracking} state
  * @param {{ type: "track", jobId: string }
+ *   | { type: "resume", jobId: string }
  *   | { type: "job", job: JobView }
  *   | { type: "connection", state: { kind: "connecting" | "reconnecting" | "live" } | { kind: "waiting", seconds: number } }
  *   | { type: "lost", error: import("../api/errors.js").ApiError }
@@ -33,6 +34,10 @@ export function trackingReduce(state, event) {
   switch (event.type) {
     case "track":
       return { ...initialTracking, jobId: event.jobId };
+    case "resume":
+      // Volver a conectar al mismo trabajo conserva lo último que se vio: el panel no retrocede a «en cola».
+      if (state.jobId !== event.jobId) return { ...initialTracking, jobId: event.jobId };
+      return { ...state, lost: null, connection: "connecting", waitSeconds: 0 };
     case "job":
       if (state.jobId === null || event.job.id !== state.jobId || isFinal(state)) return state;
       return { ...state, job: event.job, lost: null };

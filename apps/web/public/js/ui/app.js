@@ -96,6 +96,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let trackController = null;
   let trackedKind = "none";
   let trackedStep = -1;
+  /** @type {string | null} */
+  let trackedStage = null;
 
   // ---------- estado ----------
 
@@ -142,22 +144,30 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   /** Sigue el trabajo hasta un estado final; el trabajo vive en el servidor, así que cortar el seguimiento no lo cancela. */
   async function follow(/** @type {string} */ jobId) {
-    stopTracking();
+    trackController?.abort();
     const abort = new AbortController();
     trackController = abort;
-    track({ type: "track", jobId });
+    // Los avisos de un seguimiento ya reemplazado se ignoran aunque el follower no respete la señal.
+    const current = (/** @type {() => void} */ action) => () => {
+      if (!abort.signal.aborted) action();
+    };
+    track({ type: tracking.jobId === jobId ? "resume" : "track", jobId });
     try {
       await follower({
         baseUrl: config.baseUrl,
         jobId,
         signal: abort.signal,
-        onJob: (job) => track({ type: "job", job }),
-        onConnection: (state) => track({ type: "connection", state }),
+        onJob: (job) => current(() => track({ type: "job", job }))(),
+        onConnection: (state) => current(() => track({ type: "connection", state }))(),
       });
     } catch (error) {
       if (abort.signal.aborted) return; // se dejó de seguir a propósito
       if (!(error instanceof ApiError)) console.error(error);
-      track({ type: "lost", error: error instanceof ApiError ? error : ApiError.network() });
+      try {
+        track({ type: "lost", error: error instanceof ApiError ? error : ApiError.network() });
+      } catch (renderError) {
+        console.error(renderError);
+      }
     } finally {
       if (trackController === abort) trackController = null;
     }
@@ -290,19 +300,46 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     els.jobDetail.hidden = detail === "";
     els.jobReconnect.hidden = !(view.kind === "lost" && view.error?.code !== "not_found");
 
-    // Anuncios: cada cambio de estado y los hitos de 25 %, nunca cada porcentaje.
-    if (view.kind !== trackedKind) {
+    // Anuncios: cada cambio de estado o de etapa y los hitos de 25 %, nunca cada porcentaje.
+    const kindChanged = view.kind !== trackedKind;
+    if (kindChanged) {
       trackedKind = view.kind;
       trackedStep = -1;
-      if (view.kind === "completed" || view.kind === "failed" || view.kind === "cancelled" || view.kind === "lost") els.announcer.textContent = status;
+      trackedStage = view.stage;
+      announce(status);
+      keepFocus(view);
+    } else if (view.kind === "running" && view.stage !== trackedStage) {
+      trackedStage = view.stage;
+      trackedStep = -1;
+      announce(status);
     }
     if (view.kind === "running" && !view.indeterminate) {
       const step = Math.floor(view.percent / 25);
       if (step > trackedStep && step > 0) {
         trackedStep = step;
-        els.announcer.textContent = status;
+        announce(status);
       }
     }
+  }
+
+  /**
+   * Vaciar y reponer el texto en otro momento: un mensaje idéntico al anterior (otra pérdida de conexión) o dos seguidos
+   * se leerían como uno solo, o ninguno.
+   */
+  function announce(/** @type {string} */ text) {
+    els.announcer.textContent = "";
+    win.setTimeout(() => {
+      els.announcer.textContent = text;
+    }, 50);
+  }
+
+  /** Si el elemento con el foco acaba de ocultarse (el botón usado), el foco no debe caer en el vacío. */
+  function keepFocus(/** @type {ReturnType<typeof trackingViewOf>} */ view) {
+    const active = doc.activeElement;
+    const lostFocus = active === null || active === doc.body || active.closest("[hidden]") !== null;
+    if (!lostFocus) return;
+    if (view.kind === "lost" && !els.jobReconnect.hidden) els.jobReconnect.focus();
+    else if (view.terminal || view.kind === "lost") els.jobPanel.focus();
   }
 
   /** @param {ReturnType<typeof viewOf>} view */

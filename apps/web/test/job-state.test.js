@@ -97,6 +97,19 @@ describe("seguimiento de un trabajo", () => {
     assert.equal(trackingViewOf(state).kind, "completed");
   });
 
+  it("volver a conectar al mismo trabajo conserva el último estado visto, no vuelve a «en cola»", () => {
+    const lost = run({ type: "track", jobId: ID }, { type: "job", job: job({ percent: 60 }) }, { type: "lost", error: ApiError.network() });
+    const view = trackingViewOf(trackingReduce(lost, { type: "resume", jobId: ID }));
+    assert.equal(view.kind, "running");
+    assert.equal(view.percent, 60);
+    assert.equal(view.connection, "connecting");
+  });
+
+  it("'resume' con otro trabajo empieza de cero", () => {
+    const state = trackingReduce(run({ type: "track", jobId: ID }, { type: "job", job: job() }), { type: "resume", jobId: "00000000-0000-4000-8000-000000000000" });
+    assert.equal(trackingViewOf(state).kind, "queued");
+  });
+
   it("reset vuelve al principio", () => {
     assert.equal(trackingViewOf(run({ type: "track", jobId: ID }, { type: "reset" })).kind, "none");
   });

@@ -402,6 +402,7 @@ select:disabled {
 }
 
 .panel__status {
+  overflow-wrap: anywhere;
   margin: 0 0 14px;
   font-size: 1.0625rem;
   font-weight: 600;
@@ -414,6 +415,7 @@ select:disabled {
   margin: 0 0 10px;
 }
 .panel__detail {
+  overflow-wrap: anywhere;
   margin: 10px 0 0;
   color: var(--text-dim);
   font-size: 0.875rem;
@@ -440,7 +442,7 @@ select:disabled {
 .bar {
   height: 8px;
   overflow: hidden;
-  background: var(--border);
+  background: var(--border-strong);
   border-radius: 999px;
 }
 .bar__fill {
@@ -472,11 +474,11 @@ select:disabled {
   .bar__fill {
     transition: none;
   }
+  /* Un fragmento fijo: un relleno completo, aunque atenuado, parecería una barra casi terminada. */
   .bar.is-indeterminate .bar__fill {
-    width: 100%;
+    width: 38%;
     transform: none;
     animation: none;
-    opacity: 0.55;
   }
   .btn:active:not(:disabled) {
     transform: none;

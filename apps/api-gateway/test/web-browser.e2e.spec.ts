@@ -264,7 +264,8 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await workerSays(name, { status: "COMPLETED", stage: "uploading", percent: 100 });
     await waitForJobText(page, "Listo");
     expect(await page.$eval("#job-bar", (bar) => bar.getAttribute("aria-valuenow"))).toBe("100");
-    expect(await text(page, "#announcer")).toContain("Listo");
+    // El anuncio se repone tras una pausa breve (para que un texto repetido se vuelva a leer).
+    await page.waitForFunction(() => (document.querySelector("#announcer")?.textContent ?? "").includes("Listo"), { timeout: 5000 });
 
     // Estado final: no se vuelve a abrir el flujo.
     await new Promise((resolve) => setTimeout(resolve, 2500));
