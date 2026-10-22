@@ -129,7 +129,33 @@ describe("POST /v1/jobs/transcribe", () => {
 
   it("aplica valores por defecto cuando no se mandan opciones", async () => {
     const job = await createJob(undefined);
-    expect(job.options).toEqual({ modelSize: "small", sourceLanguage: null, translateTo: null });
+    expect(job.options).toEqual({ modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false });
+  });
+
+  it("cleanAudio: se acepta, se guarda, se devuelve en JobView y viaja en el payload de BullMQ hacia el worker", async () => {
+    const job = await createJob({ cleanAudio: true });
+    expect(job.options).toEqual({ modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: true });
+    const row = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(row.options).toMatchObject({ cleanAudio: true });
+    const view = (await (await fetch(`${base}/v1/jobs/${job.id}`)).json()) as { options: { cleanAudio: boolean }; result: { audioCleaned?: boolean } };
+    expect(view.options.cleanAudio).toBe(true);
+    const queued = await queue.getJob(job.id);
+    expect(queued?.data.options).toMatchObject({ cleanAudio: true });
+  });
+
+  it("cleanAudio: false explícito también se conserva, y no se confunde con la ausencia", async () => {
+    const job = await createJob({ cleanAudio: false, modelSize: "base" });
+    expect(job.options).toMatchObject({ cleanAudio: false, modelSize: "base" });
+    expect((await queue.getJob(job.id))?.data.options).toMatchObject({ cleanAudio: false });
+  });
+
+  it("cleanAudio: un valor que no es booleano da 400 y no deja nada guardado", async () => {
+    const before = await prisma.job.count();
+    for (const bad of ["true", "yes", 1, 0, null, [true], { v: true }]) {
+      const response = await upload({ cleanAudio: bad });
+      expect(response.status, JSON.stringify(bad)).toBe(400);
+    }
+    expect(await prisma.job.count()).toBe(before);
   });
 
   it("rechaza con 400 opciones que no cumplen el contrato, sin dejar nada guardado", async () => {
@@ -486,5 +512,28 @@ describe("resultado público", () => {
     expect(text).not.toContain(config.s3.bucket);
     expect(text).not.toContain("jobs/");
     expect(JSON.parse(text)).toMatchObject({ result: { detectedLanguage: "es", segmentCount: 1, artifacts: ["srt", "segments", "waveform"] } });
+  });
+
+  it("audioCleaned del worker llega tal cual a la persona usuaria (true, false y ausente en resultados anteriores)", async () => {
+    for (const [given, expected] of [[true, true], [false, false], [undefined, undefined]] as const) {
+      const job = await createJob({ cleanAudio: true });
+      const result = {
+        schemaVersion: 1,
+        jobId: job.id,
+        detectedLanguage: "es",
+        device: "cpu",
+        durationSeconds: 1,
+        segmentCount: 1,
+        ...(given === undefined ? {} : { audioCleaned: given }),
+        artifacts: {
+          srt: `jobs/${job.id}/out/output.srt`,
+          segments: { bucket: config.s3.bucket, objectKey: `jobs/${job.id}/out/segments.json`, etag: "9b2cf535f27731c974343645a3985328" },
+          waveform: `jobs/${job.id}/out/waveform.json`,
+        },
+      };
+      await worker.query(`UPDATE "Job" SET status = 'COMPLETED', result = $2::jsonb, "updatedAt" = now() WHERE id = $1`, [job.id, JSON.stringify(result)]);
+      const view = (await (await fetch(`${base}/v1/jobs/${job.id}`)).json()) as { options: { cleanAudio: boolean }; result: { audioCleaned?: boolean } };
+      expect(view.result.audioCleaned, String(given)).toBe(expected);
+    }
   });
 });
