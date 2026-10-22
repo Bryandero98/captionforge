@@ -104,7 +104,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let trackedStage = null;
 
   const translate = (/** @type {string} */ key, /** @type {Record<string, string | number> | undefined} */ params) => t(key, params);
-  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang });
+  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text) });
   const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
 
   // ---------- estado ----------
@@ -188,6 +188,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
    */
   async function openJob(/** @type {string} */ jobId) {
     if (viewOf(state).busy) return; // hay una subida en curso: no se pisa
+    if (!confirmLeave()) return;
     if (state.phase !== "idle") state = initialState;
     trackController?.abort();
     const abort = new AbortController();
@@ -220,7 +221,13 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     renderJob();
   }
 
+  /** Con cambios sin guardar en los subtítulos, pregunta antes de abandonarlos. */
+  function confirmLeave() {
+    return !results.dirty || win.confirm(t("editor.leave"));
+  }
+
   function startOver() {
+    if (!confirmLeave()) return;
     stopTracking();
     clearFile();
     dispatch({ type: "reset" });
@@ -585,7 +592,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   // Salir de la página corta la subida: se avisa solo mientras hay una en curso.
   win.addEventListener("beforeunload", (/** @type {BeforeUnloadEvent} */ event) => {
-    if (!viewOf(state).busy) return;
+    if (!viewOf(state).busy && !results.dirty) return;
     event.preventDefault();
     event.returnValue = "";
   });

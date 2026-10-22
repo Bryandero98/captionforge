@@ -361,7 +361,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     expect(await text(page, "#result-duration")).toContain("2 min");
     expect(await text(page, "#result-count")).toBe("3");
     // El texto del subtítulo es texto, no HTML: la etiqueta se ve tal cual y no se crea ningún nodo.
-    expect(await text(page, "#result-segments li:first-child .seg__text")).toContain("<b>todos</b>");
+    expect(await page.$eval("#result-segments li:first-child .seg__text", (area) => (area as unknown as { value: string }).value)).toContain("<b>todos</b>");
     expect(await page.$$eval("#result-segments b", (nodes) => nodes.length)).toBe(0);
 
     const srtHref = await page.$eval("#dl-srt", (link) => link.getAttribute("href"));
@@ -385,6 +385,121 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     expect(spy.problems).toEqual([]);
     await session.detach();
     rmSync(downloads, { recursive: true, force: true });
+    await page.close();
+  }, 60_000);
+
+  const rowValue = (page: Page, selector: string) => page.$eval(selector, (element) => (element as unknown as { value: string }).value);
+
+  /** Sube un video, hace de worker y deja abierto el editor con los tres subtítulos de prueba. */
+  async function openEditorFor(base: string, name: string) {
+    const opened = await openPage(base);
+    await uploadAndFollow(opened.page, name);
+    await workerCompletes(name, SEGMENTS);
+    await opened.page.waitForFunction(() => document.querySelectorAll("#result-segments li").length === 3, { timeout: 15_000 });
+    const [job] = await jobsNamed(`${token}-${name}`);
+    return { ...opened, jobId: job!.id };
+  }
+
+  async function retype(page: Page, selector: string, value: string) {
+    await page.click(selector, { count: 3 });
+    await page.keyboard.type(value);
+  }
+
+  it("editor: cambiar un texto marca el subtítulo, desactiva las descargas y al guardar el servidor lo recibe", async () => {
+    const base = await startApi();
+    const { page, spy, jobId } = await openEditorFor(base, "edita.mp4");
+    expect(await text(page, "#editor-state")).toContain("Sin cambios");
+    expect(await page.$eval("#editor-save", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(true);
+
+    await retype(page, "#result-segments li:nth-child(2) .seg__text", "Segunda corregida");
+    expect(await text(page, "#editor-state")).toContain("1 subtítulos con cambios sin guardar");
+    expect(await page.$eval("#result-segments li:nth-child(2)", (row) => row.classList.contains("is-dirty"))).toBe(true);
+    expect(await page.$eval("#dl-vtt", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(true);
+    expect(await page.$eval("#dl-srt", (link) => link.getAttribute("aria-disabled"))).toBe("true");
+    expect(await text(page, "#dl-hint")).toContain("Guarda los cambios");
+
+    await page.click("#editor-save");
+    await page.waitForFunction(() => (document.querySelector("#editor-state")?.textContent ?? "").includes("Cambios guardados"), { timeout: 10_000 });
+    expect(await page.$eval("#result-segments li:nth-child(2)", (row) => row.classList.contains("is-dirty"))).toBe(false);
+    expect(await page.$eval("#dl-vtt", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(false);
+
+    const saved = (await fetch(`${base}/v1/jobs/${jobId}/segments`).then((response) => response.json())) as { segments: { text: string }[] };
+    expect(saved.segments[1]!.text).toBe("Segunda corregida");
+    const srt = await fetch(`${base}/v1/jobs/${jobId}/artifacts/srt`).then((response) => response.text());
+    expect(srt).toContain("Segunda corregida");
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it("editor: un tiempo ilegible o un inicio mayor que el fin se marcan y no se envían; descartar vuelve a lo guardado", async () => {
+    const base = await startApi();
+    const { page, jobId } = await openEditorFor(base, "valida.mp4");
+
+    await retype(page, "#result-segments li:first-child .seg__t:nth-child(1)", "abc");
+    await page.keyboard.press("Tab");
+    expect(await isVisible(page, "#result-segments li:first-child .seg__issue")).toBe(true);
+    expect(await text(page, "#result-segments li:first-child .seg__issue")).toContain("Tiempo no válido");
+
+    await retype(page, "#result-segments li:first-child .seg__t:nth-child(1)", "0:00:03.000");
+    await page.keyboard.press("Tab");
+    expect(await text(page, "#result-segments li:first-child .seg__issue")).toContain("El inicio debe ser menor que el fin");
+    await page.click("#editor-save");
+    expect(await text(page, "#editor-state")).toContain("Corrige los subtítulos marcados");
+    const untouched = (await fetch(`${base}/v1/jobs/${jobId}/segments`).then((response) => response.json())) as { segments: { start: number }[] };
+    expect(untouched.segments[0]!.start).toBe(0); // no llegó nada al servidor
+
+    await page.click("#editor-discard");
+    expect(await text(page, "#editor-state")).toContain("Sin cambios");
+    expect(await rowValue(page, "#result-segments li:first-child .seg__t:nth-child(1)")).toBe("00:00:00.000");
+    expect(await isVisible(page, "#result-segments li:first-child .seg__issue")).toBe(false);
+    await page.close();
+  }, 60_000);
+
+  it("editor: si los subtítulos cambiaron en otro sitio (409) se ofrece cargar lo nuevo o sobrescribir, sin pisar nada en silencio", async () => {
+    const base = await startApi();
+    const { page, spy, jobId } = await openEditorFor(base, "conflicto.mp4");
+
+    // «Otra pestaña» edita el subtítulo 3 mientras esta tiene cambios sin guardar en el 1.
+    const other = await fetch(`${base}/v1/jobs/${jobId}/segments`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ segments: [{ index: 2, text: "Desde otra pestaña" }] }),
+    });
+    expect(other.status).toBe(200);
+
+    await retype(page, "#result-segments li:first-child .seg__text", "Mi cambio");
+    await page.click("#editor-save");
+    await page.waitForSelector("#editor-conflict:not([hidden])", { timeout: 10_000 });
+    expect(await text(page, "#editor-state")).toContain("cambiaron desde que los abriste");
+    expect(await rowValue(page, "#result-segments li:first-child .seg__text")).toBe("Mi cambio"); // lo escrito sigue ahí
+    const mid = (await fetch(`${base}/v1/jobs/${jobId}/segments`).then((response) => response.json())) as { segments: { text: string }[] };
+    expect(mid.segments[0]!.text).toBe(" Hola & bienvenidos <b>todos</b>"); // el servidor no recibió nada
+
+    await page.click("#editor-overwrite");
+    await page.waitForFunction(() => (document.querySelector("#editor-state")?.textContent ?? "").includes("Cambios guardados"), { timeout: 10_000 });
+    const final = (await fetch(`${base}/v1/jobs/${jobId}/segments`).then((response) => response.json())) as { segments: { text: string }[] };
+    expect(final.segments[0]!.text).toBe("Mi cambio");
+    expect(final.segments[2]!.text).toBe("Desde otra pestaña"); // lo de la otra pestaña se conserva: se editó por índice
+    expect(await isVisible(page, "#editor-conflict")).toBe(false);
+    expect(spy.problems.filter((problem) => !problem.includes("409"))).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it("editor: «Cargar la versión nueva» en un conflicto descarta lo local y muestra lo del servidor", async () => {
+    const base = await startApi();
+    const { page, jobId } = await openEditorFor(base, "recarga.mp4");
+    await fetch(`${base}/v1/jobs/${jobId}/segments`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ segments: [{ index: 2, text: "Versión del servidor" }] }),
+    });
+    await retype(page, "#result-segments li:first-child .seg__text", "Descartable");
+    await page.click("#editor-save");
+    await page.waitForSelector("#editor-conflict:not([hidden])", { timeout: 10_000 });
+    await page.click("#editor-reload");
+    await page.waitForFunction(() => (document.querySelector("#editor-state")?.textContent ?? "").includes("versión del servidor"), { timeout: 10_000 });
+    expect(await rowValue(page, "#result-segments li:first-child .seg__text")).toBe(" Hola & bienvenidos <b>todos</b>");
+    expect(await rowValue(page, "#result-segments li:nth-child(3) .seg__text")).toBe("Versión del servidor");
     await page.close();
   }, 60_000);
 

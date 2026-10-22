@@ -117,8 +117,20 @@
           <a class="btn btn--primary" id="dl-srt" href="#" download data-i18n="result.dl.srt">Descargar .srt</a>
           <button type="button" class="btn btn--secondary" id="dl-vtt" disabled data-i18n="result.dl.vtt">Descargar .vtt</button>
         </div>
+        <p class="panel__detail" id="dl-hint" hidden></p>
         <p class="panel__detail" id="result-status" role="status" hidden></p>
         <button type="button" class="btn btn--secondary" id="result-retry" hidden data-i18n="action.retry">Reintentar</button>
+        <div class="editor-bar" id="editor-bar" hidden>
+          <p class="editor-bar__state" id="editor-state" role="status"></p>
+          <div class="panel__actions">
+            <button type="button" class="btn btn--primary" id="editor-save" disabled data-i18n="editor.save">Guardar cambios</button>
+            <button type="button" class="btn btn--ghost" id="editor-discard" disabled data-i18n="editor.discard">Descartar cambios</button>
+          </div>
+          <div class="editor-conflict" id="editor-conflict" hidden>
+            <button type="button" class="btn btn--secondary" id="editor-reload" data-i18n="editor.conflict.reload">Cargar la versión nueva</button>
+            <button type="button" class="btn btn--secondary" id="editor-overwrite" data-i18n="editor.conflict.overwrite">Guardar mis cambios encima</button>
+          </div>
+        </div>
         <ol class="segments" id="result-segments"></ol>
         <button type="button" class="btn btn--ghost" id="result-more" hidden></button>
       </section>
