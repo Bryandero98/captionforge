@@ -128,6 +128,8 @@ textarea {
 
 .lang {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   flex-shrink: 0;
   padding: 3px;
   gap: 2px;
@@ -156,6 +158,7 @@ textarea {
 .lang__btn[aria-pressed="true"] {
   background: var(--surface-2);
   color: var(--text);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 main {
@@ -692,4 +695,44 @@ select:disabled {
   .btn:active:not(:disabled) {
     transform: none;
   }
+}
+
+.lang-notice:empty {
+  display: none;
+}
+.lang-notice {
+  margin: 0 0 var(--space-4, 1rem);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+}
+
+.guide {
+  margin-bottom: var(--space-4, 1rem);
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.guide > summary {
+  min-height: 32px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.guide__steps {
+  margin: 0.75rem 0 0.5rem;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+}
+.guide__steps p {
+  margin: 0.125rem 0 0;
+  color: var(--text-dim);
+  max-width: 65ch;
+}
+.guide__step {
+  margin: 0;
+  font-size: 1rem;
 }

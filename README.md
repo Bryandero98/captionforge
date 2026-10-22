@@ -25,7 +25,7 @@ caps, graceful shutdown and recovery of orphaned jobs. Its known limits are decl
 > | | What it is | Status |
 > |---|---|---|
 > | **Local package** | `pip install` + `captionforge serve` (Python 3.10+): one process, one video at a time, nothing leaves your machine. | Published on PyPI. See [`legacy/`](legacy/README.md). |
-> | **Service (this monorepo)** | API Gateway + queue + AI Worker + object storage, built to run several jobs and several users. | API and worker done; web client in progress (upload done), user accounts pending. |
+> | **Service (this monorepo)** | API Gateway + queue + AI Worker + object storage, built to run several jobs and several users. | API and worker done; web client feature-complete (upload queue, live progress, editor, downloads, burned-in video; 6 languages), user accounts pending. |
 
 ## Quickstart (service)
 
@@ -169,7 +169,7 @@ The full picture, including what is **not** covered yet, is in
 | 0-3 | Monorepo, contracts, infrastructure, API Gateway, AI Worker | Done |
 | 4a | Caption editing, burn queue, download with `Range` | Done |
 | 5a | Hardening: limits, orphaned jobs, Host/Origin guard, supply chain | Done |
-| **4b** | **Web client on the new API** (REST, async multipart upload, live SSE) | **In progress** (upload done) |
+| **4b** | **Web client on the new API** (REST, async multipart upload, live SSE) | **Done** — [user guide](docs/user-guide.md) · [guía de uso](docs/guia-de-uso.md) |
 | 5b | User accounts, ownership of jobs, observability, deployment | Pending |
 
 After the web client, ideas worth doing, deliberately not started:

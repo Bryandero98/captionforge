@@ -22,12 +22,30 @@
         <p class="tagline" data-i18n="app.tagline">Subtítulos automáticos para tus videos.</p>
       </div>
       <div class="lang" role="group" data-i18n-aria-label="lang.label" aria-label="Idioma de la interfaz">
-        <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es">ES</button>
-        <button type="button" class="lang__btn" id="lang-en" data-lang="en" aria-pressed="false" lang="en">EN</button>
+        <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es" aria-label="ES, Español">ES</button>
+        <button type="button" class="lang__btn" id="lang-en" data-lang="en" aria-pressed="false" lang="en" aria-label="EN, English">EN</button>
+        <button type="button" class="lang__btn" id="lang-pt" data-lang="pt" aria-pressed="false" lang="pt" aria-label="PT, Português">PT</button>
+        <button type="button" class="lang__btn" id="lang-fr" data-lang="fr" aria-pressed="false" lang="fr" aria-label="FR, Français">FR</button>
+        <button type="button" class="lang__btn" id="lang-de" data-lang="de" aria-pressed="false" lang="de" aria-label="DE, Deutsch">DE</button>
+        <button type="button" class="lang__btn" id="lang-it" data-lang="it" aria-pressed="false" lang="it" aria-label="IT, Italiano">IT</button>
       </div>
     </header>
+    <p class="lang-notice" id="lang-notice" role="status"></p>
 
     <main id="main" tabindex="-1">
+      <details class="guide" id="guide">
+        <summary data-i18n="guide.title">Cómo usar CaptionForge, paso a paso</summary>
+        <ol class="guide__steps">
+          <li><h2 class="guide__step" data-i18n="guide.s1.title"></h2><p data-i18n="guide.s1.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s2.title"></h2><p data-i18n="guide.s2.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s3.title"></h2><p data-i18n="guide.s3.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s4.title"></h2><p data-i18n="guide.s4.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s5.title"></h2><p data-i18n="guide.s5.body"></p></li>
+          <li><h2 class="guide__step" data-i18n="guide.s6.title"></h2><p data-i18n="guide.s6.body"></p></li>
+        </ol>
+        <p class="panel__detail" data-i18n="guide.privacy"></p>
+      </details>
+
       <form id="upload-form" novalidate>
         <fieldset class="form" id="form-fields">
           <legend class="visually-hidden" data-i18n="file.selected">Video elegido</legend>
@@ -46,7 +64,7 @@
 
           <p class="problem" id="file-problem" role="alert" hidden></p>
 
-          <ul class="batch" id="batch-list" hidden></ul>
+          <ul class="batch" id="batch-list" role="list" hidden></ul>
 
           <div class="file" id="file-row" hidden>
             <div class="file__info">

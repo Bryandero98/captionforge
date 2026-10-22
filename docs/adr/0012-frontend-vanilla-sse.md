@@ -48,3 +48,16 @@ Restricciones del API que condicionan al cliente:
    ni reactividad, la lógica de pintado la escribimos a mano, con `textContent` siempre (nunca `innerHTML`).
 5. **Navegadores.** Se exige `fetch` con cuerpo en streaming (`response.body.getReader()`), disponible en todos los
    navegadores actuales; no se da soporte a los que no lo tengan.
+6. **Idiomas.** Las tablas viven en `apps/web/public/js/i18n/messages*.js` (es y en revisadas; pt, fr, de, it son
+   traducción automática avisada en la propia página). Una prueba exige las mismas claves y los mismos marcadores
+   `{x}` en todas, de modo que añadir un idioma es una tabla más y una entrada en `SUPPORTED_LANGS`.
+
+## Límites conocidos (a propósito, no olvidos)
+- **Historial solo en el navegador:** la API no tiene un listado de trabajos; `localStorage` guarda ids (máx. 20).
+- **Atomicidad de las ediciones por proceso:** `KeyedMutex` serializa `updateSegments` dentro de un proceso; con varias
+  réplicas haría falta un bloqueo en BD o un PUT condicional en S3.
+- **Rechazo temprano de cuerpos >16 MiB:** el API descarta hasta 16 MiB/10 s tras rechazar (ADR 0011); por encima, el
+  navegador ve un error de red en lugar del 413.
+- **`API_KEY` bloquea la interfaz web** y un `cf-api-base` de otro origen lo impide la CSP (ADR 0011).
+- **El video quemado puede mostrar una versión anterior** si se edita el texto después de crearlo (hay que volver a
+  crearlo).

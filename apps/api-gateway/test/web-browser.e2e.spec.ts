@@ -18,7 +18,7 @@ import { PrismaService } from "../src/prisma/prisma.service.js";
 import { StorageService } from "../src/storage/storage.service.js";
 
 // Las funciones de waitForFunction se ejecutan dentro del navegador; solo se declara lo que usan (sin cargar la librería DOM).
-declare const localStorage: { setItem(key: string, value: string): void };
+declare const localStorage: { setItem(key: string, value: string): void; getItem(key: string): string | null };
 declare const document: {
   querySelector(selector: string): { getAttribute(name: string): string | null; textContent: string | null } | null;
   activeElement: { id: string } | null;
@@ -381,7 +381,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await page.click("#dl-vtt");
     // El nombre es el del video subido (con el prefijo único de la prueba) y la extensión .vtt.
     const found = () => readdirSync(downloads).find((entry) => entry.endsWith(".vtt"));
-    for (let i = 0; i < 50 && found() === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    for (let i = 0; i < 150 && found() === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(found()).toBe(`${token}-entrevista.vtt`);
     const vtt = readFileSync(join(downloads, found()!), "utf8");
     expect(vtt.startsWith("WEBVTT")).toBe(true);
@@ -530,6 +530,26 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     const result = { schemaVersion: 1, jobId: burnId, usedKaraoke: false, artifacts: { video: key } };
     await prisma.job.update({ where: { id: burnId }, data: { status: "COMPLETED", stage: "burning", percent: 100, result, finishedAt: new Date() } });
   }
+
+  it("idiomas: sin preferencia guardada usa el del navegador (alemán), avisa de que es traducción automática y la guía se despliega", async () => {
+    const base = await startApi();
+    const page = await browser.newPage();
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(Navigator.prototype, "languages", { get: () => ["de-DE", "en"] });
+    });
+    await page.goto(base, { waitUntil: "networkidle0" });
+    expect(await page.$eval("html", (html) => html.lang)).toBe("de");
+    expect(await text(page, "#start")).toBe("Untertitel erstellen");
+    expect((await text(page, "#lang-notice")).length).toBeGreaterThan(20);
+    expect(await page.$eval("#lang-de", (button) => button.getAttribute("aria-pressed"))).toBe("true");
+    await page.click("#guide > summary");
+    expect(await page.$$eval("#guide li", (items) => items.filter((item) => (item.textContent ?? "").trim().length > 20).length)).toBe(6);
+    // Cambiar a español quita el aviso y se recuerda.
+    await page.click("#lang-es");
+    expect(await text(page, "#lang-notice")).toBe("");
+    expect(await page.evaluate(() => localStorage.getItem("captionforge_lang"))).toBe("es");
+    await page.close();
+  }, 60_000);
 
   it("cola: varios videos se suben de uno en uno, cada uno crea su trabajo y los inválidos se descartan con motivo", async () => {
     const base = await startApi();

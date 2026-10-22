@@ -10,7 +10,7 @@ import { MAX_FILES, addFiles, currentOf, emptyBatch, markCancelled, markDone, ma
 import { trackingViewOf } from "../domain/job-state.js";
 import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
-import { createTranslator, detectLang } from "../i18n/index.js";
+import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
 import { createBurn } from "./burn.js";
 import { createHistory } from "./history.js";
 import { detailText, statusText } from "./job-text.js";
@@ -45,6 +45,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     drop: $("drop"),
     input: $("file-input"),
     formats: $("drop-formats"),
+    langNotice: $("lang-notice"),
     problem: $("file-problem"),
     fileRow: $("file-row"),
     fileName: $("file-name"),
@@ -236,6 +237,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     if (fresh && state.phase !== "idle") state = initialState; // archivos nuevos descartan el resultado anterior
     els.input.value = ""; // permite volver a elegir el mismo archivo
     render();
+    if (batch.items.length > 1) announce(t("batch.added", { count: batch.items.length }));
   }
 
   function clearFile() {
@@ -262,10 +264,16 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   const STATUS_KEY = /** @type {const} */ ({ pending: "batch.status.pending", uploading: "batch.status.uploading", done: "batch.status.done", error: "batch.status.error", cancelled: "batch.status.cancelled" });
 
+  /** Lo que se ve de la cola: si no cambia, la lista no se reconstruye (se perdería el foco con cada evento de progreso). */
+  let batchSignature = "";
+
   /** La lista de la cola, solo cuando hay más de un archivo. */
   function renderBatch() {
     const many = batch.items.length > 1;
     els.batchList.hidden = !many;
+    const signature = many ? `${lang}|${batch.items.map((item) => `${item.key}:${item.status}:${item.jobId ?? ""}:${item.file.name}:${item.file.size}`).join("|")}` : "";
+    if (signature === batchSignature) return;
+    batchSignature = signature;
     if (!many) {
       els.batchList.replaceChildren();
       return;
@@ -299,9 +307,14 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
           remove.textContent = t("history.remove");
           remove.setAttribute("aria-label", t("batch.remove.label", { name: item.file.name }));
           remove.addEventListener("click", () => {
+            const index = batch.items.findIndex((candidate) => candidate.key === item.key);
             batch = removeItem(batch, item.key);
             render();
-            els.input.focus();
+            // El foco pasa a la fila que ocupa ahora ese sitio (o a la última); sin lista, al selector de archivos.
+            const buttons = els.batchList.querySelectorAll("li button");
+            const next = /** @type {HTMLElement | undefined} */ (buttons[Math.min(index, buttons.length - 1)]);
+            (next ?? els.input).focus();
+            announce(t("batch.removed", { name: item.file.name }));
           });
           li.append(remove);
         }
@@ -328,7 +341,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     }
     const problem = rejectedText();
     els.problem.hidden = problem === "";
-    els.problem.textContent = problem;
+    // role="alert": reescribir el mismo texto en cada repintado lo haría anunciar de nuevo.
+    if (els.problem.textContent !== problem) els.problem.textContent = problem;
     renderBatch();
 
     renderProgress(view);
@@ -555,6 +569,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     doc.title = t("app.title");
     els.formats.textContent = t("drop.formats", { max: formatBytes(config.maxBytes, lang) });
     for (const button of doc.querySelectorAll("[data-lang]")) button.setAttribute("aria-pressed", String(button.getAttribute("data-lang") === lang));
+    // Solo el español y el inglés están revisados por personas: en el resto se avisa de que es traducción automática.
+    // Región viva que solo cambia de contenido (ocultarla con `hidden` hace poco fiable el anuncio).
+    els.langNotice.textContent = REVIEWED_LANGS.includes(lang) ? "" : t("lang.notice");
     fillSelects();
   }
 

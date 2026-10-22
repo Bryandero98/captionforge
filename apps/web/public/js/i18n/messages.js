@@ -1,8 +1,18 @@
-// Textos de la interfaz en español e inglés. Las dos tablas deben tener exactamente las mismas claves
-// (lo comprueba test/errors.test.js). Los errores se identifican por `error.<código>` (ver api/errors.js).
+// Textos de la interfaz. es y en son la fuente (revisadas); pt, fr, de e it viven en messages.<idioma>.js y son
+// traducción automática pendiente de revisión nativa. Todas deben tener las mismas claves y marcadores {x}
+// (lo comprueba test/errors.test.js y test/i18n.test.js). Los errores se identifican por `error.<código>` (ver api/errors.js).
 
-/** @type {Record<"es" | "en", Record<string, string>>} */
+import de from "./messages.de.js";
+import fr from "./messages.fr.js";
+import it from "./messages.it.js";
+import pt from "./messages.pt.js";
+
+/** @type {Record<"es" | "en" | "pt" | "fr" | "de" | "it", Record<string, string>>} */
 export const messages = {
+  pt,
+  fr,
+  de,
+  it,
   es: {
     "app.title": "CaptionForge",
     "app.tagline": "Subtítulos automáticos para tus videos: transcribe, traduce y descarga el .srt.",
@@ -145,6 +155,24 @@ export const messages = {
     "batch.status.error": "Falló",
     "batch.status.cancelled": "Cancelado",
     "batch.remove.label": "Quitar {name} de la cola",
+    "batch.added": "{count} videos en la cola.",
+    "batch.removed": "{name} se quitó de la cola.",
+
+    "lang.notice": "Traducción automática: puede tener errores. Si eres hablante nativo y quieres corregirla, abre un issue o un PR en GitHub.",
+    "guide.title": "Cómo usar CaptionForge, paso a paso",
+    "guide.s1.title": "Elige tus videos",
+    "guide.s1.body": "Arrastra hasta 20 videos a la zona punteada o pulsa «Elige un archivo». Formatos: MP4, MOV, MKV, WEBM y AVI. Los que no sirvan se descartan y se explica por qué.",
+    "guide.s2.title": "Ajusta las opciones",
+    "guide.s2.body": "Modelo: Base es el más rápido y Medium el más preciso. Idioma del audio: déjalo en «Autodetectar» salvo que sepas cuál es. Traducir a: opcional, para obtener los subtítulos en otro idioma.",
+    "guide.s3.title": "Genera los subtítulos",
+    "guide.s3.body": "Pulsa «Generar subtítulos». Verás la subida y después las etapas del trabajo. Si elegiste varios videos, se suben de uno en uno. Puedes cerrar la página: el trabajo sigue en el servidor y queda en «Recientes».",
+    "guide.s4.title": "Revisa y corrige",
+    "guide.s4.body": "Edita el texto y los tiempos de cada subtítulo. Guarda con «Guardar cambios» o con Ctrl+S. Si los subtítulos cambiaron mientras los editabas, se te avisa antes de pisarlos.",
+    "guide.s5.title": "Descarga",
+    "guide.s5.body": "Descarga el .srt (sirve en casi cualquier reproductor y editor) o el .vtt (para la web). Guarda antes los cambios para que el .srt los incluya.",
+    "guide.s6.title": "Pon los subtítulos en el video",
+    "guide.s6.body": "Elige un estilo y, si el video tiene tiempos por palabra, activa el karaoke. «Crear video con subtítulos» genera un video nuevo que puedes ver aquí mismo y descargar.",
+    "guide.privacy": "Los resultados se borran del servidor pasado un día, y «Recientes» solo existe en este navegador.",
 
     "error.title": "No se pudo subir el video",
     "error.detail": "Respuesta del servidor: {detail}",
@@ -309,6 +337,24 @@ export const messages = {
     "batch.status.error": "Failed",
     "batch.status.cancelled": "Cancelled",
     "batch.remove.label": "Remove {name} from the queue",
+    "batch.added": "{count} videos in the queue.",
+    "batch.removed": "{name} was removed from the queue.",
+
+    "lang.notice": "Machine translation: it may contain mistakes. If you are a native speaker and want to fix it, open an issue or a PR on GitHub.",
+    "guide.title": "How to use CaptionForge, step by step",
+    "guide.s1.title": "Choose your videos",
+    "guide.s1.body": "Drag up to 20 videos onto the dotted area or press “Choose a file”. Formats: MP4, MOV, MKV, WEBM and AVI. Files that cannot be used are skipped and the reason is shown.",
+    "guide.s2.title": "Set the options",
+    "guide.s2.body": "Model: Base is the fastest and Medium the most accurate. Audio language: leave it on “Auto-detect” unless you know it. Translate to: optional, to get the captions in another language.",
+    "guide.s3.title": "Generate the captions",
+    "guide.s3.body": "Press “Generate captions”. You will see the upload and then the stages of the job. With several videos, they are uploaded one at a time. You can close the page: the job keeps running on the server and stays in “Recent”.",
+    "guide.s4.title": "Review and fix",
+    "guide.s4.body": "Edit the text and the timing of each caption. Save with “Save changes” or with Ctrl+S. If the captions changed while you were editing, you are warned before they are overwritten.",
+    "guide.s5.title": "Download",
+    "guide.s5.body": "Download the .srt (works in almost any player and editor) or the .vtt (for the web). Save your changes first so the .srt includes them.",
+    "guide.s6.title": "Put the captions on the video",
+    "guide.s6.body": "Pick a style and, if the video has word timings, turn on karaoke. “Create video with captions” makes a new video you can watch right here and download.",
+    "guide.privacy": "Results are deleted from the server after a day, and “Recent” only exists in this browser.",
 
     "error.title": "The video could not be uploaded",
     "error.detail": "Server response: {detail}",
