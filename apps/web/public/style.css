@@ -454,6 +454,43 @@ select:disabled {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.batch {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.batch__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.batch__item[data-status="uploading"] {
+  border-left-color: var(--accent);
+}
+.batch__item[data-status="done"] {
+  border-left-color: var(--ok, #5fbf7a);
+}
+.batch__item[data-status="error"] {
+  border-left-color: var(--error-text);
+}
+.batch__name {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.batch__meta {
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
 .burn {
   margin-top: 22px;
   padding-top: 18px;

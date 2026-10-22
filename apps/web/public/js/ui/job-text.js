@@ -31,7 +31,7 @@ export function statusText(view, t, overrides = {}) {
     case "cancelled":
       return t("job.cancelled");
     case "failed":
-      return textOr(t, `job.error.${view.failure?.code}`, t("job.error.INTERNAL"));
+      return view.failure?.code ? textOr(t, `job.error.${view.failure.code}`, t("job.error.INTERNAL")) : t("job.error.INTERNAL");
     case "lost":
       return view.error?.code === "not_found" ? t("job.lost.not_found") : t("job.lost");
     default:

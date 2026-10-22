@@ -6,6 +6,7 @@ import { getJob } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { precheckFile, uploadVideo } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
+import { MAX_FILES, addFiles, currentOf, emptyBatch, markCancelled, markDone, markError, markUploading, removeItem, summaryOf } from "../domain/batch.js";
 import { trackingViewOf } from "../domain/job-state.js";
 import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
@@ -49,6 +50,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     fileName: $("file-name"),
     fileSize: $("file-size"),
     fileRemove: $("file-remove"),
+    batchList: $("batch-list"),
     model: $("opt-model"),
     source: $("opt-source"),
     translate: $("opt-translate"),
@@ -82,10 +84,11 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let lang = detectLang(readStored(win), win.navigator.languages);
   let t = createTranslator(lang);
   let state = initialState;
-  /** @type {File | null} */
-  let file = null;
-  /** @type {ApiError | null} */
-  let fileProblem = null;
+  // Cola de subida (domain/batch.js): los archivos elegidos, de uno en uno.
+  let batch = emptyBatch;
+  /** Archivos que no entraron en la cola, con su motivo. @type {{ name: string, problem: ApiError }[]} */
+  let rejected = [];
+  let overflow = 0;
   /** @type {AbortController | null} */
   let controller = null;
   /** @type {number | undefined} */
@@ -116,7 +119,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     t: translate,
     announce: (text) => announce(text),
     context: () => results.context,
-    onStarted: (job) => history.add({ id: job.id, name: String(results.context?.job.originalFilename ?? job.id), kind: "BURN", at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
+    onStarted: (job, parentName) => history.add({ id: job.id, name: parentName, kind: "BURN", at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
     onOpenParent: (parentId) => void openJob(parentId),
     follower,
   });
@@ -129,15 +132,22 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     render();
   }
 
+  /**
+   * Sube el archivo que toca de la cola. Si hay más pendientes, al aceptarse uno sigue con el siguiente; si uno falla o se
+   * cancela, la cola se detiene ahí y «Reintentar» lo retoma.
+   */
   async function begin() {
-    if (file === null || fileProblem !== null || viewOf(state).busy || waiting) return;
+    const item = currentOf(batch);
+    if (item === null || viewOf(state).busy || waiting) return;
     stopTracking();
+    batch = markUploading(batch, item.key);
     const abort = new AbortController();
     controller = abort;
-    dispatch({ type: "start", file: { name: file.name, size: file.size }, at: win.performance.now() });
+    dispatch({ type: "start", file: { name: item.file.name, size: item.file.size }, at: win.performance.now() });
+    let accepted = false;
     try {
       const job = await uploader({
-        file,
+        file: /** @type {File} */ (item.file),
         options: { modelSize: els.model.value, sourceLanguage: els.source.value, translateTo: els.translate.value },
         baseUrl: config.baseUrl,
         maxBytes: config.maxBytes,
@@ -147,15 +157,24 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
             ? dispatch({ type: "progress", loaded: event.loaded, total: event.total, at: win.performance.now() })
             : dispatch({ type: "sent" }),
       });
+      batch = markDone(batch, item.key, job.id);
       dispatch({ type: "accepted", job });
-      history.add({ id: job.id, name: file?.name ?? job.id, kind: "TRANSCRIBE", at: Date.now() });
+      history.add({ id: job.id, name: item.file.name, kind: "TRANSCRIBE", at: Date.now() });
       void tracker.follow(job.id);
+      accepted = true;
     } catch (error) {
       // Un fallo que no es del API (un bug) no debe pasar por «error de red» sin dejar rastro.
       if (!(error instanceof ApiError)) console.error(error);
-      dispatch({ type: "failed", error: error instanceof ApiError ? error : ApiError.network() });
+      const failure = error instanceof ApiError ? error : ApiError.network();
+      batch = failure.code === "aborted" ? markCancelled(batch, item.key) : markError(batch, item.key, failure);
+      dispatch({ type: "failed", error: failure });
     } finally {
       if (controller === abort) controller = null;
+    }
+    if (accepted && summaryOf(batch).pending > 0) {
+      const { done, total } = summaryOf(batch);
+      announce(t("batch.progress", { done, total }));
+      void begin(); // el siguiente de la cola
     }
   }
 
@@ -202,19 +221,93 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   // ---------- archivo ----------
 
-  /** @param {File | undefined} chosen */
-  function selectFile(chosen) {
-    if (!chosen || viewOf(state).busy) return;
-    file = chosen;
-    fileProblem = precheckFile(chosen, { maxBytes: config.maxBytes });
-    if (state.phase !== "idle") state = initialState; // un archivo nuevo descarta el resultado anterior
+  /**
+   * Añade archivos a la cola. Si la anterior ya terminó, empieza una nueva. Los que no sirven no entran y se explica por qué.
+   * @param {ArrayLike<File> | null | undefined} chosen
+   */
+  function selectFiles(chosen) {
+    const files = Array.from(chosen ?? []);
+    if (files.length === 0 || viewOf(state).busy) return;
+    const fresh = currentOf(batch) === null;
+    const result = addFiles(fresh ? emptyBatch : batch, files, (candidate) => precheckFile(candidate, { maxBytes: config.maxBytes }));
+    batch = result.batch;
+    rejected = result.rejected;
+    overflow = result.overflow;
+    if (fresh && state.phase !== "idle") state = initialState; // archivos nuevos descartan el resultado anterior
+    els.input.value = ""; // permite volver a elegir el mismo archivo
     render();
   }
 
   function clearFile() {
-    file = null;
-    fileProblem = null;
+    batch = emptyBatch;
+    rejected = [];
+    overflow = 0;
     els.input.value = "";
+  }
+
+  /** Qué se dice de los archivos que no entraron en la cola. */
+  function rejectedText() {
+    if (rejected.length === 0 && overflow === 0) return "";
+    const parts = [];
+    const first = rejected[0];
+    if (rejected.length === 1 && first && overflow === 0 && batch.items.length === 0) return t(`error.${first.problem.code}`); // un solo archivo elegido y no sirve
+    if (rejected.length > 0) {
+      const shown = rejected.slice(0, 3).map((entry) => `${entry.name} (${t(`error.${entry.problem.code}`)})`);
+      const more = rejected.length - shown.length;
+      parts.push(t("batch.rejected", { count: rejected.length, list: shown.join("; ") + (more > 0 ? ` +${more}` : "") }));
+    }
+    if (overflow > 0) parts.push(t("batch.overflow", { max: MAX_FILES, count: overflow }));
+    return parts.join(" ");
+  }
+
+  const STATUS_KEY = /** @type {const} */ ({ pending: "batch.status.pending", uploading: "batch.status.uploading", done: "batch.status.done", error: "batch.status.error", cancelled: "batch.status.cancelled" });
+
+  /** La lista de la cola, solo cuando hay más de un archivo. */
+  function renderBatch() {
+    const many = batch.items.length > 1;
+    els.batchList.hidden = !many;
+    if (!many) {
+      els.batchList.replaceChildren();
+      return;
+    }
+    els.batchList.setAttribute("aria-label", t("batch.title"));
+    els.batchList.replaceChildren(
+      ...batch.items.map((item) => {
+        const li = doc.createElement("li");
+        li.className = "batch__item";
+        li.dataset.status = item.status;
+        const name = doc.createElement("span");
+        name.className = "batch__name";
+        name.textContent = item.file.name;
+        const meta = doc.createElement("span");
+        meta.className = "batch__meta";
+        meta.textContent = `${formatBytes(item.file.size, lang)} · ${t(STATUS_KEY[item.status])}`;
+        li.append(name, meta);
+        if (item.status === "done" && item.jobId !== null) {
+          const jobId = item.jobId;
+          const open = doc.createElement("button");
+          open.type = "button";
+          open.className = "btn btn--ghost";
+          open.textContent = t("history.open");
+          open.setAttribute("aria-label", t("history.open.label", { name: item.file.name }));
+          open.addEventListener("click", () => void openJob(jobId));
+          li.append(open);
+        } else if (item.status !== "uploading") {
+          const remove = doc.createElement("button");
+          remove.type = "button";
+          remove.className = "btn btn--ghost";
+          remove.textContent = t("history.remove");
+          remove.setAttribute("aria-label", t("batch.remove.label", { name: item.file.name }));
+          remove.addEventListener("click", () => {
+            batch = removeItem(batch, item.key);
+            render();
+            els.input.focus();
+          });
+          li.append(remove);
+        }
+        return li;
+      }),
+    );
   }
 
   // ---------- pintado ----------
@@ -223,15 +316,20 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     const view = viewOf(state);
     const locked = view.busy || state.phase === "queued";
 
+    const current = currentOf(batch);
+    const waitingCount = batch.items.filter((item) => item.status === "pending" || item.status === "error" || item.status === "cancelled").length;
     els.fields.disabled = locked;
-    els.start.disabled = file === null || fileProblem !== null || locked;
-    els.fileRow.hidden = file === null;
-    if (file !== null) {
-      els.fileName.textContent = file.name;
-      els.fileSize.textContent = formatBytes(file.size, lang);
+    els.start.disabled = current === null || locked;
+    els.start.textContent = waitingCount > 1 ? t("action.startMany", { count: waitingCount }) : t("action.start");
+    els.fileRow.hidden = current === null || batch.items.length > 1;
+    if (current !== null) {
+      els.fileName.textContent = current.file.name;
+      els.fileSize.textContent = formatBytes(current.file.size, lang);
     }
-    els.problem.hidden = fileProblem === null;
-    els.problem.textContent = fileProblem === null ? "" : t(`error.${fileProblem.code}`);
+    const problem = rejectedText();
+    els.problem.hidden = problem === "";
+    els.problem.textContent = problem;
+    renderBatch();
 
     renderProgress(view);
     renderNotice(view);
@@ -264,7 +362,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
       const eta = formatDuration(state.etaSeconds);
       if (eta !== "") parts.push(t("upload.eta", { time: eta }));
     }
-    els.progressDetail.textContent = state.phase === "finalizing" ? "" : parts.join(" · ");
+    const position = batch.items.length > 1 ? `${t("batch.position", { n: summaryOf(batch).done + 1, total: batch.items.length })} · ` : "";
+    els.progressDetail.textContent = state.phase === "finalizing" ? position.replace(/ · $/, "") : position + parts.join(" · ");
   }
 
   function renderJob() {
@@ -349,7 +448,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     const show = state.phase === "queued" || state.phase === "cancelled";
     els.notice.hidden = !show;
     if (!show) return;
-    els.noticeText.textContent = state.phase === "queued" ? t("upload.queued") : t("upload.cancelled");
+    els.noticeText.textContent =
+      state.phase === "queued" ? (summaryOf(batch).done > 1 ? t("batch.received", { count: summaryOf(batch).done }) : t("upload.queued")) : t("upload.cancelled");
     els.noticeJob.textContent = state.job ? t("upload.jobId", { id: state.job.id }) : "";
     els.noticeJob.hidden = state.job === null;
     els.noticeRetry.hidden = !view.canRetry;
@@ -509,7 +609,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   // ---------- eventos ----------
 
-  els.input.addEventListener("change", () => selectFile(els.input.files?.[0]));
+  els.input.addEventListener("change", () => selectFiles(els.input.files));
   els.form.addEventListener("submit", (/** @type {Event} */ event) => {
     event.preventDefault();
     void begin();
@@ -524,9 +624,14 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   els.noticeAgain.addEventListener("click", startOver);
   els.fileRemove.addEventListener("click", () => {
     if (viewOf(state).busy) return;
-    clearFile();
-    state = initialState;
+    const current = currentOf(batch);
+    if (current !== null) batch = removeItem(batch, current.key);
+    rejected = [];
+    overflow = 0;
+    els.input.value = "";
+    if (currentOf(batch) === null) state = initialState;
     render();
+    els.input.focus();
   });
   for (const button of doc.querySelectorAll("[data-lang]")) button.addEventListener("click", () => setLang(button.getAttribute("data-lang") ?? "es"));
 
@@ -539,7 +644,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   for (const name of ["dragleave", "dragend"]) els.drop.addEventListener(name, () => els.drop.classList.remove("is-over"));
   els.drop.addEventListener("drop", (/** @type {Event} */ event) => {
     els.drop.classList.remove("is-over");
-    if (!els.fields.disabled) selectFile(/** @type {DragEvent} */ (event).dataTransfer?.files?.[0]);
+    if (!els.fields.disabled) selectFiles(/** @type {DragEvent} */ (event).dataTransfer?.files);
   });
 
   // Salir de la página corta la subida: se avisa solo mientras hay una en curso.

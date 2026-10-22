@@ -125,6 +125,11 @@ async function chooseFile(page: Page, path: string): Promise<void> {
   await input!.uploadFile(path);
 }
 
+async function chooseFiles(page: Page, paths: string[]): Promise<void> {
+  const input = await page.$("#file-input");
+  await input!.uploadFile(...paths);
+}
+
 async function jobsNamed(name: string): Promise<{ id: string; status: string }[]> {
   return prisma.job.findMany({ where: { originalFilename: { contains: name } }, select: { id: true, status: true } });
 }
@@ -525,6 +530,48 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     const result = { schemaVersion: 1, jobId: burnId, usedKaraoke: false, artifacts: { video: key } };
     await prisma.job.update({ where: { id: burnId }, data: { status: "COMPLETED", stage: "burning", percent: 100, result, finishedAt: new Date() } });
   }
+
+  it("cola: varios videos se suben de uno en uno, cada uno crea su trabajo y los inválidos se descartan con motivo", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const names = ["cola-uno.mp4", "cola-dos.mp4", "cola-tres.mp4"];
+    await chooseFiles(page, [...names.map((name) => videoFile(name, 20 * 1024)), videoFile("cola-notas.txt", 64)]);
+    expect(await page.$$eval("#batch-list li", (items) => items.length)).toBe(3);
+    expect(await text(page, "#file-problem")).toContain("cola-notas.txt");
+    expect(await text(page, "#start")).toBe("Generar subtítulos de 3 videos");
+
+    await page.click("#start");
+    await page.waitForFunction(() => document.querySelectorAll('#batch-list li[data-status="done"]').length === 3, { timeout: 40_000 });
+    await page.waitForSelector("#notice-panel:not([hidden])", { timeout: 10_000 });
+    expect(await text(page, "#notice-text")).toContain("Recibidos 3 videos");
+    for (const name of names) expect(await jobsNamed(`${token}-${name}`)).toHaveLength(1);
+    expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(3);
+    // Una subida terminada se puede abrir desde la propia cola.
+    await page.click('#batch-list li[data-status="done"] .btn');
+    await waitForJobText(page, "En cola");
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("cola: si uno falla (429) la cola se detiene ahí, lo ya subido se conserva y los pendientes siguen en la lista", async () => {
+    const base = await startApi({ uploadRateLimitPerMinute: 2 });
+    const { page } = await openPage(base);
+    const names = ["lim-uno.mp4", "lim-dos.mp4", "lim-tres.mp4", "lim-cuatro.mp4"];
+    await chooseFiles(page, names.map((name) => videoFile(name, 20 * 1024)));
+    await page.click("#start");
+    await page.waitForSelector("#error-panel:not([hidden])", { timeout: 40_000 });
+    expect(await text(page, "#error-message")).toMatch(/Reintenta en \d+ s/);
+    const statuses = await page.$$eval("#batch-list li", (items) => items.map((item) => item.getAttribute("data-status")));
+    expect(statuses).toEqual(["done", "done", "error", "pending"]);
+    expect(await jobsNamed(`${token}-lim-uno.mp4`)).toHaveLength(1);
+    expect(await jobsNamed(`${token}-lim-dos.mp4`)).toHaveLength(1);
+    expect(await jobsNamed(`${token}-lim-tres.mp4`)).toHaveLength(0);
+    expect(await jobsNamed(`${token}-lim-cuatro.mp4`)).toHaveLength(0); // no se saltó a los siguientes
+    // El pendiente se puede quitar de la cola; el fallo sigue siendo lo que toca reintentar.
+    await page.click('#batch-list li[data-status="pending"] .btn');
+    expect(await page.$$eval("#batch-list li", (items) => items.length)).toBe(3);
+    await page.close();
+  }, 90_000);
 
   it("quemado: se crea un trabajo propio, se sigue su progreso y al terminar aparecen el video y su descarga", async () => {
     const base = await startApi();

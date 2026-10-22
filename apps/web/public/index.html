@@ -33,7 +33,7 @@
           <legend class="visually-hidden" data-i18n="file.selected">Video elegido</legend>
 
           <label class="drop" id="drop">
-            <input class="visually-hidden" type="file" id="file-input" accept=".mp4,.mov,.mkv,.webm,.avi,video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo">
+            <input class="visually-hidden" type="file" id="file-input" multiple accept=".mp4,.mov,.mkv,.webm,.avi,video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo">
             <svg class="drop__icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 16V4"/>
               <path d="m7 9 5-5 5 5"/>
@@ -45,6 +45,8 @@
           </label>
 
           <p class="problem" id="file-problem" role="alert" hidden></p>
+
+          <ul class="batch" id="batch-list" hidden></ul>
 
           <div class="file" id="file-row" hidden>
             <div class="file__info">
@@ -130,8 +132,8 @@
               <label for="burn-karaoke" data-i18n="burn.karaoke">Resaltar cada palabra (karaoke)</label>
             </div>
           </div>
-          <p class="panel__detail" id="burn-hint" hidden></p>
-          <button type="submit" class="btn btn--secondary" id="burn-start" data-i18n="burn.start">Crear video con subtítulos</button>
+          <p class="panel__detail" id="burn-hint" role="status" hidden></p>
+          <button type="submit" class="btn btn--secondary" id="burn-start" aria-describedby="burn-hint" data-i18n="burn.start">Crear video con subtítulos</button>
         </form>
         <p class="panel__detail" id="result-status" role="status" hidden></p>
         <button type="button" class="btn btn--secondary" id="result-retry" hidden data-i18n="action.retry">Reintentar</button>

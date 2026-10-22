@@ -3,7 +3,7 @@
 // (con Range, el navegador salta sin bajarlo entero) y su descarga.
 
 import { ApiError } from "../api/errors.js";
-import { artifactUrl, cancelJob, getJob, startBurn } from "../api/jobs.js";
+import { artifactUrl, cancelJob, startBurn } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { trackingViewOf } from "../domain/job-state.js";
 import { detailText, statusText } from "./job-text.js";
@@ -17,7 +17,7 @@ export const BURN_STYLES = /** @type {const} */ (["modern", "tiktok", "youtube",
  *   t: (key: string, params?: Record<string, string | number>) => string,
  *   announce: (text: string) => void,
  *   context: () => { job: import("../api/sse.js").JobView, hasWords: boolean, dirty: boolean } | null,
- *   onStarted: (job: import("../api/sse.js").JobView) => void,
+ *   onStarted: (job: import("../api/sse.js").JobView, parentName: string) => void,
  *   onOpenParent: (parentId: string) => void,
  *   follower?: typeof followJob, start?: typeof startBurn, cancel?: typeof cancelJob,
  * }} deps
@@ -52,6 +52,8 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   let startProblem = null;
   let starting = false;
   let lastKind = "none";
+  /** Sube con cada `stop()`: un envío o una cancelación que vuelve después de parar no resucita el panel. */
+  let epoch = 0;
   /** @type {string | null} */
   let shownVideoFor = null;
 
@@ -63,10 +65,20 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     els.style.value = keep;
   }
 
+  /** Hay un quemado vivo. Con la conexión perdida (que no sea un 404) puede seguir en el servidor: se cuenta como vivo. */
   const burning = () => {
     const view = trackingViewOf(tracker.state);
-    return tracker.state.jobId !== null && !view.terminal && view.kind !== "lost";
+    if (tracker.state.jobId === null || view.terminal) return false;
+    return view.kind !== "lost" || view.error?.code !== "not_found";
   };
+
+  /** Suelta el video: sin esto sigue sonando y con la conexión abierta aunque el panel esté oculto. */
+  function clearVideo() {
+    els.video.pause();
+    els.video.removeAttribute("src");
+    els.video.load();
+    shownVideoFor = null;
+  }
 
   /** El formulario solo aparece con una transcripción abierta, y solo se puede enviar con los cambios guardados. */
   function refreshForm() {
@@ -85,8 +97,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     const view = trackingViewOf(tracker.state);
     els.panel.hidden = view.kind === "none";
     if (view.kind === "none") {
-      els.video.removeAttribute("src");
-      shownVideoFor = null;
+      clearVideo();
       refreshForm();
       return;
     }
@@ -114,11 +125,19 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     const done = view.kind === "completed" && id !== null;
     els.download.hidden = !done;
     els.video.hidden = !done;
-    if (done && shownVideoFor !== id) {
+    if (!done) {
+      if (shownVideoFor !== null) clearVideo();
+    } else if (shownVideoFor !== id) {
       shownVideoFor = id;
-      const url = artifactUrl(baseUrl, id, "video");
-      els.download.href = url;
-      els.video.src = url;
+      try {
+        const url = artifactUrl(baseUrl, id, "video");
+        els.download.href = url;
+        els.video.src = url;
+      } catch (error) {
+        console.error(error);
+        els.video.hidden = true;
+        els.download.hidden = true;
+      }
     }
     const parentId = tracker.state.job?.parentJobId;
     els.parent.hidden = !(typeof parentId === "string" && context()?.job.id !== parentId);
@@ -133,21 +152,39 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   async function submit() {
     const ctx = context();
     if (ctx === null || ctx.dirty || burning() || starting) return;
+    const mine = epoch;
+    const parentName = String(ctx.job.originalFilename ?? ctx.job.id);
     starting = true;
     startProblem = null;
     refreshForm();
+    /** @type {import("../api/sse.js").JobView | null} */
+    let job = null;
     try {
-      const job = await start({ baseUrl, jobId: ctx.job.id, style: els.style.value, karaoke: els.karaoke.checked && !els.karaoke.disabled });
-      onStarted(job);
-      void tracker.follow(job.id);
-      els.panel.focus();
+      job = await start({ baseUrl, jobId: ctx.job.id, style: els.style.value, karaoke: els.karaoke.checked && !els.karaoke.disabled });
     } catch (error) {
+      if (mine !== epoch) return;
       if (!(error instanceof ApiError)) console.error(error);
       const code = error instanceof ApiError ? error.code : "network";
       startProblem = code === "conflict" ? t("burn.error.conflict") : t(`error.${code}`, { seconds: error instanceof ApiError ? (error.retryAfter ?? 10) : 10 });
-    } finally {
-      starting = false;
+      announce(startProblem);
+    }
+    if (mine === epoch) starting = false;
+    if (job !== null) {
+      // El quemado existe en el servidor aunque se haya cambiado de pantalla: queda en «Recientes» pase lo que pase.
+      try {
+        onStarted(job, parentName);
+        if (mine === epoch) {
+          void tracker.follow(job.id);
+          els.panel.focus();
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    if (mine === epoch) {
       refreshForm();
+      // El botón se desactivó mientras tenía el foco: si el envío falló, el foco vuelve a él.
+      if (job === null && doc.activeElement === doc.body) els.submit.focus();
     }
   }
 
@@ -158,13 +195,18 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   els.cancel.addEventListener("click", async () => {
     const id = tracker.state.jobId;
     if (id === null) return;
+    const mine = epoch;
     els.cancel.disabled = true;
     try {
-      await cancel({ baseUrl, jobId: id }); // el estado CANCELLED llega por el flujo de eventos
+      const job = await cancel({ baseUrl, jobId: id });
+      // Si el flujo de eventos está reconectando, el estado nuevo no llegaría: se aplica el que devolvió el servidor.
+      if (mine === epoch && tracker.state.jobId === id) tracker.dispatch({ type: "job", job });
     } catch (error) {
+      if (mine !== epoch || tracker.state.jobId !== id) return; // ya era otro quemado o se cerró el panel
       if (!(error instanceof ApiError)) console.error(error);
       els.detail.hidden = false;
       els.detail.textContent = t(`error.${error instanceof ApiError ? error.code : "network"}`, { seconds: 10 });
+      announce(els.detail.textContent);
     } finally {
       els.cancel.disabled = false;
     }
@@ -175,6 +217,14 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   els.parent.addEventListener("click", () => {
     const parentId = tracker.state.job?.parentJobId;
     if (typeof parentId === "string") onOpenParent(parentId);
+  });
+
+  // Un artefacto caducado, o una API de otro origen que media-src 'self' bloquea, dejaría un reproductor negro sin explicación.
+  els.video.addEventListener("error", () => {
+    if (els.video.hidden || els.video.getAttribute("src") === null) return;
+    els.detail.hidden = false;
+    els.detail.textContent = t("burn.video.error");
+    announce(els.detail.textContent);
   });
 
   fillStyles();
@@ -195,13 +245,10 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     },
     /** Deja de seguir y oculta el panel. */
     stop() {
-      tracker.stop();
+      epoch++;
+      starting = false;
       startProblem = null;
+      tracker.stop();
     },
-    /** Hay un quemado en curso. */
-    get busy() {
-      return burning();
-    },
-    fetchJob: getJob,
   };
 }
