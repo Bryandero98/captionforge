@@ -55,5 +55,9 @@ export interface TranscribeJob {
      * Aislar la voz (Demucs) antes de transcribir. Opcional: si falta, false. Si la separación falla, el trabajo sigue con el audio original (ver audioCleaned en el resultado).
      */
     cleanAudio?: boolean;
+    /**
+     * Identificar quién habla (pyannote) y poner `speaker` en cada segmento. Opcional: si falta, false. Si falla o falta el token de Hugging Face, el trabajo sigue sin hablantes (ver diarized en el resultado).
+     */
+    diarize?: boolean;
   };
 }

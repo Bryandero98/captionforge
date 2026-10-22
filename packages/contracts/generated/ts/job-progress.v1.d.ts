@@ -19,6 +19,8 @@ export interface JobProgress {
     | "separating_voice"
     | "downloading_model"
     | "transcribing"
+    | "downloading_diarization_model"
+    | "diarizing"
     | "translating"
     | "uploading"
     | "burning";

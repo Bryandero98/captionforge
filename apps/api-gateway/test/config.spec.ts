@@ -15,6 +15,34 @@ const base = {
 };
 
 describe("loadConfig", () => {
+  describe("DIARIZATION_ENABLED (identificar quién habla)", () => {
+    it("apagada por defecto", () => {
+      expect(loadConfig(base).features.diarization).toBe(false);
+    });
+
+    it("la enciende el valor explícito true/1 y la apaga false/0, también con HF_TOKEN presente", () => {
+      expect(loadConfig({ ...base, DIARIZATION_ENABLED: "true" }).features.diarization).toBe(true);
+      expect(loadConfig({ ...base, DIARIZATION_ENABLED: "1" }).features.diarization).toBe(true);
+      expect(loadConfig({ ...base, DIARIZATION_ENABLED: "false", HF_TOKEN: "hf_" + "x".repeat(30) }).features.diarization).toBe(false);
+      expect(loadConfig({ ...base, DIARIZATION_ENABLED: "0" }).features.diarization).toBe(false);
+    });
+
+    it("sin valor explícito se deduce de que haya token (HF_TOKEN o HF_TOKEN_FILE) en el entorno del servicio", () => {
+      expect(loadConfig({ ...base, HF_TOKEN: "hf_" + "x".repeat(30) }).features.diarization).toBe(true);
+      expect(loadConfig({ ...base, HF_TOKEN_FILE: "/run/secrets/hf" }).features.diarization).toBe(true);
+      expect(loadConfig({ ...base, HF_TOKEN: "" }).features.diarization).toBe(false);
+    });
+
+    it("un valor que no es booleano falla al arrancar", () => {
+      expect(() => loadConfig({ ...base, DIARIZATION_ENABLED: "quizá" })).toThrow(/DIARIZATION_ENABLED/);
+    });
+
+    it("el token nunca queda en la configuración", () => {
+      const config = loadConfig({ ...base, HF_TOKEN: "hf_" + "x".repeat(30) });
+      expect(JSON.stringify(config)).not.toContain("hf_xxx");
+    });
+  });
+
   it("aplica valores por defecto seguros", () => {
     const config = loadConfig(base);
     expect(config.host).toBe("127.0.0.1"); // sin autenticación aún: no se expone a la red por defecto

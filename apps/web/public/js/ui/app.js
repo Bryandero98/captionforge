@@ -1,6 +1,7 @@
 // Cableado de la interfaz de subida: eventos del DOM -> máquina de estados (domain/upload-state.js) -> DOM.
 // Todo texto entra con textContent: ningún dato (nombre de archivo, mensaje del servidor) se interpreta como HTML.
 
+import { getCapabilities } from "../api/capabilities.js";
 import { ApiError } from "../api/errors.js";
 import { getJob } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
@@ -30,9 +31,10 @@ const MODELS = ["base", "small", "medium"];
  *   uploader?: typeof uploadVideo,
  *   follower?: typeof followJob,
  *   fetchJob?: typeof getJob,
+ *   capabilities?: typeof getCapabilities,
  * }} deps
  */
-export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob }) {
+export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob, capabilities = getCapabilities }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -56,6 +58,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     source: $("opt-source"),
     translate: $("opt-translate"),
     clean: $("opt-clean"),
+    diarize: $("opt-diarize"),
+    diarizeHint: $("opt-diarize-hint"),
     start: $("start"),
     progress: $("progress-panel"),
     progressStatus: $("progress-status"),
@@ -150,7 +154,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     try {
       const job = await uploader({
         file: /** @type {File} */ (item.file),
-        options: { modelSize: els.model.value, sourceLanguage: els.source.value, translateTo: els.translate.value, cleanAudio: els.clean.checked },
+        options: { modelSize: els.model.value, sourceLanguage: els.source.value, translateTo: els.translate.value, cleanAudio: els.clean.checked, diarize: els.diarize.checked && !els.diarize.disabled },
         baseUrl: config.baseUrl,
         maxBytes: config.maxBytes,
         signal: abort.signal,
@@ -672,8 +676,17 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     event.returnValue = "";
   });
 
+  /** Identificar hablantes solo se ofrece si el servidor lo tiene (token de Hugging Face); si no, la casilla queda apagada y se explica. */
+  function applyCapabilities(/** @type {import("../api/capabilities.js").Capabilities} */ found) {
+    const enabled = found.diarization.enabled;
+    els.diarize.disabled = !enabled;
+    if (!enabled) els.diarize.checked = false;
+    els.diarizeHint.hidden = enabled;
+  }
+
   translateStatic();
   render();
+  void capabilities({ baseUrl: config.baseUrl }).then(applyCapabilities);
 
   return { get state() { return state; }, dispatch, setLang };
 }

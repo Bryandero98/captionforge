@@ -38,13 +38,17 @@ COPY apps/ai-worker/constraints.txt apps/ai-worker/constraints.txt
 # Con --build-arg WITH_SEPARATION=1 se fija torch/torchaudio 2.11 y se instala Demucs para la limpieza de audio
 # (cleanAudio, ADR 0013); sin él, la imagen es la de siempre y los trabajos que la pidan siguen con el audio original.
 ARG WITH_SEPARATION=0
-COPY apps/ai-worker/requirements-separation.txt apps/ai-worker/requirements-separation.txt
-RUN if [ "$WITH_SEPARATION" = "1" ]; then \
-      pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cpu \
-      && pip install --no-deps -r apps/ai-worker/requirements-separation.txt; \
+# Con --build-arg WITH_DIARIZATION=1 se instala pyannote.audio para identificar quién habla (diarize, ADR 0014); usa la
+# misma pila de PyTorch 2.11. El modelo se descarga en el primer uso con el token HF_TOKEN del contenedor.
+ARG WITH_DIARIZATION=0
+COPY apps/ai-worker/requirements-separation.txt apps/ai-worker/requirements-diarization.txt apps/ai-worker/
+RUN if [ "$WITH_SEPARATION" = "1" ] || [ "$WITH_DIARIZATION" = "1" ]; then \
+      pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cpu; \
     else \
       pip install torch --index-url https://download.pytorch.org/whl/cpu; \
-    fi
+    fi \
+ && if [ "$WITH_SEPARATION" = "1" ]; then pip install --no-deps -r apps/ai-worker/requirements-separation.txt; fi \
+ && if [ "$WITH_DIARIZATION" = "1" ]; then pip install -r apps/ai-worker/requirements-diarization.txt --extra-index-url https://download.pytorch.org/whl/cpu; fi
 
 # Dependencias locales primero (cambian poco); el código del worker después.
 COPY legacy/pyproject.toml legacy/README.md legacy/

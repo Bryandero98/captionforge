@@ -16,6 +16,8 @@ class Stage(StrEnum):
     separating_voice = 'separating_voice'
     downloading_model = 'downloading_model'
     transcribing = 'transcribing'
+    downloading_diarization_model = 'downloading_diarization_model'
+    diarizing = 'diarizing'
     translating = 'translating'
     uploading = 'uploading'
     burning = 'burning'

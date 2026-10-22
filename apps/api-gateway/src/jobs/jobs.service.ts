@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 
 import type { BurnJob, TranscribeJob } from "@captionforge/contracts/types";
+import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { ContractViolation, assertContract } from "../contracts/validators.js";
 import { Prisma, type Job, type JobStatus } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -139,6 +141,7 @@ export class JobsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly queue: QueueService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async createTranscription(upload: TranscriptionUpload): Promise<JobView> {
@@ -465,6 +468,10 @@ export class JobsService {
     }
     const given = raw as Record<string, unknown>;
     // Los valores por defecto se aplican aquí; claves desconocidas las rechaza el contrato.
-    return { modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false, ...given } as TranscribeJob["options"];
+    const options = { modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false, diarize: false, ...given } as TranscribeJob["options"];
+    if (options.diarize === true && !this.config.features.diarization) {
+      throw new BadRequestException("Identificar quién habla no está disponible en este servidor.");
+    }
+    return options;
   }
 }

@@ -29,14 +29,17 @@ function cueText(/** @type {string} */ text) {
 }
 
 /**
- * @param {{ start: number, end: number, text: string }[]} segments
+ * @param {{ start: number, end: number, text: string, speaker?: string }[]} segments
+ * @param {(segment: { speaker?: string }) => string | null} [nameOf] con él, cada subtítulo con hablante lleva «Nombre: » delante
  * @returns {string}
  */
-export function segmentsToVtt(segments) {
+export function segmentsToVtt(segments, nameOf) {
   const blocks = [];
   for (const segment of segments) {
-    const text = cueText(segment.text);
-    if (text === "") continue;
+    const body = cueText(segment.text);
+    if (body === "") continue;
+    const name = nameOf?.(segment);
+    const text = name ? `${cueText(name)}: ${body}` : body;
     blocks.push(`${blocks.length + 1}\n${formatTimestamp(segment.start, ".")} --> ${formatTimestamp(segment.end, ".")}\n${text}`);
   }
   return blocks.length === 0 ? "WEBVTT\n" : `WEBVTT\n\n${blocks.join("\n\n")}\n`;

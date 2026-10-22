@@ -22,6 +22,8 @@ export interface AppConfig {
   maxUploadBytes: number;
   /** Carpeta de la interfaz web que sirve el propio API (mismo origen: sin CORS). undefined = no se sirve (despliegue solo de API). */
   webRoot: string | undefined;
+  /** Funciones opcionales que el servidor anuncia en GET /v1/capabilities. */
+  features: { diarization: boolean };
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
   /** Protección opcional del API: clave compartida y límites de uso por IP (0 = sin límite). */
@@ -114,6 +116,18 @@ function parseWebRoot(raw: string | undefined): string | undefined {
   return resolve(value);
 }
 
+/**
+ * DIARIZATION_ENABLED (identificar quién habla): valor explícito true/1/false/0; sin valor se deduce de que el
+ * entorno del servicio tenga token de Hugging Face (HF_TOKEN o HF_TOKEN_FILE). Nunca se guarda el token.
+ */
+function parseDiarization(env: NodeJS.ProcessEnv): boolean {
+  const raw = (env.DIARIZATION_ENABLED ?? "").trim().toLowerCase();
+  if (raw === "") return Boolean(env.HF_TOKEN || env.HF_TOKEN_FILE);
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  throw new Error(`DIARIZATION_ENABLED debe ser true o false (recibido "${env.DIARIZATION_ENABLED}")`);
+}
+
 /** Lee y valida el entorno; falla al arrancar (no a mitad de una petición) si falta algo. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const need = (name: string): string => {
@@ -151,6 +165,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     maxUploadBytes: integer("MAX_UPLOAD_BYTES", 4 * 1024 ** 3),
     webRoot: parseWebRoot(env.WEB_ROOT),
+    features: { diarization: parseDiarization(env) },
     reaper: {
       intervalMs: integer("REAPER_INTERVAL_SECONDS", 60, { allowZero: true }) * 1000,
       // Más que cualquier fase sin progreso del worker (ffmpeg corta a los 5 min sin actividad).

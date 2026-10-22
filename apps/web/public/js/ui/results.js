@@ -5,6 +5,7 @@ import { ApiError } from "../api/errors.js";
 import { artifactUrl, getSegments } from "../api/jobs.js";
 import { cleanAudioStatus } from "../domain/clean-audio.js";
 import { formatDuration } from "../domain/format.js";
+import { diarizationStatus, segmentsToSrtWithSpeakers } from "../domain/speakers.js";
 import { segmentsToVtt } from "../domain/subtitles.js";
 import { createSegmentEditor } from "./segment-editor.js";
 
@@ -48,6 +49,10 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     cleanRow: $("result-clean-row"),
     clean: $("result-clean"),
     cleanNote: $("result-clean-note"),
+    speakersRow: $("result-speakers-row"),
+    speakers: $("result-speakers"),
+    speakersNote: $("result-speakers-note"),
+    prefix: $("dl-speaker-prefix"),
     duration: $("result-duration"),
     count: $("result-count"),
     srt: $("dl-srt"),
@@ -95,6 +100,13 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     els.clean.textContent = cleaning === "cleaned" ? t("result.cleaned.yes") : t("result.cleaned.no");
     els.cleanNote.hidden = cleaning !== "fallback";
     els.cleanNote.textContent = cleaning === "fallback" ? t("result.cleaned.fallback") : "";
+    // Igual que la limpieza: solo si se pidió identificar hablantes.
+    const speakers = diarizationStatus(/** @type {{ options?: unknown, result?: unknown } | null} */ (job));
+    const found = new Set(editor.segments.map((segment) => segment.speaker).filter(Boolean)).size;
+    els.speakersRow.hidden = speakers === "none";
+    els.speakers.textContent = speakers === "identified" ? String(found) : t("result.speakers.no");
+    els.speakersNote.hidden = speakers !== "fallback";
+    els.speakersNote.textContent = speakers === "fallback" ? t("result.speakers.fallback") : "";
   }
 
   /** Con cambios sin guardar las descargas darían la versión vieja: se desactivan y se dice por qué. */
@@ -138,22 +150,36 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     }
   }
 
-  /** Descarga el .vtt armado con los subtítulos guardados. */
-  function downloadVtt() {
-    if (job === null || editor.segments.length === 0 || editor.dirty) return;
-    const url = URL.createObjectURL(new Blob([segmentsToVtt(editor.segments)], { type: "text/vtt" }));
+  /** Entrega un archivo armado aquí. */
+  function saveBlob(/** @type {string} */ text, /** @type {string} */ type, /** @type {"srt" | "vtt"} */ extension) {
+    if (job === null) return;
+    const url = URL.createObjectURL(new Blob([text], { type }));
     const link = doc.createElement("a");
     link.href = url;
-    link.download = downloadName(typeof job.originalFilename === "string" ? job.originalFilename : "", "vtt");
+    link.download = downloadName(typeof job.originalFilename === "string" ? job.originalFilename : "", extension);
     doc.body.append(link);
     link.click();
     link.remove();
     win.setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
+  /** Con la casilla marcada, el nombre del hablante va delante del texto («Ana: Hola»). */
+  const prefixer = () => (els.prefix.checked ? (/** @type {{ speaker?: string }} */ segment) => editor.speakerNameOf(segment) : undefined);
+
+  /** Descarga el .vtt armado con los subtítulos guardados. */
+  function downloadVtt() {
+    if (job === null || editor.segments.length === 0 || editor.dirty) return;
+    saveBlob(segmentsToVtt(editor.segments, prefixer()), "text/vtt", "vtt");
+  }
+
   els.vtt.addEventListener("click", downloadVtt);
   els.srt.addEventListener("click", (/** @type {Event} */ event) => {
     if (editor.dirty) event.preventDefault();
+    else if (els.prefix.checked && !els.panel.hidden && editor.segments.length > 0) {
+      // El .srt del servidor no lleva nombres: con la casilla marcada se arma aquí con los guardados.
+      event.preventDefault();
+      saveBlob(segmentsToSrtWithSpeakers(editor.segments, (segment) => editor.speakerNameOf(segment)), "application/x-subrip", "srt");
+    }
   });
   els.retry.addEventListener("click", () => void load());
 
@@ -162,6 +188,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     show(next) {
       if (job?.id === next.id && !els.panel.hidden) return;
       job = next;
+      els.prefix.checked = false;
       editor.close();
       els.panel.hidden = false;
       try {
@@ -181,6 +208,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       job = null;
       loading = false;
       failure = null;
+      els.prefix.checked = false;
       editor.close();
       els.panel.hidden = true;
     },

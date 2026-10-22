@@ -736,3 +736,80 @@ select:disabled {
   margin: 0;
   font-size: 1rem;
 }
+
+/* Quién habla: ocho colores para distinguir hablantes de un vistazo. El nombre siempre se escribe, así que el color nunca
+   es la única señal. Todos pasan 4,5:1 sobre las superficies oscuras. */
+.speaker-0 { --sp: #6cb6ff; }
+.speaker-1 { --sp: #f2cc60; }
+.speaker-2 { --sp: #7ee787; }
+.speaker-3 { --sp: #ff9bce; }
+.speaker-4 { --sp: #b392f0; }
+.speaker-5 { --sp: #56d4dd; }
+.speaker-6 { --sp: #ffa198; }
+.speaker-7 { --sp: #ffb77a; }
+.seg__speaker {
+  grid-column: 1 / -1;
+  display: block;
+  max-width: 100%;
+  padding: 2px 8px;
+  overflow: hidden;
+  color: var(--sp, var(--text-dim));
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--sp, var(--text-dim)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sp, var(--text-dim)) 45%, transparent);
+  border-radius: 999px;
+}
+.seg__speaker[hidden] {
+  display: none;
+}
+.speakers {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.speakers__title {
+  padding: 0 6px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.speakers__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 8px 12px;
+  margin: 10px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.speakers__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.speakers__swatch {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  background: var(--sp);
+  border-radius: 50%;
+}
+.speakers__name {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.field__hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.field__hint[hidden] {
+  display: none;
+}

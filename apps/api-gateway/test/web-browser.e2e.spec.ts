@@ -45,13 +45,14 @@ let browser: Browser;
 let prisma: PrismaService;
 let storage: StorageService;
 
-type Overrides = { maxUploadBytes?: number; uploadRateLimitPerMinute?: number; eventStreamMaxMs?: number };
+type Overrides = { maxUploadBytes?: number; uploadRateLimitPerMinute?: number; eventStreamMaxMs?: number; diarization?: boolean };
 
 async function startApi(overrides: Overrides = {}): Promise<string> {
   const app = await createApp(
     {
       ...baseConfig,
       maxUploadBytes: overrides.maxUploadBytes ?? baseConfig.maxUploadBytes,
+      features: { diarization: overrides.diarization ?? false },
       reaper: { ...baseConfig.reaper, intervalMs: 0 },
       security: {
         apiKey: undefined,
@@ -325,7 +326,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
   const NL = String.fromCharCode(10);
 
   /** Hace de worker al terminar: sube los subtítulos a S3 y deja el trabajo COMPLETED con su resultado. */
-  async function workerCompletes(name: string, segments: { start: number; end: number; text: string; words: null }[], extra: Record<string, unknown> = {}) {
+  async function workerCompletes(name: string, segments: { start: number; end: number; text: string; words: null; speaker?: string }[], extra: Record<string, unknown> = {}) {
     const [job] = await jobsNamed(`${token}-${name}`);
     const id = job!.id;
     const segmentsKey = `jobs/${id}/out/segments.json`;
@@ -403,6 +404,120 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
     expect(await page.$eval("#result-clean-row", (row) => row.hasAttribute("hidden"))).toBe(true);
     expect(await page.$eval("#result-clean-note", (note) => note.hasAttribute("hidden"))).toBe(true);
+    await page.close();
+  }, 90_000);
+
+  const TALK = [
+    { start: 0, end: 2, text: " Hola, ¿qué tal?", words: null, speaker: "SPEAKER_01" },
+    { start: 2, end: 4, text: " Muy bien, gracias", words: null, speaker: "SPEAKER_02" },
+    { start: 4, end: 6, text: " Me alegro", words: null, speaker: "SPEAKER_01" },
+  ];
+
+  it("quién habla: sin la función en el servidor la casilla queda desactivada y se explica por qué", async () => {
+    const base = await startApi({ diarization: false });
+    const { page, spy } = await openPage(base);
+    expect(await page.$eval("#opt-diarize", (box) => (box as unknown as { disabled: boolean }).disabled)).toBe(true);
+    expect(await isVisible(page, "#opt-diarize-hint")).toBe(true);
+    expect(await text(page, "#opt-diarize-hint")).toContain("token de Hugging Face");
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it("quién habla: con la función activa viaja en las opciones, se ven la etapa, los hablantes con su color y se pueden renombrar y guardar", async () => {
+    const base = await startApi({ diarization: true });
+    const { page, spy } = await openPage(base);
+    const downloads = mkdtempSync(join(tmpdir(), "cf-dl-"));
+    const session = await browser.target().createCDPSession();
+    await session.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloads });
+    const name = "reunion.mp4";
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    await page.waitForFunction(() => !(document.querySelector("#opt-diarize") as unknown as { disabled: boolean }).disabled, { timeout: 10_000 });
+    expect(await page.$eval("#opt-diarize", (box) => (box as unknown as { checked: boolean }).checked)).toBe(false); // desactivada por defecto
+    expect(await isVisible(page, "#opt-diarize-hint")).toBe(false);
+    await page.click("#opt-diarize");
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+    const [job] = await jobsNamed(`${token}-${name}`);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job!.id } })).options).toMatchObject({ diarize: true });
+
+    await prisma.job.update({ where: { id: job!.id }, data: { status: "RUNNING", stage: "diarizing", percent: 60, startedAt: new Date(), message: "Identificando quién habla (50%)" } });
+    await page.waitForFunction(() => (document.querySelector("#job-status")?.textContent ?? "").includes("Identificando quién habla"), { timeout: 15_000 });
+    await workerCompletes(name, TALK, { diarized: true });
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    await page.waitForFunction(() => document.querySelectorAll("#result-segments li").length === 3, { timeout: 15_000 });
+
+    expect(await isVisible(page, "#result-speakers-row")).toBe(true);
+    expect(await text(page, "#result-speakers")).toBe("2");
+    expect(await isVisible(page, "#result-speakers-note")).toBe(false);
+    expect(await isVisible(page, "#speakers-panel")).toBe(true);
+    const chips = await page.$$eval("#result-segments .seg__speaker", (nodes) => nodes.map((node) => ({ text: node.textContent, cls: node.className })));
+    expect(chips.map((chip) => chip.text)).toEqual(["Hablante 1", "Hablante 2", "Hablante 1"]);
+    expect(chips[0]!.cls).toContain("speaker-0");
+    expect(chips[1]!.cls).toContain("speaker-1");
+    expect(chips[2]!.cls).toBe(chips[0]!.cls); // mismo hablante, mismo color
+
+    // Renombrar al primer hablante cambia todos sus subtítulos y deja el editor con cambios sin guardar.
+    await retype(page, "#speakers-list li:first-child input", "Ana");
+    expect(await page.$$eval("#result-segments .seg__speaker", (nodes) => nodes.map((node) => node.textContent))).toEqual(["Ana", "Hablante 2", "Ana"]);
+    expect(await text(page, "#editor-state")).toContain("2 subtítulos con cambios sin guardar");
+    await page.click("#editor-save");
+    await page.waitForFunction(() => (document.querySelector("#editor-state")?.textContent ?? "").includes("Cambios guardados"), { timeout: 10_000 });
+    const saved = (await fetch(`${base}/v1/jobs/${job!.id}/segments`).then((response) => response.json())) as { segments: { speaker?: string }[] };
+    expect(saved.segments.map((segment) => segment.speaker)).toEqual(["Ana", "SPEAKER_02", "Ana"]);
+
+    // Un nombre vacío vuelve al que tenía al salir del campo, sin guardar nada.
+    await page.click("#speakers-list li:first-child input", { count: 3 });
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Tab");
+    expect(await rowValue(page, "#speakers-list li:first-child input")).toBe("Ana");
+
+    // Las descargas llevan el nombre delante solo si se pide.
+    await page.click("#dl-speaker-prefix");
+    await page.click("#dl-vtt");
+    const found = (extension: string) => readdirSync(downloads).find((entry) => entry.endsWith(extension));
+    for (let i = 0; i < 150 && found(".vtt") === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    const vtt = readFileSync(join(downloads, found(".vtt")!), "utf8");
+    expect(vtt).toContain("Ana: Hola, ¿qué tal?");
+    expect(vtt).toContain("Hablante 2: Muy bien, gracias");
+    await page.click("#dl-srt");
+    for (let i = 0; i < 150 && found(".srt") === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(readFileSync(join(downloads, found(".srt")!), "utf8")).toContain("Ana: Hola, ¿qué tal?");
+    expect(spy.problems).toEqual([]);
+    await session.detach();
+    rmSync(downloads, { recursive: true, force: true });
+    await page.close();
+  }, 120_000);
+
+  it("quién habla: si el worker entregó la transcripción normal se avisa y no hay panel de hablantes", async () => {
+    const base = await startApi({ diarization: true });
+    const { page, spy } = await openPage(base);
+    const name = "sinhablantes.mp4";
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    await page.waitForFunction(() => !(document.querySelector("#opt-diarize") as unknown as { disabled: boolean }).disabled, { timeout: 10_000 });
+    await page.click("#opt-diarize");
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+    await workerCompletes(name, SEGMENTS, { diarized: false });
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    expect(await text(page, "#result-speakers")).toBe("No");
+    expect(await isVisible(page, "#result-speakers-note")).toBe(true);
+    expect(await text(page, "#result-speakers-note")).toContain("transcripción normal");
+    expect(await isVisible(page, "#speakers-panel")).toBe(false);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("quién habla: sin pedirlo, el resultado no muestra ni indicador ni aviso", async () => {
+    const base = await startApi({ diarization: true });
+    const { page } = await openPage(base);
+    const name = "normal.mp4";
+    await uploadAndFollow(page, name);
+    const [job] = await jobsNamed(`${token}-${name}`);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job!.id } })).options).toMatchObject({ diarize: false });
+    await workerCompletes(name, SEGMENTS, { diarized: false });
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    expect(await isVisible(page, "#result-speakers-row")).toBe(false);
+    expect(await isVisible(page, "#result-speakers-note")).toBe(false);
     await page.close();
   }, 90_000);
 

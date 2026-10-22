@@ -215,6 +215,9 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       JOB_STALE_MINUTES: ${JOB_STALE_MINUTES:-20}
+      # Identificar quién habla (ADR 0014). El API NO recibe el token: solo sabe si la función está disponible. Sin valor
+      # explícito se enciende cuando hay HF_TOKEN en el .env (que sí recibe el worker).
+      DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-${HF_TOKEN:+true}}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -253,6 +256,8 @@ services:
       ARGOS_COMPUTE_TYPE: float32
       FFMPEG_STALL_TIMEOUT_SECONDS: "300"
       FFMPEG_TOTAL_TIMEOUT_SECONDS: "21600"
+      # Token de Hugging Face de SOLO LECTURA para identificar quién habla (ADR 0014). Vacío = la función queda apagada.
+      HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - model_cache:/models
       # Archivos de trabajo (videos de hasta 4 GiB): volumen, no tmpfs, porque tmpfs cuenta

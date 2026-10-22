@@ -43,7 +43,7 @@ describe("la petición", () => {
 
   it("`options` viaja como JSON con null en los campos vacíos, nunca como cadena vacía", async () => {
     const { promise, xhr } = start();
-    assert.deepEqual(JSON.parse(String(xhr.sent.get("options"))), { modelSize: "base", sourceLanguage: null, translateTo: "es", cleanAudio: false });
+    assert.deepEqual(JSON.parse(String(xhr.sent.get("options"))), { modelSize: "base", sourceLanguage: null, translateTo: "es", cleanAudio: false, diarize: false });
     xhr.respond(202, JOB);
     await promise;
   });
@@ -134,13 +134,20 @@ describe("comprobaciones antes de subir", () => {
 
 describe("normalizeOptions", () => {
   it("rellena el modelo por defecto y convierte vacíos en null", () => {
-    assert.deepEqual(normalizeOptions({}), { modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false });
+    assert.deepEqual(normalizeOptions({}), { modelSize: "small", sourceLanguage: null, translateTo: null, cleanAudio: false, diarize: false });
     assert.deepEqual(normalizeOptions({ modelSize: "medium", sourceLanguage: "en", translateTo: "" }), {
       modelSize: "medium",
       sourceLanguage: "en",
       translateTo: null,
       cleanAudio: false,
+      diarize: false,
     });
+  });
+
+  it("diarize: booleano, false por defecto; cualquier otro tipo se rechaza antes de subir", () => {
+    assert.equal(normalizeOptions({ diarize: true }).diarize, true);
+    assert.equal(normalizeOptions({ diarize: false }).diarize, false);
+    for (const bad of ["true", 1, 0, null, [], {}]) assert.throws(() => normalizeOptions({ diarize: bad }), /diarize/, JSON.stringify(bad));
   });
 
   it("cleanAudio: booleano, false por defecto; cualquier otro tipo se rechaza antes de subir", () => {

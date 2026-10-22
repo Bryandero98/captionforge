@@ -21,6 +21,10 @@ export interface TranscribeResult {
    */
   detectedLanguage: string;
   device: "cpu" | "cuda";
+  /**
+   * true si los segmentos llevan `speaker`. false si no se pidió o si la diarización falló y se entregó la transcripción sin hablantes. Si falta (resultados anteriores), false.
+   */
+  diarized?: boolean;
   durationSeconds: number;
   segmentCount: number;
   /**

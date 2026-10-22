@@ -47,7 +47,7 @@ export function precheckFile(/** @type {File} */ file, { maxBytes = DEFAULT_MAX_
 
 /**
  * Opciones tal como las espera el API: claves exactas, vacío = null (una cadena vacía recibiría 400).
- * @param {{ modelSize?: string, sourceLanguage?: string | null, translateTo?: string | null, cleanAudio?: boolean }} input
+ * @param {{ modelSize?: string, sourceLanguage?: string | null, translateTo?: string | null, cleanAudio?: boolean, diarize?: boolean }} input
  */
 export function normalizeOptions(input) {
   const modelSize = input.modelSize === undefined || input.modelSize === "" ? "small" : input.modelSize;
@@ -58,11 +58,13 @@ export function normalizeOptions(input) {
     return value;
   };
   if (input.cleanAudio !== undefined && typeof input.cleanAudio !== "boolean") throw new Error(`cleanAudio debe ser verdadero o falso (recibido ${JSON.stringify(input.cleanAudio)})`);
+  if (input.diarize !== undefined && typeof input.diarize !== "boolean") throw new Error(`diarize debe ser verdadero o falso (recibido ${JSON.stringify(input.diarize)})`);
   return {
     modelSize,
     sourceLanguage: language("sourceLanguage", input.sourceLanguage),
     translateTo: language("translateTo", input.translateTo),
     cleanAudio: input.cleanAudio ?? false,
+    diarize: input.diarize ?? false,
   };
 }
 
@@ -74,7 +76,7 @@ export function normalizeOptions(input) {
  * Sube un video y devuelve el trabajo creado (JobView) cuando el API lo acepta (202).
  * @param {{
  *   file: File,
- *   options: { modelSize?: string, sourceLanguage?: string | null, translateTo?: string | null, cleanAudio?: boolean },
+ *   options: { modelSize?: string, sourceLanguage?: string | null, translateTo?: string | null, cleanAudio?: boolean, diarize?: boolean },
  *   baseUrl?: string,
  *   maxBytes?: number,
  *   signal?: AbortSignal,

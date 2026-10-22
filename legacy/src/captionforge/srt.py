@@ -44,6 +44,9 @@ class Segment:
     end: float
     text: str
     words: list[WordTiming] | None = None
+    # Quién habla (opcional): solo existe si se pidió identificarlo. Los renderizadores de .srt/.vtt/.ass
+    # no lo usan; la web puede anteponerlo al texto al descargar.
+    speaker: str | None = None
 
 
 def format_timestamp(seconds: float) -> str:
@@ -183,12 +186,15 @@ def word_timing_to_dict(word: WordTiming) -> dict:
 
 def segment_to_dict(segment: Segment) -> dict:
     """Round-trippable plain-dict form of a Segment, for persisting to segments.json."""
-    return {
+    data = {
         "start": segment.start,
         "end": segment.end,
         "text": segment.text,
         "words": [word_timing_to_dict(w) for w in segment.words] if segment.words else None,
     }
+    if segment.speaker is not None:
+        data["speaker"] = segment.speaker  # sin hablante la clave no existe: el formato anterior no cambia
+    return data
 
 
 def segment_from_dict(data: dict) -> Segment:
@@ -208,6 +214,7 @@ def segment_from_dict(data: dict) -> Segment:
             if words
             else None
         ),
+        speaker=data.get("speaker"),
     )
 
 

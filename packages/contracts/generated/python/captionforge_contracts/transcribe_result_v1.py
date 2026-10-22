@@ -98,6 +98,8 @@ class Stage(StrEnum):
     separating_voice = 'separating_voice'
     downloading_model = 'downloading_model'
     transcribing = 'transcribing'
+    downloading_diarization_model = 'downloading_diarization_model'
+    diarizing = 'diarizing'
     translating = 'translating'
     uploading = 'uploading'
     burning = 'burning'
@@ -159,6 +161,12 @@ class TranscribeResult(BaseModel):
         ),
     ]
     device: Device
+    diarized: Annotated[
+        bool | None,
+        Field(
+            description='true si los segmentos llevan `speaker`. false si no se pidió o si la diarización falló y se entregó la transcripción sin hablantes. Si falta (resultados anteriores), false.'
+        ),
+    ] = False
     durationSeconds: Annotated[float, Field(ge=0.0)]
     segmentCount: Annotated[int, Field(ge=0)]
     audioCleaned: Annotated[

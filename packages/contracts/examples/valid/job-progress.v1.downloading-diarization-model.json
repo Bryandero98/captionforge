@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "stage": "downloading_diarization_model",
+  "percent": 55.0,
+  "message": "Descargando el modelo de identificación de hablantes"
+}
