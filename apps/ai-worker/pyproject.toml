@@ -21,6 +21,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Aislamiento de la voz (cleanAudio, ADR 0013). Solo lo importa el subproceso ai_worker.separate_cli; sin esto el
+# trabajo sigue con el audio original. Versión exacta pendiente de fijar tras el benchmark (compatibilidad con torch/torchaudio).
+separation = ["demucs>=4.0.1"]
 
 [project.scripts]
 ai-worker = "ai_worker.__main__:run"

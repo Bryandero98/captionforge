@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gc
+import sys
 import threading
 from collections.abc import Callable
 
@@ -47,3 +49,21 @@ class ModelProvider:
                 self._size = size
                 self.loads += 1
             return self._model, self._device
+
+    @property
+    def loaded(self) -> bool:
+        return self._model is not None
+
+    def release(self) -> bool:
+        """Suelta el modelo cargado y devuelve la memoria de la GPU antes de cargar OTRO modelo grande (la separación
+        de voz). Devuelve si había algo que soltar. Pensado para WORKER_CONCURRENCY=1: otro trabajo en curso conserva su
+        propia referencia al modelo y la memoria no se liberaría hasta que termine (ver ADR 0013)."""
+        with self._lock:
+            had = self._model is not None
+            self._model = None
+            self._size = None
+        gc.collect()
+        torch = sys.modules.get("torch")  # solo si alguien ya lo importó: no se carga PyTorch por esto
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return had

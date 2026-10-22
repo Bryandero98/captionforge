@@ -167,9 +167,11 @@ class FakeWhisper:
         self.delay = delay
         self.segments = segments
         self.calls = 0
+        self.paths: list[str] = []  # qué audio recibió cada llamada
 
     def transcribe(self, path: str, language=None, vad_filter=True, word_timestamps=True):  # noqa: ANN001
         self.calls += 1
+        self.paths.append(path)
         info = SimpleNamespace(duration=self.segments * 3.0, language=language or "en")
 
         def generate():

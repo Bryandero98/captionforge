@@ -25,6 +25,19 @@ STAGE_RANGES: dict[str, tuple[float, float]] = {
     "uploading": (90.0, 99.0),
 }
 
+# Con limpieza de audio (cleanAudio) hay dos etapas más antes de Whisper: el rango se reparte de otro modo, pero
+# sigue siendo monótono de 0 a 99.
+CLEAN_STAGE_RANGES: dict[str, tuple[float, float]] = {
+    "downloading_input": (0.0, 4.0),
+    "extracting_audio": (4.0, 8.0),
+    "downloading_separation_model": (8.0, 12.0),
+    "separating_voice": (12.0, 40.0),
+    "downloading_model": (40.0, 44.0),
+    "transcribing": (44.0, 86.0),
+    "translating": (86.0, 90.0),
+    "uploading": (90.0, 99.0),
+}
+
 # El quemado tiene sus propias etapas: el ffmpeg de codificación es casi todo el trabajo.
 BURN_STAGE_RANGES: dict[str, tuple[float, float]] = {
     "downloading_input": (0.0, 5.0),
@@ -60,6 +73,10 @@ class Progress:
         self._last_stage: str | None = None
         self._last_at = 0.0
         self._last_percent = 0.0
+
+    def use_ranges(self, ranges: dict[str, tuple[float, float]]) -> None:
+        """Cambia el reparto de etapas (el porcentaje ya publicado no retrocede)."""
+        self._ranges = ranges
 
     def scale(self, stage: str, fraction: float) -> float:
         low, high = self._ranges[stage]
