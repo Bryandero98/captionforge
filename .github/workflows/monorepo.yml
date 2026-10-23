@@ -144,7 +144,7 @@ jobs:
           web -o /dev/null "https://localhost/?invite=$TOKEN&code=abc"
           web -o /dev/null -X POST "https://localhost/v1/workspaces/invites/$TOKEN/accept"
           sleep 1
-          docker compose --profile proxy logs --no-color caddy > "$RUNNER_TEMP/caddy.log"
+          docker compose --profile app --profile proxy logs --no-color caddy > "$RUNNER_TEMP/caddy.log"
           grep -q 'invite=REDACTED' "$RUNNER_TEMP/caddy.log"
           grep -q 'invites/REDACTED/accept' "$RUNNER_TEMP/caddy.log"
           if grep -q "$TOKEN" "$RUNNER_TEMP/caddy.log"; then echo "El token de invitación llegó a los registros de Caddy"; exit 1; fi
