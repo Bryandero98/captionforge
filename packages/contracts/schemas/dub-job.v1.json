@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/dub-job.v1.json",
+  "title": "DubJob",
+  "description": "Payload de la cola captionforge.dub: sintetiza la voz de los segmentos y la ajusta a sus tiempos. Nunca lleva claves externas: el worker las pide al API (ADR 0020).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "requestedAt", "input", "segments", "outputPrefix", "options"],
+  "properties": {
+    "schemaVersion": { "description": "Siempre 1 en este esquema.", "type": "integer", "minimum": 1, "maximum": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
+    "requestedAt": { "$ref": "common.v1.json#/$defs/IsoDateTime" },
+    "input": { "description": "Video original (para la duración y la mezcla).", "$ref": "common.v1.json#/$defs/ObjectRef" },
+    "segments": {
+      "description": "Segmentos a doblar (originales o traducidos); el worker falla con SEGMENTS_CHANGED si su ETag ya no coincide.",
+      "$ref": "common.v1.json#/$defs/VersionedObjectRef"
+    },
+    "outputPrefix": { "$ref": "common.v1.json#/$defs/ObjectPrefix" },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "voice", "mix"],
+      "properties": {
+        "provider": { "$ref": "common.v1.json#/$defs/DubProvider" },
+        "voice": { "$ref": "common.v1.json#/$defs/VoiceId" },
+        "mix": { "$ref": "common.v1.json#/$defs/DubMix" }
+      }
+    }
+  }
+}

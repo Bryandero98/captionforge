@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/translate-result.v1.json",
+  "title": "TranslateResult",
+  "description": "returnvalue del trabajo de traducción.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "provider", "sourceLanguage", "targetLanguage", "segmentCount", "characters", "artifacts"],
+  "properties": {
+    "schemaVersion": { "description": "Siempre 1 en este esquema.", "type": "integer", "minimum": 1, "maximum": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
+    "provider": { "$ref": "common.v1.json#/$defs/TranslateProvider" },
+    "sourceLanguage": { "$ref": "common.v1.json#/$defs/LanguageCode" },
+    "targetLanguage": { "$ref": "common.v1.json#/$defs/LanguageCode" },
+    "segmentCount": { "type": "integer", "minimum": 0 },
+    "characters": { "description": "Caracteres de texto enviados a traducir (lo que cuenta para el gasto).", "type": "integer", "minimum": 0 },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segments"],
+      "properties": {
+        "segments": { "description": "Segmentos traducidos, con los tiempos originales; el ETag permite doblarlos o quemarlos después sin que cambien.", "$ref": "common.v1.json#/$defs/VersionedObjectRef" }
+      }
+    }
+  }
+}

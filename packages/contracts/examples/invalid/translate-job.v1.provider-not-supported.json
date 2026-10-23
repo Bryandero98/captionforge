@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "jobId": "3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10",
+  "requestedAt": "2026-10-23T15:04:05.000Z",
+  "segments": {
+    "bucket": "captionforge",
+    "objectKey": "jobs/7a2d9c40-1e5b-4f83-8c16-2b9e4d7f0a35/out/segments.json",
+    "etag": "9b2cf535f27731c974343645a3985328"
+  },
+  "outputPrefix": "jobs/3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10/out/",
+  "options": {
+    "provider": "deepl",
+    "sourceLanguage": "en",
+    "targetLanguage": "es"
+  }
+}

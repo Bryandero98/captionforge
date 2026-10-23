@@ -23,7 +23,9 @@ export interface JobProgress {
     | "diarizing"
     | "translating"
     | "uploading"
-    | "burning";
+    | "burning"
+    | "synthesizing"
+    | "mixing";
   percent: number;
   message: string;
 }

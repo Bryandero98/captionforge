@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "jobId": "3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10",
+  "provider": "openai",
+  "mix": "none",
+  "segmentCount": 42,
+  "characters": 3180,
+  "overflowSegments": [
+    -1
+  ],
+  "artifacts": {
+    "audio": "jobs/3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10/out/dub.mp3"
+  }
+}
