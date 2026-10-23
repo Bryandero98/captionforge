@@ -23,6 +23,8 @@ export class FakeProvider {
   private readonly tokens = new Map<string, FakeProfile>();
   private server!: http.Server;
   url = "";
+  /** Si no es null, `/authorize` aprueba solo con este perfil y vuelve al API (para pruebas con navegador). */
+  autoApprove: FakeProfile | null = null;
   /** Peticiones de canje que recibió, para comprobar lo que el API envía. */
   readonly tokenRequests: URLSearchParams[] = [];
 
@@ -59,6 +61,16 @@ export class FakeProvider {
       response.end(JSON.stringify(body));
     };
     const path = (request.url ?? "").split("?")[0];
+    if (request.method === "GET" && path === "/authorize" && this.autoApprove !== null) {
+      // Pantalla de consentimiento que aprueba sola: lo que un navegador real recorre al pulsar «Continuar con GitHub».
+      const query = new URL(request.url ?? "", this.url).searchParams;
+      const code = this.approve(query.get("code_challenge") ?? "", this.autoApprove);
+      const back = new URL(query.get("redirect_uri") ?? "");
+      back.searchParams.set("code", code);
+      back.searchParams.set("state", query.get("state") ?? "");
+      response.writeHead(302, { location: back.toString() });
+      return void response.end();
+    }
     if (request.method === "POST" && path === "/token") {
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(chunk as Buffer);
