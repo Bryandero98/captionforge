@@ -12,6 +12,8 @@ import { JobsService } from "./jobs/jobs.service.js";
 import { ReaperService } from "./jobs/reaper.service.js";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { QueueService } from "./queue/queue.service.js";
+import { TenantQuotaInterceptor } from "./quota/tenant-quota.interceptor.js";
+import { TenantQuotaService } from "./quota/tenant-quota.service.js";
 import { ConnectionLimits } from "./security/connection-limits.js";
 import { StorageService } from "./storage/storage.service.js";
 import { TenantAuthGuard } from "./tenancy/tenant-auth.guard.js";
@@ -32,6 +34,8 @@ export class AppModule {
         AuthService,
         ReaperService,
         ConnectionLimits,
+        TenantQuotaService,
+        TenantQuotaInterceptor,
         { provide: APP_GUARD, useClass: TenantAuthGuard },
       ],
     };

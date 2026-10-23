@@ -53,6 +53,9 @@ export interface AppConfig {
     webApiKey: string | undefined;
     rateLimitPerMinute: number;
     uploadRateLimitPerMinute: number;
+    /** Cuotas por tenant (ADR 0017, 0 = sin límite): subidas por hora (contador en Redis) y trabajos en cola o en curso. */
+    tenantUploadsPerHour: number;
+    tenantMaxQueuedJobs: number;
     /** Lista de redes de confianza (IP o CIDR) o booleano. `true` confía en TODA cabecera X-Forwarded-For. */
     trustProxy: boolean | string[];
     /** Operaciones largas a la vez (0 = sin límite): subidas en total y por cliente, y flujos SSE en total y por cliente. */
@@ -235,6 +238,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       webApiKey,
       rateLimitPerMinute: integer("RATE_LIMIT_PER_MINUTE", 240, { allowZero: true }),
       uploadRateLimitPerMinute: integer("UPLOAD_RATE_LIMIT_PER_MINUTE", 10, { allowZero: true }),
+      tenantUploadsPerHour: integer("TENANT_UPLOADS_PER_HOUR", 60, { allowZero: true }),
+      tenantMaxQueuedJobs: integer("TENANT_MAX_QUEUED_JOBS", 20, { allowZero: true }),
       trustProxy: parseTrustProxy(env.TRUST_PROXY),
       // Cada subida retiene ~15 MiB (3 partes de 5 MiB): con 4 a la vez son ~60 MiB de los 512 del contenedor.
       maxConcurrentUploads: integer("MAX_CONCURRENT_UPLOADS", 4, { allowZero: true }),

@@ -12,7 +12,7 @@ const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 async function start(security: Partial<typeof baseConfig.security>): Promise<string> {
   await sharedTenant();
   const app = await createApp(
-    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { webApiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, trustProxy: false, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0, uploadRateWindowMs: 30_000, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"], ...security } },
+    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { webApiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, tenantUploadsPerHour: 0, tenantMaxQueuedJobs: 0, trustProxy: false, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0, uploadRateWindowMs: 30_000, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"], ...security } },
     { logger: ["error"] },
   );
   await app.listen(0, "127.0.0.1");
