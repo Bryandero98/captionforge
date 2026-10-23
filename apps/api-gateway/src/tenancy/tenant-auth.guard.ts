@@ -150,6 +150,13 @@ export const SessionUserId = createParamDecorator((_data: unknown, context: Exec
   return userId;
 });
 
+/** La sesión de navegador en curso (su id, nunca el token): lo usa quien necesita cambiarla, como el espacio activo. */
+export const SessionId = createParamDecorator((_data: unknown, context: ExecutionContext): string => {
+  const sessionId = context.switchToHttp().getRequest<FastifyRequest>().sessionId;
+  if (sessionId === undefined) throw new ForbiddenException("Esta operación pide una sesión iniciada en la interfaz, no una clave de API.");
+  return sessionId;
+});
+
 /** La persona de la sesión si la hay (con una clave de API no existe), sin fallar. */
 export const OptionalSessionUserId = createParamDecorator((_data: unknown, context: ExecutionContext): string | undefined => {
   return context.switchToHttp().getRequest<FastifyRequest>().userId;

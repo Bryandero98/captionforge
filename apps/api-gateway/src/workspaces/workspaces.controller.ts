@@ -57,6 +57,13 @@ export class WorkspacesController {
     await this.workspaces.revokeInvite(tenantId, id);
   }
 
+  /** Qué espacio y rol ofrece un enlace, sin consumirlo (la interfaz lo muestra y pide confirmar). Solo con sesión. */
+  @Get("invites/:token")
+  @MinRole("VIEWER")
+  preview(@SessionUserId() _userId: string, @Param("token") token: string) {
+    return this.workspaces.previewInvite(token);
+  }
+
   /** Sin sesión el guardián responde 401 (la interfaz manda a iniciar sesión); con clave de API, 403. */
   @Post("invites/:token/accept")
   @HttpCode(200)

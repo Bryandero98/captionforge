@@ -40,6 +40,7 @@ const EXPECTED: Record<string, Role | "public"> = {
   "GET /v1/workspaces/invites": "OWNER",
   "POST /v1/workspaces/invites": "OWNER",
   "DELETE /v1/workspaces/invites/:id": "OWNER",
+  "GET /v1/workspaces/invites/:token": "VIEWER",
   "POST /v1/workspaces/invites/:token/accept": "VIEWER",
   "GET /v1/keys": "OWNER",
   "POST /v1/keys": "OWNER",
@@ -74,7 +75,7 @@ function discoverRoutes(): string[] {
 }
 
 /** Rutas que identifican a una PERSONA, no a un tenant: una clave de API (que no es de nadie) recibe 403 aunque su rol alcance. */
-const PERSON_ONLY = new Set(["POST /v1/me/workspace", "GET /v1/workspaces", "POST /v1/workspaces/invites/:token/accept", "POST /v1/workspaces/invites", "GET /v1/keys", "POST /v1/keys", "DELETE /v1/keys/:id"]);
+const PERSON_ONLY = new Set(["POST /v1/me/workspace", "GET /v1/workspaces", "GET /v1/workspaces/invites/:token", "POST /v1/workspaces/invites/:token/accept", "POST /v1/workspaces/invites", "GET /v1/keys", "POST /v1/keys", "DELETE /v1/keys/:id"]);
 
 /** Una URL concreta para la ruta, con ids que no existen: así una petición permitida termina en 400/404, sin efectos. */
 function urlFor(route: string): { method: string; path: string } {
@@ -173,9 +174,10 @@ describe.each(ROLES)("sesión de %s", (actual) => {
     const response = await call(route, { cookie: cookies.get(actual) });
     if (satisfies(actual, required)) {
       expect([401, 403], `${actual} debería poder ${route}`).not.toContain(response.status);
+      expect(response.status, `${actual} en ${route} no debería dar un error del servidor`).toBeLessThan(500);
     } else {
       expect(response.status, `${actual} no debería poder ${route}`).toBe(403);
-      expect(JSON.stringify(await response.json())).toMatch(/rol/i);
+      expect(await response.json()).toMatchObject({ code: "role_forbidden" });
     }
   });
 });

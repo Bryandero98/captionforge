@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, GoneException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, GoneException, Inject, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
@@ -41,7 +41,7 @@ export class WorkspacesService {
     if (role === "OWNER") throw new BadRequestException("No se puede invitar como Dueño: invita como Editor o Lector y promueve después.");
     const now = new Date();
     const pending = await this.prisma.invitation.count({ where: { tenantId, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } } });
-    if (pending >= MAX_PENDING_INVITES) throw new ConflictException(`Ya hay ${MAX_PENDING_INVITES} invitaciones pendientes. Revoca alguna antes de crear otra.`);
+    if (pending >= MAX_PENDING_INVITES) throw conflict("invite_limit", `Ya hay ${MAX_PENDING_INVITES} invitaciones pendientes. Revoca alguna antes de crear otra.`);
 
     const token = `cfi_${randomBytes(32).toString("base64url")}`;
     const row = await this.prisma.invitation.create({
@@ -58,15 +58,29 @@ export class WorkspacesService {
 
   /** Revoca una invitación del espacio. 404 si no es de este espacio, como todo lo ajeno. Revocar una ya usada no hace nada. */
   async revokeInvite(tenantId: string, id: string): Promise<void> {
+    if (!UUID.test(id)) throw new NotFoundException("No existe esa invitación.");
     const found = await this.prisma.invitation.findFirst({ where: { id, tenantId }, select: { id: true } });
     if (!found) throw new NotFoundException("No existe esa invitación.");
     await this.prisma.invitation.updateMany({ where: { id, tenantId, acceptedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
   }
 
   /**
+   * Lo que la persona va a aceptar, SIN consumir nada: a qué espacio y con qué rol. La interfaz lo muestra y pide un clic explícito
+   * antes de llamar a `acceptInvite` (ADR 0019: una invitación nunca se consume sola). Mismos 404/410 que aceptar.
+   */
+  async previewInvite(token: string): Promise<{ tenant: { id: string; name: string }; role: Role }> {
+    if (!INVITE_TOKEN.test(token)) throw new NotFoundException("Esa invitación no existe.");
+    const row = await this.prisma.invitation.findUnique({ where: { tokenHash: hashToken(token) }, select: { role: true, acceptedAt: true, revokedAt: true, expiresAt: true, tenant: { select: { id: true, name: true } } } });
+    if (!row) throw new NotFoundException("Esa invitación no existe.");
+    if (row.acceptedAt !== null || row.revokedAt !== null || row.expiresAt.getTime() <= Date.now()) throw gone();
+    return { tenant: row.tenant, role: row.role };
+  }
+
+  /**
    * Consume una invitación. El token se «reclama» con un UPDATE condicional: la base garantiza que de dos aceptaciones simultáneas
    * solo una encuentra la fila libre. Todo va en una transacción: si algo falla después, el token NO se gasta.
    * No baja de rango a nadie (un Dueño que acepta una invitación de Lector sigue siendo Dueño) pero sí sube.
+   * Es idempotente para quien ya la usó: repetirla (respuesta perdida, dos pestañas) devuelve el mismo resultado en vez de 410.
    */
   async acceptInvite(userId: string, token: string): Promise<{ tenant: { id: string; name: string }; role: Role }> {
     if (!INVITE_TOKEN.test(token)) throw new NotFoundException("Esa invitación no existe.");
@@ -75,19 +89,22 @@ export class WorkspacesService {
       const now = new Date();
       const claimed = await tx.invitation.updateMany({ where: { tokenHash, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } }, data: { acceptedAt: now, acceptedBy: userId } });
       if (claimed.count === 0) {
-        const exists = await tx.invitation.findUnique({ where: { tokenHash }, select: { id: true } });
-        if (!exists) throw new NotFoundException("Esa invitación no existe.");
-        throw new GoneException("Esa invitación ya se usó, venció o fue revocada. Pide un enlace nuevo.");
+        const used = await tx.invitation.findUnique({ where: { tokenHash }, select: { acceptedBy: true, tenant: { select: { id: true, name: true } } } });
+        if (!used) throw new NotFoundException("Esa invitación no existe.");
+        if (used.acceptedBy === userId) {
+          const mine = await tx.membership.findUnique({ where: { userId_tenantId: { userId, tenantId: used.tenant.id } }, select: { role: true } });
+          if (mine) return { tenant: used.tenant, role: mine.role };
+        }
+        throw gone();
       }
       const invitation = await tx.invitation.findUniqueOrThrow({ where: { tokenHash }, select: { tenantId: true, role: true, tenant: { select: { id: true, name: true } } } });
-      const existing = await tx.membership.findUnique({ where: { userId_tenantId: { userId, tenantId: invitation.tenantId } }, select: { role: true } });
-      let role = invitation.role;
-      if (existing === null) {
-        await tx.membership.create({ data: { userId, tenantId: invitation.tenantId, role } });
-      } else if (satisfies(existing.role, invitation.role)) {
-        role = existing.role;
-      } else {
-        await tx.membership.update({ where: { userId_tenantId: { userId, tenantId: invitation.tenantId } }, data: { role } });
+      // ON CONFLICT DO NOTHING: dos invitaciones del mismo espacio aceptadas a la vez por quien aún no es miembro no chocan (sin 500).
+      await tx.$executeRaw(Prisma.sql`INSERT INTO "Membership" ("userId", "tenantId", "role") VALUES (${userId}::uuid, ${invitation.tenantId}::uuid, ${invitation.role}::"Role") ON CONFLICT ("userId", "tenantId") DO NOTHING`);
+      const current = await tx.membership.findUniqueOrThrow({ where: { userId_tenantId: { userId, tenantId: invitation.tenantId } }, select: { role: true } });
+      let role = current.role;
+      if (!satisfies(current.role, invitation.role)) {
+        await tx.membership.updateMany({ where: { userId, tenantId: invitation.tenantId, role: current.role }, data: { role: invitation.role } });
+        role = invitation.role;
       }
       return { tenant: invitation.tenant, role };
     });
@@ -110,10 +127,11 @@ export class WorkspacesService {
     return { userId: targetId, role };
   }
 
-  /** Quita a un miembro. Nunca deja el espacio sin Dueño. */
+  /** Quita a un miembro. Nunca deja el espacio sin Dueño ni a la persona sin ningún espacio (ese 401 permanente no tendría salida). */
   async removeMember(tenantId: string, targetId: string): Promise<void> {
-    await this.changeMembership(tenantId, targetId, (current, owners) => {
+    await this.changeMembership(tenantId, targetId, (current, owners, memberships) => {
       if (current === "OWNER" && owners <= 1) throw lastOwner();
+      if (memberships <= 1) throw conflict("last_membership", "Este es el único espacio de esa persona: no se le puede quitar.");
       return null;
     });
   }
@@ -123,15 +141,18 @@ export class WorkspacesService {
    * (siempre en el mismo orden, para que dos transacciones no se bloqueen entre sí) y solo entonces se cuenta. Sin el bloqueo, dos
    * Dueños que se degradan a la vez verían cada uno «hay otro Dueño» y el espacio se quedaría sin ninguno.
    */
-  private async changeMembership(tenantId: string, targetId: string, decide: (current: Role, owners: number) => { role: Role } | null): Promise<void> {
+  private async changeMembership(tenantId: string, targetId: string, decide: (current: Role, owners: number, memberships: number) => { role: Role } | null): Promise<void> {
     if (!UUID.test(targetId)) throw new NotFoundException("Esa persona no es miembro de este espacio.");
     await this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<{ userId: string }[]>(Prisma.sql`SELECT "userId" FROM "Membership" WHERE "tenantId" = ${tenantId}::uuid AND role = 'OWNER' ORDER BY "userId" FOR UPDATE`);
       const target = await tx.membership.findUnique({ where: { userId_tenantId: { userId: targetId, tenantId } }, select: { role: true } });
       if (!target) throw new NotFoundException("Esa persona no es miembro de este espacio.");
-      const change = decide(target.role, locked.length);
-      if (change === null) await tx.membership.delete({ where: { userId_tenantId: { userId: targetId, tenantId } } });
-      else await tx.membership.update({ where: { userId_tenantId: { userId: targetId, tenantId } }, data: { role: change.role } });
+      const change = decide(target.role, locked.length, await tx.membership.count({ where: { userId: targetId } }));
+      // deleteMany/updateMany: si otra petición quitó a esa persona entre medias, es un 404 y no un 500 (P2025).
+      const done = change === null ? await tx.membership.deleteMany({ where: { userId: targetId, tenantId } }) : await tx.membership.updateMany({ where: { userId: targetId, tenantId }, data: { role: change.role } });
+      if (done.count === 0) throw new NotFoundException("Esa persona no es miembro de este espacio.");
+      // Quien deja de ser Dueño no deja enlaces vivos: sus invitaciones sin usar se revocan en la misma transacción.
+      if (change === null || change.role !== "OWNER") await tx.invitation.updateMany({ where: { tenantId, createdBy: targetId, acceptedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
     });
   }
 
@@ -148,7 +169,8 @@ export class WorkspacesService {
     if (typeof tenantId !== "string" || !UUID.test(tenantId)) throw new BadRequestException("tenantId debe ser el identificador de un espacio de trabajo.");
     const membership = await this.prisma.membership.findUnique({ where: { userId_tenantId: { userId, tenantId } }, select: { role: true, tenant: { select: { id: true, name: true } } } });
     if (!membership) throw new NotFoundException("No eres miembro de ese espacio de trabajo.");
-    await this.prisma.session.updateMany({ where: { id: sessionId, userId }, data: { tenantId } });
+    const updated = await this.prisma.session.updateMany({ where: { id: sessionId, userId }, data: { tenantId } });
+    if (updated.count !== 1) throw new UnauthorizedException("Tu sesión ya no es válida. Inicia sesión de nuevo.");
     return { tenant: membership.tenant, role: membership.role };
   }
 }
@@ -159,7 +181,10 @@ function parseRole(body: unknown): Role {
   return role as Role;
 }
 
-const lastOwner = (): ConflictException => new ConflictException("Este espacio no puede quedarse sin Dueño: promueve a otra persona a Dueño primero.");
+/** 409 con `code` estable: la interfaz decide el texto por el código, no por el mensaje (como `role_forbidden`). */
+const conflict = (code: "last_owner" | "invite_limit" | "last_membership", message: string): ConflictException => new ConflictException({ statusCode: 409, error: "Conflict", code, message });
+const lastOwner = (): ConflictException => conflict("last_owner", "Este espacio no puede quedarse sin Dueño: promueve a otra persona a Dueño primero.");
+const gone = (): GoneException => new GoneException("Esa invitación ya se usó, venció o fue revocada. Pide un enlace nuevo.");
 
 function toInviteView(row: { id: string; role: Role; createdAt: Date; expiresAt: Date }): InviteView {
   return { id: row.id, role: row.role, createdAt: row.createdAt.toISOString(), expiresAt: row.expiresAt.toISOString() };

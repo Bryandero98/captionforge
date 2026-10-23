@@ -45,7 +45,8 @@ export class RolesGuard implements CanActivate {
     const required = requiredRole(request.method, this.reflector.getAllAndOverride<Role | undefined>(MIN_ROLE, [context.getHandler(), context.getClass()]));
     const actual = request.role;
     if (actual === undefined || !satisfies(actual, required)) {
-      throw new ForbiddenException("Tu rol en este espacio de trabajo no permite esta operación.");
+      // `code` estable: la interfaz decide el texto por código, nunca por el mensaje (que viene en español y puede cambiar).
+      throw new ForbiddenException({ statusCode: 403, error: "Forbidden", code: "role_forbidden", message: "Tu rol en este espacio de trabajo no permite esta operación." });
     }
     return true;
   }

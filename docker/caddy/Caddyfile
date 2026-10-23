@@ -35,12 +35,11 @@
 		format filter {
 			wrap json
 			fields {
-				# Caddy ya oculta Cookie y Authorization; la clave de API y los códigos de OAuth, no.
+				# Caddy ya oculta Cookie y Authorization; la clave de API, los códigos de OAuth y los tokens de invitación, no.
 				request>headers>X-Api-Key delete
-				request>uri query {
-					replace code REDACTED
-					replace state REDACTED
-				}
+				# Un solo patron para el query (?code, ?state, ?invite) y para el token de una invitación en la ruta
+				# (/v1/workspaces/invites/<token>[/accept]): quien lea estos registros no debe poder usar un enlace sin gastar (ADR 0019).
+				request>uri regexp "((?:invite|code|state)=)[^&]+|(/v1/workspaces/invites/)cfi_[A-Za-z0-9_-]+" "${1}${2}REDACTED"
 			}
 		}
 	}

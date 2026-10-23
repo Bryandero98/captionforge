@@ -148,9 +148,10 @@ describe("flujo de inicio de sesión", () => {
     const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: user.tenantId } });
     expect(tenant.name).toBe("Ana Prueba");
 
-    const me = (await (await api(jar, "/v1/me")).json()) as { tenant: { id: string }; user: { name: string; email: string; provider: string } };
+    const me = (await (await api(jar, "/v1/me")).json()) as { tenant: { id: string }; role: string; user: { id: string; name: string; email: string; provider: string } };
     expect(me.tenant.id).toBe(user.tenantId);
-    expect(me.user).toEqual({ name: "Ana Prueba", email: "ana@ejemplo.com", provider: "github" });
+    expect(me.role).toBe("OWNER");
+    expect(me.user).toEqual({ id: user.id, name: "Ana Prueba", email: "ana@ejemplo.com", provider: "github" });
   });
 
   it("la base guarda solo el hash de la sesión, nunca el token de la cookie", async () => {

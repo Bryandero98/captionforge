@@ -8,7 +8,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { displayPrefix, generateApiKey, hashApiKey } from "../tenancy/api-key.js";
 import { MinRole } from "../tenancy/roles.js";
 import { WorkspacesService } from "../workspaces/workspaces.service.js";
-import { OptionalSessionUserId, SessionUserId, TenantId } from "../tenancy/tenant-auth.guard.js";
+import { OptionalSessionUserId, SessionId, SessionUserId, TenantId } from "../tenancy/tenant-auth.guard.js";
 
 /** Tope de claves activas por tenant: un escudo operativo, no un límite de producto. */
 export const MAX_ACTIVE_KEYS = 20;
@@ -33,9 +33,9 @@ export class AccountController {
 
   /** Quién soy. Con clave de API solo hay tenant (las claves no son de una persona). */
   @Get("me")
-  async me(@TenantId() tenantId: string, @OptionalSessionUserId() userId: string | undefined, @Req() request: FastifyRequest): Promise<{ tenant: { id: string; name: string }; role: Role | null; user: { name: string | null; email: string | null; provider: string | null } | null }> {
+  async me(@TenantId() tenantId: string, @OptionalSessionUserId() userId: string | undefined, @Req() request: FastifyRequest): Promise<{ tenant: { id: string; name: string }; role: Role | null; user: { id: string; name: string | null; email: string | null; provider: string | null } | null }> {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { id: true, name: true } });
-    const user = userId === undefined ? null : await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, provider: true } });
+    const user = userId === undefined ? null : await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true, provider: true } });
     return { tenant, role: request.role ?? null, user };
   }
 
@@ -43,8 +43,8 @@ export class AccountController {
   @Post("me/workspace")
   @HttpCode(200)
   @MinRole("VIEWER")
-  switchWorkspace(@SessionUserId() userId: string, @Req() request: FastifyRequest, @Body() body: unknown) {
-    return this.workspaces.switchWorkspace(request.sessionId ?? "", userId, body);
+  switchWorkspace(@SessionUserId() userId: string, @SessionId() sessionId: string, @Body() body: unknown) {
+    return this.workspaces.switchWorkspace(sessionId, userId, body);
   }
 
   @Get("keys")
