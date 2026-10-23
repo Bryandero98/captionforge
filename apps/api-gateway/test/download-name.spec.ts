@@ -7,6 +7,10 @@ describe("downloadName", () => {
     expect(downloadName("entrevista.mp4", "srt")).toBe("entrevista.srt");
     expect(downloadName("clase 1.final.MKV", "segments")).toBe("clase 1.final.segments.json");
     expect(downloadName("a.mov", "waveform")).toBe("a.waveform.json");
+    expect(downloadName("a.mov", "audio", "DUB")).toBe("a.dub.mp3");
+    expect(downloadName("a.mov", "video", "DUB")).toBe("a.dubbed.mp4");
+    expect(downloadName("a.mov", "video", "BURN")).toBe("a.captioned.mp4");
+    expect(downloadName("a.mov", "video")).toBe("a.captioned.mp4");
   });
 
   it("tiene un nombre de reserva cuando el original no tiene base", () => {

@@ -58,6 +58,7 @@ const EXPECTED: Record<string, Role | "public"> = {
   "PUT /v1/jobs/:id/segments": "EDITOR",
   "POST /v1/jobs/:id/burn": "EDITOR",
   "POST /v1/jobs/:id/translate": "EDITOR",
+  "POST /v1/jobs/:id/dub": "EDITOR",
   "GET /v1/jobs/:id/artifacts/:name": "VIEWER",
 };
 
