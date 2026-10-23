@@ -64,6 +64,19 @@ describe("cf_worker (solo lee y actualiza columnas concretas)", () => {
   });
 });
 
+describe("cf_worker: lista cerrada de tablas", () => {
+  it("solo tiene permisos sobre \"Job\": una tabla nueva que herede SELECT por defecto sin su REVOKE rompe esta prueba", async () => {
+    const granted = await owner.query<{ table_name: string }>(
+      `SELECT DISTINCT table_name FROM information_schema.role_table_grants WHERE grantee = 'cf_worker' AND table_schema = 'public' ORDER BY table_name`,
+    );
+    const columns = await owner.query<{ table_name: string }>(
+      `SELECT DISTINCT table_name FROM information_schema.role_column_grants WHERE grantee = 'cf_worker' AND table_schema = 'public' ORDER BY table_name`,
+    );
+    expect(granted.rows.map((row) => row.table_name)).toEqual(["Job"]);
+    expect(columns.rows.map((row) => row.table_name)).toEqual(["Job"]);
+  });
+});
+
 describe("cf_api (datos sí, esquema no)", () => {
   it("inserta, lee, actualiza y borra trabajos", async () => {
     const other = randomUUID();
@@ -103,6 +116,7 @@ describe("tablas de tenencia y sesiones (ADR 0015 y 0016)", () => {
 
   afterAll(async () => {
     await owner.query(`DELETE FROM "Session" WHERE "userId" = $1`, [userRow]);
+    await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantRow]); // si una prueba falló antes de borrar la suya
     await owner.query(`DELETE FROM "ApiKey" WHERE "tenantId" = $1`, [tenantRow]);
     await owner.query(`DELETE FROM "User" WHERE "tenantId" = $1`, [tenantRow]);
     await owner.query(`DELETE FROM "Tenant" WHERE id = $1`, [tenantRow]);

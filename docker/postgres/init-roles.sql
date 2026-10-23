@@ -12,7 +12,7 @@
 --                       `prisma migrate deploy` (servicio `migrate`). Crea las tablas.
 --   * cf_api         -> el API Gateway en ejecución: lectura y escritura de datos, sin DDL.
 --   * cf_worker      -> el AI Worker: SOLO LEE y actualiza columnas concretas de "Job". Nunca
---                       inserta ni borra filas. Esas columnas se conceden en una migración de
+--                       inserta ni borra filas, y no ve ninguna otra tabla (tenencia, sesiones, claves externas). Esas columnas se conceden en una migración de
 --                       Prisma (los permisos por columna no se pueden dar por adelantado a
 --                       tablas que todavía no existen).
 --
@@ -89,6 +89,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
   GRANT SELECT ON TABLES TO cf_worker;
 
+-- Todo lo que sigue es UNA transacción: los GRANT globales de abajo le darían a cf_worker lectura de tablas que luego se le
+-- quitan (tenencia, claves externas). Sin transacción, un fallo a mitad (ON_ERROR_STOP) la dejaría con la lectura del cifrado;
+-- con ella, un fallo revierte todo y los permisos quedan como estaban (fail-closed).
+BEGIN;
+
 -- Para tablas que ya existían antes de aplicar este archivo (re-ejecución sobre un volumen con
 -- datos): los privilegios por defecto no son retroactivos.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cf_api;
@@ -145,3 +150,5 @@ BEGIN
   END IF;
 END
 $$;
+
+COMMIT;
