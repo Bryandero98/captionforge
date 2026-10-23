@@ -52,6 +52,10 @@ placeholder changes).
   service (ADR 0015). On a shared server with sign-in (`LOCAL_MODE=false`) you sign in with GitHub or Google instead, and create
   your own API keys from the **API keys** button (ADR 0016).
 - Jobs belong to whoever holds the key: with another key they are not visible (nor can they be cancelled, edited or downloaded).
+- **Teams** (shared server, ADR 0019): a workspace can have several people. **Owner** manages the team and the keys; **Editor** uploads
+  and edits; **Viewer** only views and downloads. To invite, the Owner opens **Team**, picks the role and copies the link: it works once
+  and expires in 7 days. Whoever opens it signs in (or signs up) and sees "Do you want to join this workspace?" with the workspace name and the role; they join by pressing **Join** (never automatically). If you belong to several workspaces,
+  the selector in the top bar switches between them. The last Owner cannot be removed or demoted: promote someone else first.
 - The captioned video is previewed in the page only up to 256 MiB; above that, the download still works.
 - Keyboard: everything works with Tab/Enter/Space; Ctrl+S saves changes; important notices are announced to screen
   readers.

@@ -3,7 +3,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Logger } from "@nestjs/common";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { PROVIDERS } from "../src/auth/providers.js";
 import { loadConfig } from "../src/config/config.js";
@@ -131,6 +132,26 @@ describe("flujo de inicio de sesión", () => {
     }
   });
 
+  it("si GitHub no entrega los correos (límite, caída), el inicio de sesión CONTINÚA sin correo y el fallo queda registrado", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn");
+    provider.failEmails = 503;
+    try {
+      const who = profile({ emails: [{ email: "perdido@ejemplo.com", primary: true, verified: true }] });
+      const { jar, callback } = await signIn(who);
+      expect(callback.status).toBe(302);
+      expect(callback.headers.get("location")).toBe("/"); // sin ?login_error=
+      const user = await prisma.user.findUniqueOrThrow({ where: { provider_subject: { provider: "github", subject: String(who.id) } } });
+      expect(user.email).toBeNull();
+      expect((await api(jar, "/v1/me")).status).toBe(200);
+      const logged = warn.mock.calls.map(([message]) => String(message)).find((message) => message.includes("correos de github"));
+      expect(logged, "el fallo deja un aviso").toBeDefined();
+      expect(logged).not.toContain("token-"); // nunca el token del proveedor
+    } finally {
+      provider.failEmails = null;
+      warn.mockRestore();
+    }
+  });
+
   it("primer inicio de sesión: crea la persona y su tenant, abre una sesión HttpOnly y devuelve a la interfaz", async () => {
     const who = profile({ emails: [{ email: "Ana@Ejemplo.com", primary: true, verified: true }] });
     const { jar, callback } = await signIn(who);
@@ -148,9 +169,10 @@ describe("flujo de inicio de sesión", () => {
     const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: user.tenantId } });
     expect(tenant.name).toBe("Ana Prueba");
 
-    const me = (await (await api(jar, "/v1/me")).json()) as { tenant: { id: string }; user: { name: string; email: string; provider: string } };
+    const me = (await (await api(jar, "/v1/me")).json()) as { tenant: { id: string }; role: string; user: { id: string; name: string; email: string; provider: string } };
     expect(me.tenant.id).toBe(user.tenantId);
-    expect(me.user).toEqual({ name: "Ana Prueba", email: "ana@ejemplo.com", provider: "github" });
+    expect(me.role).toBe("OWNER");
+    expect(me.user).toEqual({ id: user.id, name: "Ana Prueba", email: "ana@ejemplo.com", provider: "github" });
   });
 
   it("la base guarda solo el hash de la sesión, nunca el token de la cookie", async () => {

@@ -14,6 +14,7 @@ import { AuthService } from "../auth/auth.service.js";
 import { SESSION_COOKIE, cookieName, readCookie } from "../auth/cookies.js";
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import type { Role } from "../generated/prisma/enums.js";
 import { MAX_API_KEY_LENGTH, hashApiKey } from "./api-key.js";
 
 declare module "fastify" {
@@ -22,12 +23,17 @@ declare module "fastify" {
     tenantId?: string;
     /** Persona de la sesión de navegador; no existe con una clave de API (esas son del tenant, no de una persona). */
     userId?: string;
+    /** La sesión de navegador concreta (para cambiar su espacio activo). */
+    sessionId?: string;
   }
 }
 
 /** Rutas sin autenticación: sondeos, funciones opcionales (solo booleanos) y el propio inicio de sesión. */
 const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/health", "/v1/capabilities"]);
 const isPublic = (path: string): boolean => PUBLIC_PATHS.has(path) || path.startsWith("/auth/");
+
+/** Una clave de API actúa siempre como Editor (ADR 0019): ni lee menos ni gestiona claves ni miembros. */
+const API_KEY_ROLE: Role = "EDITOR";
 
 /** Cada cuánto, como máximo, se vuelve a anotar `lastUsedAt` de una misma clave. */
 export const LAST_USED_REFRESH_MS = 60_000;
@@ -77,6 +83,7 @@ export class TenantAuthGuard implements CanActivate {
             });
       if (!row || row.revokedAt !== null) throw this.unauthorized(http.getResponse<FastifyReply>());
       request.tenantId = row.tenantId;
+      request.role = API_KEY_ROLE;
       this.touch(row.id, row.lastUsedAt);
       return true;
     }
@@ -89,6 +96,8 @@ export class TenantAuthGuard implements CanActivate {
     }
     request.tenantId = session.tenantId;
     request.userId = session.userId;
+    request.sessionId = session.sessionId;
+    request.role = session.role;
     return true;
   }
 
@@ -139,6 +148,13 @@ export const SessionUserId = createParamDecorator((_data: unknown, context: Exec
   const userId = context.switchToHttp().getRequest<FastifyRequest>().userId;
   if (userId === undefined) throw new ForbiddenException("Esta operación pide una sesión iniciada en la interfaz, no una clave de API.");
   return userId;
+});
+
+/** La sesión de navegador en curso (su id, nunca el token): lo usa quien necesita cambiarla, como el espacio activo. */
+export const SessionId = createParamDecorator((_data: unknown, context: ExecutionContext): string => {
+  const sessionId = context.switchToHttp().getRequest<FastifyRequest>().sessionId;
+  if (sessionId === undefined) throw new ForbiddenException("Esta operación pide una sesión iniciada en la interfaz, no una clave de API.");
+  return sessionId;
 });
 
 /** La persona de la sesión si la hay (con una clave de API no existe), sin fallar. */

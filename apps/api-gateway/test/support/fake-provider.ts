@@ -25,6 +25,8 @@ export class FakeProvider {
   url = "";
   /** Si no es null, `/authorize` aprueba solo con este perfil y vuelve al API (para pruebas con navegador). */
   autoApprove: FakeProfile | null = null;
+  /** Si no es null, `/user/emails` responde con este estado de error (límite de GitHub, caída). */
+  failEmails: number | null = null;
   /** Peticiones de canje que recibió, para comprobar lo que el API envía. */
   readonly tokenRequests: URLSearchParams[] = [];
 
@@ -90,7 +92,7 @@ export class FakeProvider {
     const profile = this.tokens.get((request.headers.authorization ?? "").replace(/^Bearer /, ""));
     if (profile === undefined) return send(401, { message: "Bad credentials" });
     if (path === "/user") return send(200, { id: profile.id, login: profile.login, name: profile.name ?? null });
-    if (path === "/user/emails") return send(200, profile.emails ?? []);
+    if (path === "/user/emails") return this.failEmails === null ? send(200, profile.emails ?? []) : send(this.failEmails, { message: "fallo provocado por la prueba" });
     send(404, {});
   }
 }

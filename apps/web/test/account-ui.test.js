@@ -4,40 +4,22 @@ import { afterEach, describe, it } from "node:test";
 import { setSessionMode } from "../public/js/api/auth.js";
 import { createTranslator } from "../public/js/i18n/index.js";
 import { createAccount } from "../public/js/ui/account.js";
+import { FakeElement } from "./helpers/fake-dom.js";
 
 const KEY = `cfk_${"d".repeat(64)}`;
 const ID_A = "33333333-3333-4333-8333-333333333333";
-const ME = { tenant: { id: "t1", name: "Ana" }, user: { name: "Ana", email: "ana@example.com", provider: "github" } };
+const ME = { tenant: { id: "t1", name: "Ana" }, role: "OWNER", user: { id: "u1", name: "Ana", email: "ana@example.com", provider: "github" } };
 const t = createTranslator("es");
 
 afterEach(() => setSessionMode(false));
 
-/** DOM mínimo: lo justo que usa ui/account.js */
-class FakeElement {
-  constructor(id = "") {
-    this.id = id;
-    this.hidden = false;
-    this.textContent = "";
-    this.value = "";
-    this.className = "";
-    this.children = [];
-    this.attributes = {};
-    this.listeners = {};
-    this.classList = { add: (name) => (this.className = `${this.className} ${name}`.trim()) };
-  }
-  append(...nodes) { this.children.push(...nodes); }
-  replaceChildren(...nodes) { this.children = nodes; }
-  setAttribute(name, value) { this.attributes[name] = String(value); }
-  getAttribute(name) { return this.attributes[name]; }
-  addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
-  fire(type) { for (const fn of this.listeners[type] ?? []) fn({ preventDefault() {} }); }
-}
-
 const IDS = ["app-content", "login-panel", "login-error", "login-github", "login-google", "login-none", "account-bar", "account-name",
   "account-keys-toggle", "account-signout", "keys-panel", "keys-list", "keys-empty", "keys-form", "keys-name", "keys-problem",
-  "keys-created", "keys-created-value", "keys-copy"];
+  "keys-created", "keys-created-value", "keys-copy", "account-role", "role-note", "account-notice", "login-invite", "upload-form",
+  "workspace-select", "account-team-toggle", "team-panel", "team-members", "team-problem", "team-invite-form", "team-invite-role", "team-link-box", "team-link",
+  "team-copy", "team-invites", "team-invites-empty"];
 
-function setup({ access, search = "", routes = {} }) {
+function setup({ access, search = "", routes = {}, extra = {} }) {
   const elements = Object.fromEntries(IDS.map((id) => [id, new FakeElement(id)]));
   elements["keys-panel"].hidden = true;
   const doc = { documentElement: { lang: "es" }, getElementById: (id) => elements[id] ?? null, createElement: () => new FakeElement() };
@@ -45,13 +27,14 @@ function setup({ access, search = "", routes = {} }) {
   const win = { location: { search, reload: () => (win.reloaded = true) }, navigator: { clipboard: { writeText: async (text) => clipboard.push(text) } }, reloaded: false };
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
+    if (url === "/v1/workspaces") return json({ workspaces: [] }); // el selector de espacios se prueba en team-ui.test.js
     calls.push(`${init.method ?? "GET"} ${url}`);
     const handler = routes[`${init.method ?? "GET"} ${url}`];
     if (!handler) throw new TypeError(`ruta no prevista: ${init.method ?? "GET"} ${url}`);
     return handler();
   };
   const announced = [];
-  const account = createAccount({ doc, win, baseUrl: "", access, t, announce: (text) => announced.push(text), fetchImpl });
+  const account = createAccount({ doc, win, baseUrl: "", access, t, announce: (text) => announced.push(text), fetchImpl, ...extra });
   return { elements, account, win, calls, clipboard, announced };
 }
 
@@ -170,5 +153,36 @@ describe("ui/account.js", () => {
     const { elements, account } = setup({ access: { mode: "session", providers: [], me: ME } });
     account.refresh(createTranslator("en"));
     assert.equal(elements["account-name"].textContent, "Signed in as Ana");
+  });
+
+  it("solo el Dueño ve «Equipo» y «Claves de API»; Editor y Lector no", () => {
+    for (const [role, visible] of [["OWNER", true], ["EDITOR", false], ["VIEWER", false]]) {
+      const { elements } = setup({ access: { mode: "session", providers: [], me: { ...ME, role } } });
+      assert.equal(elements["account-keys-toggle"].hidden, !visible, `claves ${role}`);
+      assert.equal(elements["account-team-toggle"].hidden, !visible, `equipo ${role}`);
+      assert.equal(elements["account-role"].textContent, t(`role.${role}`));
+    }
+  });
+
+  it("un Lector ve su aviso y no tiene formulario de subida; un Editor sí", () => {
+    const viewer = setup({ access: { mode: "session", providers: [], me: { ...ME, role: "VIEWER" } } });
+    assert.equal(viewer.elements["role-note"].hidden, false);
+    assert.equal(viewer.elements["role-note"].textContent, t("role.note.VIEWER"));
+    assert.equal(viewer.elements["upload-form"].hidden, true);
+    const editor = setup({ access: { mode: "session", providers: [], me: { ...ME, role: "EDITOR" } } });
+    assert.equal(editor.elements["role-note"].hidden, true);
+    assert.equal(editor.elements["upload-form"].hidden, false);
+  });
+
+  it("el resultado de una invitación se avisa, y una pendiente se explica en la pantalla de entrada", () => {
+    const joined = setup({ access: { mode: "session", providers: [], me: ME }, extra: { notice: { kind: "joined", name: "Equipo Sur", role: "EDITOR" } } });
+    assert.equal(joined.elements["account-notice"].hidden, false);
+    assert.equal(joined.elements["account-notice"].textContent, t("invite.accepted", { name: "Equipo Sur", role: t("role.EDITOR") }));
+    const failed = setup({ access: { mode: "session", providers: [], me: ME }, extra: { notice: { kind: "invite_failed" } } });
+    assert.equal(failed.elements["account-notice"].textContent, t("invite.failed"));
+    const waiting = setup({ access: { mode: "login", providers: ["github"], me: null }, extra: { pendingInvite: true } });
+    assert.equal(waiting.elements["login-invite"].hidden, false);
+    const normal = setup({ access: { mode: "login", providers: ["github"], me: null } });
+    assert.equal(normal.elements["login-invite"].hidden, true);
   });
 });

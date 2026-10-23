@@ -32,9 +32,12 @@ model Tenant {
   name      String
   createdAt DateTime @default(now())
 
-  users   User[]
-  apiKeys ApiKey[]
-  jobs    Job[]
+  users       User[]
+  apiKeys     ApiKey[]
+  jobs        Job[]
+  memberships Membership[]
+  sessions    Session[]
+  invitations Invitation[]
 }
 
 // Persona. `provider` + `subject` identifican la cuenta en el proveedor de inicio de sesión (github, google): los
@@ -48,8 +51,12 @@ model User {
   subject   String?
   createdAt DateTime @default(now())
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  sessions Session[]
+  tenant              Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sessions            Session[]
+  memberships         Membership[]
+  invitationsCreated  Invitation[] @relation("InvitationCreator")
+  invitationsAccepted Invitation[] @relation("InvitationAcceptor")
+  apiKeysCreated      ApiKey[]     @relation("ApiKeyCreator")
 
   @@unique([provider, subject])
   @@index([tenantId])
@@ -60,11 +67,14 @@ model User {
 model Session {
   id        String   @id @db.Uuid
   userId    String   @db.Uuid
+  /// Espacio de trabajo activo; nulo = el primero de la persona (ADR 0019).
+  tenantId  String?  @db.Uuid
   tokenHash String   @unique
   createdAt DateTime @default(now())
   expiresAt DateTime
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
 
   @@index([userId])
   @@index([expiresAt])
@@ -81,10 +91,14 @@ model ApiKey {
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
   revokedAt  DateTime?
+  /// Quién la creó (ADR 0019): al dejar de ser Dueño del espacio, sus claves se revocan. Nula en las anteriores a esta columna.
+  createdBy  String?   @db.Uuid
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  creator User?  @relation("ApiKeyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([createdBy])
 }
 
 model Job {
@@ -126,4 +140,46 @@ model Job {
   @@index([parentJobId])
   @@index([tenantId, createdAt])
   @@index([tenantId, status])
+}
+
+/// Permisos de una persona en un espacio de trabajo (ADR 0019).
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+/// Una persona puede ser miembro de varios espacios, con un rol en cada uno. Un espacio con miembros no se borra.
+model Membership {
+  userId    String   @db.Uuid
+  tenantId  String   @db.Uuid
+  role      Role
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([userId, tenantId])
+  @@index([tenantId])
+}
+
+/// Enlace mágico para unirse a un espacio de trabajo (ADR 0019): un solo uso, 7 días. Solo se guarda el SHA-256 del token.
+model Invitation {
+  id         String    @id @db.Uuid
+  tenantId   String    @db.Uuid
+  /// Rol que recibe quien acepta; nunca OWNER (el Dueño se promueve después).
+  role       Role
+  tokenHash  String    @unique
+  createdBy  String    @db.Uuid
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  acceptedBy String?   @db.Uuid
+  revokedAt  DateTime?
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  creator  User   @relation("InvitationCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  acceptor User?  @relation("InvitationAcceptor", fields: [acceptedBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
 }

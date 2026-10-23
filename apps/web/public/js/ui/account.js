@@ -3,8 +3,21 @@
 
 import { createKey, listKeys, logout, revokeKey } from "../api/account.js";
 import { ApiError } from "../api/errors.js";
+import { createTeam } from "./team.js";
 
 const LOGIN_ERRORS = new Set(["denied", "state", "provider", "unavailable"]);
+
+/**
+ * Avisos de invitación que deja `main.js` al arrancar.
+ * @typedef {{ kind: "joined", name: string, role: string } | { kind: "invite_failed" | "invite_unreachable" | "invite_unavailable" | "invite_broken" } | null} Notice
+ */
+
+/** Texto del aviso según su clase; null si no hay aviso. @param {Notice} notice @param {(key: string, params?: Record<string, string | number>) => string} t */
+function noticeText(notice, t) {
+  if (notice === null) return null;
+  if (notice.kind === "joined") return t("invite.accepted", { name: notice.name, role: t(`role.${notice.role}`) });
+  return t(`invite.${notice.kind.slice("invite_".length)}`);
+}
 
 /**
  * @param {{
@@ -12,9 +25,11 @@ const LOGIN_ERRORS = new Set(["denied", "state", "provider", "unavailable"]);
  *   t: (key: string, params?: Record<string, string | number>) => string,
  *   announce?: (text: string) => void,
  *   fetchImpl?: typeof fetch,
+ *   notice?: Notice,
+ *   pendingInvite?: boolean,
  * }} deps
  */
-export function createAccount({ doc, win, baseUrl, access, t: initialT, announce = () => {}, fetchImpl }) {
+export function createAccount({ doc, win, baseUrl, access, t: initialT, announce = () => {}, fetchImpl, notice = null, pendingInvite = false }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -41,7 +56,12 @@ export function createAccount({ doc, win, baseUrl, access, t: initialT, announce
     created: $("keys-created"),
     createdValue: $("keys-created-value"),
     copy: $("keys-copy"),
+    role: $("account-role"),
+    roleNote: $("role-note"),
+    notice: $("account-notice"),
+    loginInvite: $("login-invite"),
   };
+  const uploadForm = doc.getElementById("upload-form");
 
   let t = initialT;
   /** @type {import("../api/account.js").ApiKeyView[]} */
@@ -56,6 +76,10 @@ export function createAccount({ doc, win, baseUrl, access, t: initialT, announce
   els.content.hidden = !(access.mode === "key" || signedIn);
   els.login.hidden = !(access.mode === "login" || access.mode === "none" || access.mode === "error");
   els.bar.hidden = !signedIn;
+  // Cada rol ve solo lo que puede usar (ADR 0019); el API lo exige igualmente. Un Lector no sube: se le quita el formulario.
+  const role = signedIn ? (access.me?.role ?? null) : null;
+  els.toggle.hidden = role !== "OWNER";
+  if (uploadForm && role === "VIEWER") uploadForm.hidden = true;
   for (const [name, link] of /** @type {const} */ ([["github", els.github], ["google", els.google]])) {
     link.hidden = !access.providers.includes(name);
     link.setAttribute("href", `${baseUrl.replace(/\/+$/, "")}/auth/${name}/start`);
@@ -72,6 +96,7 @@ export function createAccount({ doc, win, baseUrl, access, t: initialT, announce
     els.loginError.textContent = message ?? "";
     els.loginError.hidden = message === null;
     els.none.hidden = access.mode !== "none";
+    els.loginInvite.hidden = !(pendingInvite && access.mode === "login");
   }
 
   function renderKeys() {
@@ -112,9 +137,25 @@ export function createAccount({ doc, win, baseUrl, access, t: initialT, announce
       const me = access.me;
       els.name.textContent = t("account.signedIn", { name: me?.user?.name ?? me?.user?.email ?? me?.tenant.name ?? "" });
       renderKeys();
+      els.role.textContent = role === null ? "" : t(`role.${role}`);
+      els.roleNote.textContent = role === "VIEWER" ? t("role.note.VIEWER") : "";
+      els.roleNote.hidden = role !== "VIEWER";
     } else {
       renderLogin();
     }
+    // El aviso se pinta también sin sesión (p. ej. una instalación local que no usa equipos).
+    const message = shown ?? noticeText(notice, t);
+    els.notice.textContent = message ?? "";
+    els.notice.hidden = message === null;
+  }
+
+  /** Un aviso puntual (p. ej. «no se pudo cambiar de espacio»): visible para cualquier rol, a diferencia del panel del Dueño. @type {string | null} */
+  let shown = null;
+  /** @param {string} text */
+  function notify(text) {
+    shown = text;
+    announce(text);
+    render();
   }
 
   /** @param {unknown} error */
@@ -192,12 +233,14 @@ export function createAccount({ doc, win, baseUrl, access, t: initialT, announce
       .then(() => win.location.reload());
   });
 
+  const team = createTeam({ doc, win, baseUrl, access, t, announce, notify, fetchImpl });
   render();
   return {
     /** Repinta los textos que dependen de los datos tras un cambio de idioma. @param {typeof initialT} next */
     refresh(next) {
       t = next;
       render();
+      team.refresh(next);
     },
   };
 }

@@ -8,6 +8,9 @@ import { assertContract } from "../contracts/validators.js";
 import type { JobKind } from "../generated/prisma/client.js";
 import { CANCEL_CHANNEL, QUEUES } from "./names.js";
 
+/** Tope de espera de un comando Redis de la cola (encolar, existe, publicar, ping). */
+export const REDIS_COMMAND_TIMEOUT_MS = 4000;
+
 @Injectable()
 export class QueueService implements OnModuleDestroy {
   private readonly transcribe: Queue;
@@ -15,7 +18,16 @@ export class QueueService implements OnModuleDestroy {
   private readonly publisher: Redis;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
-    const connection = { host: config.redis.host, port: config.redis.port, password: config.redis.password };
+    // Redis caído o colgado no debe dejar peticiones esperando minutos: sin cola offline los comandos fallan al instante mientras no
+    // hay conexión, y uno que no recibe respuesta se rinde a los pocos segundos. El llamador lo traduce a 503 (failEnqueue).
+    // Con los valores por defecto de BullMQ/ioredis (cola offline y 20 reintentos) una subida quedaba colgada ~4 min y /health ~10 s.
+    const connection = {
+      host: config.redis.host,
+      port: config.redis.port,
+      password: config.redis.password,
+      enableOfflineQueue: false,
+      commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
+    };
     // attempts: 1 (ADR 0006): un fallo se informa con un código del contrato, no se repite en silencio.
     const defaultJobOptions = { attempts: 1, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86_400 } };
     this.transcribe = new Queue(QUEUES.transcribe, { connection, defaultJobOptions });
@@ -63,11 +75,34 @@ export class QueueService implements OnModuleDestroy {
   async requestCancel(jobId: string): Promise<number> {
     const message = { schemaVersion: 1, jobId };
     assertContract("cancel-message.v1", message);
+    await this.publisherReady();
     return this.publisher.publish(CANCEL_CHANNEL, JSON.stringify(message));
   }
 
   async ping(): Promise<void> {
+    await this.publisherReady();
     await this.publisher.ping();
+  }
+
+  /**
+   * Sin cola offline, un comando emitido ANTES de la primera conexión (arranque, o un /health en los primeros milisegundos) fallaría
+   * aunque Redis esté sano: ahí se espera, con tope. Si la conexión ya existió y se cayó (reconectando) no se espera: falla al instante,
+   * que es justo lo que se quiere.
+   */
+  private async publisherReady(): Promise<void> {
+    const status = this.publisher.status;
+    if (status !== "wait" && status !== "connecting" && status !== "connect") return;
+    await new Promise<void>((resolve, reject) => {
+      const done = (error?: Error): void => {
+        clearTimeout(timer);
+        this.publisher.off("ready", onReady);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onReady = (): void => done();
+      const timer = setTimeout(() => done(new Error("Redis no terminó de conectar a tiempo")), REDIS_COMMAND_TIMEOUT_MS);
+      this.publisher.once("ready", onReady);
+    });
   }
 
   async onModuleDestroy(): Promise<void> {

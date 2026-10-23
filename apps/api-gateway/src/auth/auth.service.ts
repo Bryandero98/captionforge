@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { APP_CONFIG, type AppConfig, type ProviderConfig } from "../config/config.js";
 import { Prisma } from "../generated/prisma/client.js";
+import type { Role } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { hashApiKey } from "../tenancy/api-key.js";
 import { PROVIDERS, type Profile, type ProviderId } from "./providers.js";
@@ -70,7 +71,16 @@ export class AuthService {
     const accessToken = (token as { access_token?: unknown }).access_token;
     if (typeof accessToken !== "string" || accessToken === "") throw new ProviderError("El proveedor no devolvió un token de acceso.");
     const profile = await this.getJson(settings.endpoints.profile, accessToken);
-    const emails = settings.endpoints.emails === undefined ? null : await this.getJson(settings.endpoints.emails, accessToken).catch(() => null);
+    let emails: unknown = null;
+    if (settings.endpoints.emails !== undefined) {
+      try {
+        emails = await this.getJson(settings.endpoints.emails, accessToken);
+      } catch (error) {
+        // El inicio de sesión sigue sin correo (el perfil ya basta para identificar a la persona), pero el fallo deja rastro: sin él, un
+        // límite de GitHub o una caída dejaban cuentas sin correo y nadie sabía por qué. Solo el mensaje: nunca el token ni el cuerpo.
+        this.logger.warn(`No se pudieron obtener los correos de ${provider}; se continúa sin correo: ${(error as Error).message}`);
+      }
+    }
     const parsed = definition.parseProfile(profile, emails);
     if (parsed === null) throw new ProviderError("El perfil del proveedor no trae un identificador.");
     return parsed;
@@ -127,6 +137,8 @@ export class AuthService {
       this.prisma.$transaction([
         this.prisma.tenant.create({ data: { id: tenantId, name: label.slice(0, 100) } }),
         this.prisma.user.create({ data: { id: userId, tenantId, email, name: profile.name, provider, subject: profile.subject } }),
+        // Dueña de su espacio desde el primer momento (ADR 0019); sin membresía no habría rol y toda ruta se negaría.
+        this.prisma.membership.create({ data: { userId, tenantId, role: "OWNER" } }),
       ]);
     try {
       await create(profile.email);
@@ -155,14 +167,19 @@ export class AuthService {
     await this.prisma.session.deleteMany({ where: { tokenHash: hashApiKey(token) } });
   }
 
-  /** La sesión vigente de un token de cookie, o null. */
-  async findSession(token: string): Promise<{ userId: string; tenantId: string } | null> {
+  /**
+   * La sesión vigente de un token de cookie, con el espacio activo y el rol de la persona en él, o null. Espacio activo: el que
+   * la sesión recuerda si la persona sigue siendo miembro; si no, el primero al que se unió. Sin ninguna membresía no hay
+   * identidad utilizable (null): fail-closed.
+   */
+  async findSession(token: string): Promise<{ sessionId: string; userId: string; tenantId: string; role: Role } | null> {
     const row = await this.prisma.session.findUnique({
       where: { tokenHash: hashApiKey(token) },
-      select: { expiresAt: true, user: { select: { id: true, tenantId: true } } },
+      select: { id: true, expiresAt: true, tenantId: true, user: { select: { id: true, memberships: { select: { tenantId: true, role: true }, orderBy: { createdAt: "asc" } } } } },
     });
     if (!row || row.expiresAt.getTime() <= Date.now()) return null;
-    return { userId: row.user.id, tenantId: row.user.tenantId };
+    const active = row.user.memberships.find((membership) => membership.tenantId === row.tenantId) ?? row.user.memberships[0];
+    return active === undefined ? null : { sessionId: row.id, userId: row.user.id, tenantId: active.tenantId, role: active.role };
   }
 
   failure(error: unknown): BadGatewayException {

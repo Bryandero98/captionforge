@@ -50,6 +50,10 @@ ningún marcador `{x}`).
 - La interfaz web usa la clave de API del `.env` (`DEFAULT_API_KEY`, la crea `start.sh` / `start.bat`) y la manda sola. Si ves
   «La clave de acceso de esta interfaz falta, no es válida o fue revocada», revisa esa variable y reinicia el servicio (ADR 0015). En un servidor compartido con inicio de sesión (`LOCAL_MODE=false`) entras con GitHub o Google y creas tus propias claves de API con el botón **Claves de API** (ADR 0016).
 - Los trabajos son de quien tiene la clave: con otra clave no se ven (ni se pueden cancelar, editar o descargar).
+- **Equipos** (servidor compartido, ADR 0019): un espacio de trabajo puede tener varias personas. **Dueño** gestiona el equipo y las claves;
+  **Editor** sube y edita; **Lector** solo ve y descarga. Para invitar, el Dueño abre **Equipo**, elige el rol y copia el enlace: sirve una
+  sola vez y vence en 7 días. Quien lo abre inicia sesión (o se registra) y ve «¿Deseas unirte a este espacio?» con el nombre del espacio y el rol; entra al pulsar **Unirme** (nunca se une solo). Si tienes varios espacios, el selector de
+  la barra superior cambia entre ellos. El último Dueño no se puede quitar ni degradar: promueve antes a otra persona.
 - El video con subtítulos se previsualiza en la página solo hasta 256 MiB; por encima, la descarga funciona igual.
 - Teclado: toda la interfaz se maneja con Tab/Enter/Espacio; Ctrl+S guarda los cambios; los avisos importantes se
   anuncian a lectores de pantalla.

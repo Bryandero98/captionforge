@@ -139,6 +139,15 @@ jobs:
           test -s "$RUNNER_TEMP/jobs.log"
           if grep -q 203.0.113.9 "$RUNNER_TEMP/jobs.log"; then echo "El API creyó un X-Forwarded-For falsificado"; exit 1; fi
           docker compose --profile app exec -T api-gateway wget -qO- http://127.0.0.1:9090/metrics | grep -q captionforge_http_requests_total
+          # Un token de invitación (en el query y en la ruta) no debe llegar a los registros de Caddy (ADR 0019).
+          TOKEN="cfi_$(printf 'a%.0s' $(seq 43))"
+          web -o /dev/null "https://localhost/?invite=$TOKEN&code=abc"
+          web -o /dev/null -X POST "https://localhost/v1/workspaces/invites/$TOKEN/accept"
+          sleep 1
+          docker compose --profile app --profile proxy logs --no-color caddy > "$RUNNER_TEMP/caddy.log"
+          grep -q 'invite=REDACTED' "$RUNNER_TEMP/caddy.log"
+          grep -q 'invites/REDACTED/accept' "$RUNNER_TEMP/caddy.log"
+          if grep -q "$TOKEN" "$RUNNER_TEMP/caddy.log"; then echo "El token de invitación llegó a los registros de Caddy"; exit 1; fi
 
       # Sin torch ni faster-whisper: el código heredado los importa de forma diferida y las pruebas
       # simulan Whisper. ffmpeg llega con imageio-ffmpeg (el mismo localizador que usa el worker).

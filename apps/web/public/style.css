@@ -629,6 +629,36 @@ select:disabled {
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
+.account__select {
+  max-width: 14rem;
+  min-height: 2.25rem;
+}
+.account__role {
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+.team__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.team__name {
+  overflow-wrap: anywhere;
+}
+.team__sub {
+  margin-top: 1rem;
+}
+.team__invite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+}
 .keys__list {
   list-style: none;
   margin: 0.75rem 0;
@@ -877,4 +907,16 @@ select:disabled {
 }
 .field__hint[hidden] {
   display: none;
+}
+
+.invite-confirm {
+  max-width: min(32rem, calc(100vw - 2rem));
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--text);
+}
+.invite-confirm::backdrop {
+  background: rgb(0 0 0 / 0.5);
 }

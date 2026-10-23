@@ -36,6 +36,7 @@
     <section class="panel" id="login-panel" hidden aria-labelledby="login-title">
       <h2 class="panel__status" id="login-title" data-i18n="login.title">Entra para usar CaptionForge</h2>
       <p class="panel__detail" data-i18n="login.body">Tus videos y subtítulos son solo tuyos: nadie más puede verlos.</p>
+      <p class="panel__detail" id="login-invite" role="status" hidden data-i18n="login.invite">Inicia sesión para unirte al equipo al que te invitaron.</p>
       <p class="panel__detail" id="login-error" role="alert" hidden></p>
       <div class="panel__actions">
         <a class="btn btn--primary" id="login-github" href="/auth/github/start" hidden data-i18n="login.github">Continuar con GitHub</a>
@@ -46,9 +47,53 @@
 
     <div class="account" id="account-bar" hidden>
       <span class="account__name" id="account-name"></span>
-      <button type="button" class="btn btn--ghost" id="account-keys-toggle" aria-expanded="false" aria-controls="keys-panel" data-i18n="account.keys">Claves de API</button>
+      <select class="account__select" id="workspace-select" hidden></select>
+      <span class="account__role" id="account-role"></span>
+      <button type="button" class="btn btn--ghost" id="account-team-toggle" hidden aria-expanded="false" aria-controls="team-panel" data-i18n="account.team">Equipo</button>
+      <button type="button" class="btn btn--ghost" id="account-keys-toggle" hidden aria-expanded="false" aria-controls="keys-panel" data-i18n="account.keys">Claves de API</button>
       <button type="button" class="btn btn--ghost" id="account-signout" data-i18n="account.signOut">Salir</button>
     </div>
+
+    <!-- Confirmación de una invitación (ADR 0019): nada se consume hasta pulsar «Unirme». js/ui/invite-confirm.js la abre. -->
+    <dialog class="invite-confirm" id="invite-confirm" aria-labelledby="invite-confirm-title" aria-describedby="invite-confirm-body">
+      <h2 class="panel__status" id="invite-confirm-title" data-i18n="invite.confirm.title">¿Deseas unirte a este espacio?</h2>
+      <p class="panel__detail" id="invite-confirm-body"></p>
+      <p class="panel__detail" id="invite-confirm-status" role="status" hidden></p>
+      <div class="panel__actions">
+        <button type="button" class="btn btn--primary" id="invite-confirm-join" data-i18n="invite.confirm.join">Unirme</button>
+        <button type="button" class="btn btn--ghost" id="invite-confirm-decline" data-i18n="invite.confirm.decline">Ahora no</button>
+        <button type="button" class="btn btn--primary" id="invite-confirm-continue" hidden data-i18n="invite.confirm.continue">Continuar</button>
+      </div>
+    </dialog>
+
+    <p class="panel__detail" id="account-notice" role="status" hidden></p>
+    <p class="panel__detail" id="role-note" hidden></p>
+
+    <section class="panel" id="team-panel" hidden aria-labelledby="team-title">
+      <h2 class="panel__status" id="team-title" data-i18n="team.title">Equipo</h2>
+      <p class="panel__detail" data-i18n="team.intro">Quien tiene un rol aquí comparte los trabajos de este espacio. Dueño gestiona el equipo y las claves; Editor sube y edita; Lector ve y descarga.</p>
+      <ul class="keys__list" id="team-members"></ul>
+      <p class="panel__detail" id="team-problem" role="alert" hidden></p>
+      <h3 class="panel__status team__sub" data-i18n="team.invite.title">Invitar a alguien</h3>
+      <form class="team__invite" id="team-invite-form" novalidate>
+        <div class="field">
+          <label for="team-invite-role" data-i18n="team.invite.role">Rol de la invitación</label>
+          <select id="team-invite-role">
+            <option value="EDITOR" data-i18n="role.EDITOR">Editor</option>
+            <option value="VIEWER" data-i18n="role.VIEWER">Lector</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn--primary" data-i18n="team.invite.create">Crear enlace</button>
+      </form>
+      <div class="keys__created" id="team-link-box" hidden>
+        <p class="panel__status" data-i18n="team.invite.link">Comparte este enlace: sirve una sola vez y vence en 7 días.</p>
+        <code class="panel__detail panel__detail--mono keys__value" id="team-link"></code>
+        <button type="button" class="btn btn--secondary" id="team-copy" data-i18n="team.copy">Copiar</button>
+      </div>
+      <h3 class="panel__status team__sub" data-i18n="team.invites.pending">Invitaciones pendientes</h3>
+      <p class="panel__detail" id="team-invites-empty" hidden data-i18n="team.invites.empty">No hay invitaciones pendientes.</p>
+      <ul class="keys__list" id="team-invites"></ul>
+    </section>
 
     <section class="panel" id="keys-panel" hidden aria-labelledby="keys-title">
       <h2 class="panel__status" id="keys-title" data-i18n="keys.title">Claves de API</h2>

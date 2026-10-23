@@ -13,10 +13,13 @@ import { ReaperService } from "./jobs/reaper.service.js";
 import { MetricsService } from "./observability/metrics.service.js";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { QueueService } from "./queue/queue.service.js";
+import { WorkspacesController } from "./workspaces/workspaces.controller.js";
+import { WorkspacesService } from "./workspaces/workspaces.service.js";
 import { TenantQuotaInterceptor } from "./quota/tenant-quota.interceptor.js";
 import { TenantQuotaService } from "./quota/tenant-quota.service.js";
 import { ConnectionLimits } from "./security/connection-limits.js";
 import { StorageService } from "./storage/storage.service.js";
+import { RolesGuard } from "./tenancy/roles.js";
 import { TenantAuthGuard } from "./tenancy/tenant-auth.guard.js";
 
 @Module({})
@@ -25,7 +28,7 @@ export class AppModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, JobsController],
+      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, JobsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         PrismaService,
@@ -33,12 +36,15 @@ export class AppModule {
         QueueService,
         JobsService,
         AuthService,
+        WorkspacesService,
         ReaperService,
         ConnectionLimits,
         MetricsService,
         TenantQuotaService,
         TenantQuotaInterceptor,
+        // El orden importa: primero quién eres (tenant y rol), luego lo que ese rol puede hacer.
         { provide: APP_GUARD, useClass: TenantAuthGuard },
+        { provide: APP_GUARD, useClass: RolesGuard },
       ],
     };
   }
