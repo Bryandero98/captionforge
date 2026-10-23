@@ -48,7 +48,7 @@ ningún marcador `{x}`).
 - Los resultados se **borran del servidor pasado un día**. «Recientes» solo guarda los identificadores en este
   navegador, no los videos.
 - La interfaz web usa la clave de API del `.env` (`DEFAULT_API_KEY`, la crea `start.sh` / `start.bat`) y la manda sola. Si ves
-  «La clave de acceso de esta interfaz falta, no es válida o fue revocada», revisa esa variable y reinicia el servicio (ADR 0015).
+  «La clave de acceso de esta interfaz falta, no es válida o fue revocada», revisa esa variable y reinicia el servicio (ADR 0015). En un servidor compartido con inicio de sesión (`LOCAL_MODE=false`) entras con GitHub o Google y creas tus propias claves de API con el botón **Claves de API** (ADR 0016).
 - Los trabajos son de quien tiene la clave: con otra clave no se ven (ni se pueden cancelar, editar o descargar).
 - El video con subtítulos se previsualiza en la página solo hasta 256 MiB; por encima, la descarga funciona igual.
 - Teclado: toda la interfaz se maneja con Tab/Enter/Espacio; Ctrl+S guarda los cambios; los avisos importantes se

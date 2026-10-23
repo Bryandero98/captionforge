@@ -100,7 +100,8 @@ registra la política efectiva (hosts y orígenes aceptados) para que un error d
 - **Cuando llegue la autenticación de personas usuarias con cookies (fase 5b)** la premisa de esta decisión
   cambia: las cookies serán `SameSite=Lax` o `Strict`, `HttpOnly` y `Secure`, y las peticiones que modifican
   llevarán además un token anti-CSRF (o exigirán una cabecera propia, que fuerza el preflight). La comprobación de
-  `Origin` de esta guardia se mantiene como defensa en profundidad.
+  `Origin` de esta guardia se mantiene como defensa en profundidad. *(Actualización, ADR 0016: las cookies llegaron con
+  `SameSite=Lax`, `HttpOnly`, `Secure` bajo https y la cabecera propia `X-Requested-With`.)*
 - **Acceso a redes privadas:** el API no responde `Access-Control-Allow-Private-Network`. Los navegadores que
   aplican Private Network Access bloquean que una página pública llegue a `127.0.0.1` en el preflight; no se
   habilita a propósito y no hace falta para el cliente web, que el propio API sirve desde su mismo origen (`apps/web/public`, `WEB_ROOT`): sin CORS,

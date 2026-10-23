@@ -49,7 +49,8 @@ placeholder changes).
 - Results are **deleted from the server after a day**. "Recent" only stores identifiers in this browser, not videos.
 - The web interface uses the API key from `.env` (`DEFAULT_API_KEY`, created by `start.sh` / `start.bat`) and sends it by
   itself. If you see "This interface's access key is missing, invalid or was revoked", check that variable and restart the
-  service (ADR 0015).
+  service (ADR 0015). On a shared server with sign-in (`LOCAL_MODE=false`) you sign in with GitHub or Google instead, and create
+  your own API keys from the **API keys** button (ADR 0016).
 - Jobs belong to whoever holds the key: with another key they are not visible (nor can they be cancelled, edited or downloaded).
 - The captioned video is previewed in the page only up to 256 MiB; above that, the download still works.
 - Keyboard: everything works with Tab/Enter/Space; Ctrl+S saves changes; important notices are announced to screen

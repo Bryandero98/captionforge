@@ -96,7 +96,7 @@ Every call needs your API key: add `-H "X-API-Key: <key>"` (the `DEFAULT_API_KEY
 
 Everything hangs off `/v1/jobs`. The worker writes the job state in PostgreSQL and the API reads
 it. Every route under `/v1/jobs` requires `X-API-Key: <key>` (or `Authorization: Bearer <key>`); `/health` and
-`/v1/capabilities` stay open. Keys and tenants are described in [ADR 0015](docs/adr/0015-tenencia-y-claves-de-api.md).
+`/v1/capabilities` stay open. Keys and tenants are described in [ADR 0015](docs/adr/0015-tenencia-y-claves-de-api.md); sign-in with GitHub or Google, sessions and key management in [ADR 0016](docs/adr/0016-inicio-de-sesion-y-sesiones.md). A local single-user install (`LOCAL_MODE=true`, the default) needs no sign-in; for a shared server set `LOCAL_MODE=false`, `PUBLIC_URL` and the provider credentials in `.env` (see `.env.example`).
 
 | Method and route | What it does |
 |---|---|
