@@ -189,14 +189,27 @@ function parseObservability(env: NodeJS.ProcessEnv, integer: (name: string, fall
   };
 }
 
+/** Alfabeto de un secreto aleatorio en hexadecimal, base64 o base64url, de al menos 32 bytes (43 caracteres en base64). */
+const APP_SECRET_FORMAT = /^[A-Za-z0-9+/_-]{43,}={0,2}$/;
+/** Un secreto aleatorio usa muchos símbolos distintos; `aaaa…` o `abab…` pasan el largo pero no son un secreto. */
+const APP_SECRET_MIN_DISTINCT = 12;
+
 /**
- * APP_SECRET: sin valor, BYOK apagado. Definido, debe tener 32 bytes o más y ningún espacio ni salto de línea en los extremos (un
- * .env mal copiado cambiaría la clave derivada y dejaría ilegibles las claves ya guardadas). El mensaje nunca repite el valor.
+ * APP_SECRET: sin valor, BYOK apagado. Definido, debe ser un secreto ALEATORIO (hex, base64 o base64url) de 32 bytes o más: HKDF no
+ * estira un secreto débil, y con un volcado de la base alguien podría probar frases sin conexión. Ningún espacio ni salto de línea en
+ * los extremos (un .env mal copiado cambiaría la clave derivada y dejaría ilegibles las claves ya guardadas). El mensaje nunca
+ * repite el valor.
  */
 function parseAppSecret(raw: string | undefined): string | undefined {
   if (raw === undefined || raw === "") return undefined;
   if (raw !== raw.trim()) throw new Error("APP_SECRET no puede llevar espacios ni saltos de línea al principio o al final");
-  if (Buffer.byteLength(raw, "utf8") < MIN_APP_SECRET_BYTES) throw new Error(`APP_SECRET debe tener al menos ${MIN_APP_SECRET_BYTES} bytes`);
+  // En hexadecimal cada byte son 2 caracteres: 32 bytes = 64 (el largo de 43 es el del base64).
+  const hexOnly = /^[0-9a-fA-F]+$/.test(raw);
+  if (!APP_SECRET_FORMAT.test(raw) || (hexOnly && raw.length < MIN_APP_SECRET_BYTES * 2) || new Set(raw).size < APP_SECRET_MIN_DISTINCT) {
+    throw new Error(
+      `APP_SECRET debe ser un secreto aleatorio de ${MIN_APP_SECRET_BYTES} bytes o más en hexadecimal o base64, no una frase (genera uno con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")`,
+    );
+  }
   return raw;
 }
 

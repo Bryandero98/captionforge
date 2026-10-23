@@ -12,6 +12,9 @@ export const CURRENT_KEY_VERSION = 1;
 /** Mínimo de APP_SECRET, en bytes. */
 export const MIN_APP_SECRET_BYTES = 32;
 
+/** Con menos de 20 caracteres, 4 serían más de la quinta parte de la clave. */
+export const MIN_HINT_KEY_LENGTH = 20;
+
 const FORMAT = "v1";
 const IV_BYTES = 12; // 96 bits, el tamaño que GCM maneja sin pasos extra
 const TAG_BYTES = 16; // 128 bits
@@ -77,5 +80,5 @@ export class ExternalKeyCipher {
   }
 }
 
-/** Últimos 4 caracteres para reconocer la clave en la interfaz. Una clave corta no se muestra entera: devuelve "". */
-export const keyHint = (key: string): string => (key.length >= 12 ? key.slice(-4) : "");
+/** Últimos 4 caracteres para reconocer la clave en la interfaz. Una clave corta no se muestra: devuelve "". */
+export const keyHint = (key: string): string => (key.length >= MIN_HINT_KEY_LENGTH ? key.slice(-4) : "");

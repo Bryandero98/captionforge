@@ -2,13 +2,13 @@ import type { ExternalProvider } from "./external-key-crypto.js";
 
 /** Tope de longitud antes de cualquier otra comprobación: un cuerpo enorme no debe costar CPU ni acabar cifrado. */
 export const MAX_EXTERNAL_KEY_LENGTH = 512;
-const MIN_EXTERNAL_KEY_LENGTH = 16;
+const MIN_EXTERNAL_KEY_LENGTH = 20;
 /** ASCII imprimible sin espacios: una clave de API de un proveedor no tiene nada más. */
 const PRINTABLE_ASCII = /^[\x21-\x7E]+$/;
 
 const PROVIDER_FORMAT: Record<ExternalProvider, RegExp> = {
   // sk-… (también sk-proj-…, con guiones y guiones bajos).
-  openai: /^sk-[A-Za-z0-9_-]{12,}$/,
+  openai: /^sk-[A-Za-z0-9_-]{17,}$/,
   elevenlabs: /^[A-Za-z0-9_-]{20,}$/,
 };
 

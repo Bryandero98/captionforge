@@ -179,9 +179,10 @@ describe("tablas de tenencia y sesiones (ADR 0015 y 0016)", () => {
       [row, tenantRow, userRow],
     );
     expect((await api.query(`SELECT provider, last4 FROM "TenantExternalKey" WHERE id = $1`, [row])).rows).toEqual([{ provider: "openai", last4: "abcd" }]);
-    await api.query(`UPDATE "TenantExternalKey" SET ciphertext = 'v1.a.b.c', "keyVersion" = 1, last4 = 'wxyz', "rotatedAt" = now(), "createdBy" = $2 WHERE id = $1`, [row, userRow]);
-    for (const column of ["tenantId", "provider", "id"]) {
-      const value = column === "provider" ? `'elevenlabs'` : `'${randomUUID()}'`;
+    await api.query(`UPDATE "TenantExternalKey" SET ciphertext = 'v1.a.b.c', "keyVersion" = 1, last4 = 'wxyz', "rotatedAt" = now() WHERE id = $1`, [row]);
+    // createdBy es de auditoría: quien la guardó primero no se reescribe.
+    for (const column of ["tenantId", "provider", "id", "createdBy", "createdAt"]) {
+      const value = column === "provider" ? `'elevenlabs'` : column === "createdAt" ? "now()" : `'${randomUUID()}'`;
       await expect(api.query(`UPDATE "TenantExternalKey" SET "${column}" = ${value} WHERE id = $1`, [row]), column).rejects.toThrow(/permission denied/);
     }
     // Una sola clave por proveedor y espacio.

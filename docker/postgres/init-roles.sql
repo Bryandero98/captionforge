@@ -141,7 +141,7 @@ BEGIN
   IF to_regclass('public."TenantExternalKey"') IS NOT NULL THEN
     REVOKE ALL ON "TenantExternalKey" FROM cf_api, cf_worker;
     GRANT SELECT, INSERT, DELETE ON "TenantExternalKey" TO cf_api;
-    GRANT UPDATE ("ciphertext", "keyVersion", "last4", "createdBy", "rotatedAt") ON "TenantExternalKey" TO cf_api;
+    GRANT UPDATE ("ciphertext", "keyVersion", "last4", "rotatedAt") ON "TenantExternalKey" TO cf_api;
   END IF;
 END
 $$;

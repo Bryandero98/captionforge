@@ -36,11 +36,15 @@ registro o en un mensaje de error.
    `APP_SECRET` con HKDF-SHA256 (contexto `captionforge/external-key/v1`); el secreto crudo no se usa como clave. El **dato autenticado
    adicional (AAD)** es `tenantId|provider|keyVersion`: un cifrado copiado a otra fila (otro espacio u otro proveedor) no descifra.
    Formato guardado: `v1.<iv>.<etiqueta>.<datos>` en base64url.
-4. **`APP_SECRET`:** al menos 32 bytes. Si está definido y es inválido, el API **no arranca**. Si no está definido, la función BYOK queda
+4. **`APP_SECRET`:** un secreto **aleatorio** (hexadecimal de 64 caracteres, o base64/base64url de 43 o más) de 32 bytes o más y con al
+   menos 12 símbolos distintos: HKDF no estira un secreto débil y, con un volcado de la base, una frase se podría probar sin conexión.
+   Si está definido y no cumple, el API **no arranca** (el mensaje nunca repite el valor). Si no está definido, la función BYOK queda
    **apagada** (`capabilities.byok.enabled = false`, las rutas de claves responden 404) y se registra un aviso; nunca se cifra con un valor
    por defecto. Perderlo equivale a perder las claves guardadas: la persona las vuelve a pegar.
 5. **API de gestión** (`/v1/workspaces/current/external-keys`): solo Dueño y solo con sesión; `Cache-Control: no-store`; las lecturas
-   devuelven proveedor, `last4` y fechas, **jamás** la clave. Borrar elimina la fila.
+   devuelven proveedor, `last4` y fechas, **jamás** la clave. Borrar elimina la fila. Reemplazar la clave no cambia `createdBy` (quién la
+   guardó primero; `cf_api` ni siquiera puede actualizarlo): quién la reemplazó queda en el registro. Una clave tiene 20 o más caracteres
+   (así los 4 que se muestran no son más de la quinta parte).
 6. **Entrega al worker (Fase 2):** `POST /internal/v1/jobs/:jobId/external-key` en el listener interno. El espacio sale de la fila del
    trabajo (nunca del cuerpo); el trabajo debe estar `RUNNING`, ser `TRANSLATE`/`DUB` y pedir el proveedor que declara en sus opciones.
 7. **Cero fugas en Redis:** el payload de BullMQ lleva solo el proveedor y las opciones. Una prueba «canario» busca una clave de mentira en
@@ -73,5 +77,7 @@ registro o en un mensaje de error.
 | Volcado de la base y `APP_SECRET` filtrados | HKDF + AAD; `APP_SECRET` fuera de la base y de los respaldos; `cf_worker` sin acceso a la tabla |
 | Clave filtrada por un error del proveedor o del SDK | No se reenvían mensajes del proveedor; filtro de la clave en toda salida; prueba canario |
 | Cifrado movido a otra fila | AAD con `tenantId`, `provider` y `keyVersion` |
+| `APP_SECRET` débil (una frase) | Formato aleatorio y diversidad mínima validados al arrancar |
+| Dos PUT a la vez del mismo proveedor | `upsert` nativo (`INSERT … ON CONFLICT`) sobre el único `(tenantId, provider)`; probado con 6 PUT simultáneos |
 | Un Editor o una clave de API gestiona claves | Solo Dueño con sesión; matriz de roles en las pruebas |
 | Respuesta cacheada con una clave | `Cache-Control: no-store` y la clave nunca va en una respuesta de lectura |

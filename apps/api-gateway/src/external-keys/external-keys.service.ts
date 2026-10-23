@@ -32,6 +32,7 @@ export class ExternalKeysService {
     @Inject(APP_CONFIG) config: AppConfig,
   ) {
     this.cipher = config.byok.appSecret === undefined ? undefined : new ExternalKeyCipher(config.byok.appSecret);
+    if (this.cipher === undefined) this.logger.warn("APP_SECRET no está definido: las claves externas propias están desactivadas.");
   }
 
   /** Sin APP_SECRET la función está apagada: 404, nunca un cifrado con un valor por defecto. */
@@ -69,10 +70,11 @@ export class ExternalKeysService {
     const row = await this.prisma.tenantExternalKey.upsert({
       where: { tenantId_provider: { tenantId, provider } },
       create: { id: randomUUID(), tenantId, provider, ciphertext, keyVersion: CURRENT_KEY_VERSION, last4, createdBy: userId },
-      update: { ciphertext, keyVersion: CURRENT_KEY_VERSION, last4, createdBy: userId, rotatedAt: now },
+      // createdBy no se toca: es quien la guardó primero. Quién la reemplazó queda en el registro.
+      update: { ciphertext, keyVersion: CURRENT_KEY_VERSION, last4, rotatedAt: now },
       select: { provider: true, last4: true, createdAt: true, rotatedAt: true },
     });
-    this.logger.log(`Clave externa ${provider} guardada: espacio ${tenantId}, por ${userId}`);
+    this.logger.log(`Clave externa ${provider} guardada: espacio ${tenantId}, por ${userId}`); // quién la guardó o la reemplazó
     return toView(row);
   }
 

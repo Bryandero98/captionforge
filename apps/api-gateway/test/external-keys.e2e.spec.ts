@@ -3,7 +3,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Logger } from "@nestjs/common";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { loadConfig } from "../src/config/config.js";
 import { ExternalKeyCipher } from "../src/external-keys/external-key-crypto.js";
@@ -29,6 +30,7 @@ const userIds: string[] = [];
 const cookies = new Map<string, string>();
 let ownerId = "";
 let otherOwnerCookie = "";
+let secondOwnerCookie = "";
 
 async function newUser(label: string, tenantId: string, role: Role): Promise<{ id: string; cookie: string }> {
   const id = randomUUID();
@@ -77,6 +79,7 @@ beforeAll(async () => {
     if (role === "OWNER") ownerId = user.id;
   }
   otherOwnerCookie = (await newUser("dueno-otro", otherTenant.id, "OWNER")).cookie;
+  secondOwnerCookie = (await newUser("segundo-dueno", tenant.id, "OWNER")).cookie;
   on = await start(APP_SECRET);
   off = await start(undefined);
 }, 60_000);
@@ -177,6 +180,14 @@ describe("guardar, listar y borrar (Dueño)", () => {
     expect(new ExternalKeyCipher(APP_SECRET).decrypt(stored[0]!.ciphertext, { tenantId: tenant.id, provider: "openai", keyVersion: 1 })).toBe(second);
   });
 
+  it("otro Dueño que reemplaza la clave no cambia quién la guardó primero (createdBy es de auditoría)", async () => {
+    const third = `sk-tercera-${randomBytes(18).toString("hex")}`;
+    expect((await call(on, "PUT", `${PATH}/openai`, secondOwnerCookie, { key: third })).status).toBe(200);
+    const [row] = await rows(tenant.id);
+    expect(row!.createdBy).toBe(ownerId);
+    expect(new ExternalKeyCipher(APP_SECRET).decrypt(row!.ciphertext, { tenantId: tenant.id, provider: "openai", keyVersion: 1 })).toBe(third);
+  });
+
   it("dos proveedores conviven; el espacio sale de la sesión, no del cuerpo", async () => {
     const response = await call(on, "PUT", `${PATH}/elevenlabs`, cookies.get("OWNER"), { key: ELEVEN, tenantId: otherTenant.id });
     expect(response.status).toBe(200);
@@ -206,7 +217,39 @@ describe("guardar, listar y borrar (Dueño)", () => {
   });
 });
 
+describe("concurrencia", () => {
+  it("varios PUT a la vez de un proveedor nuevo terminan todos en 200 y dejan una sola fila", async () => {
+    const keys = Array.from({ length: 6 }, () => `eleven-carrera-${randomBytes(18).toString("hex")}`);
+    const responses = await Promise.all(keys.map((key) => call(on, "PUT", `${PATH}/elevenlabs`, otherOwnerCookie, { key })));
+    expect(responses.map((response) => response.status)).toEqual(keys.map(() => 200));
+    const stored = await rows(otherTenant.id);
+    expect(stored).toHaveLength(1);
+    const plain = new ExternalKeyCipher(APP_SECRET).decrypt(stored[0]!.ciphertext, { tenantId: otherTenant.id, provider: "elevenlabs", keyVersion: 1 });
+    expect(keys).toContain(plain); // gana una de las escrituras, entera: nada mezclado
+  });
+});
+
+describe("el rol se comprueba en cada petición", () => {
+  it("un Dueño degradado a Editor pierde el acceso de inmediato", async () => {
+    const demoted = await newUser("dueno-degradado", tenant.id, "OWNER");
+    expect((await call(on, "GET", PATH, demoted.cookie)).status).toBe(200);
+    await owner.query(`UPDATE "Membership" SET role = 'EDITOR' WHERE "userId" = $1`, [demoted.id]);
+    const after = await call(on, "GET", PATH, demoted.cookie);
+    expect(after.status).toBe(403);
+    expect(await after.json()).toMatchObject({ code: "role_forbidden" });
+  });
+});
+
 describe("validación (el mensaje nunca repite lo que se envió)", () => {
+  it("un cuerpo que no es JSON (la clave pegada sin comillas) da 400 sin repetir ni un trozo de ella", async () => {
+    const response = await fetch(`${on}${PATH}/openai`, { method: "PUT", headers: { ...CSRF, "content-type": "application/json", cookie: cookies.get("OWNER")! }, body: CANARY });
+    expect(response.status).toBe(400);
+    const text = await response.text();
+
+    expect(text).not.toContain("canario");
+    expect(text).not.toContain("sk-");
+  });
+
   it("un proveedor desconocido es 400", async () => {
     const response = await call(on, "PUT", `${PATH}/anthropic`, cookies.get("OWNER"), { key: CANARY });
     expect(response.status).toBe(400);
@@ -225,6 +268,7 @@ describe("validación (el mensaje nunca repite lo que se envió)", () => {
     ["key demasiado larga", { key: `sk-${"a".repeat(600)}` }],
     ["key de OpenAI sin el prefijo sk-", { key: "abcdefghijklmnopqrstuvwxyz0123456789" }],
     ["key demasiado corta", { key: "sk-corta" }],
+    ["key de 19 caracteres (se mostrarían 4 de 19)", { key: `sk-${"a".repeat(16)}` }],
   ])("rechaza: %s", async (_name, body) => {
     const response = await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), body);
     expect(response.status).toBe(400);
@@ -250,7 +294,8 @@ describe("validación (el mensaje nunca repite lo que se envió)", () => {
 });
 
 describe("sin APP_SECRET (función apagada)", () => {
-  it("las tres operaciones responden 404 byok_disabled y no guardan nada", async () => {
+  it("las tres operaciones responden 404 byok_disabled y no guardan ni borran nada", async () => {
+    const before = await rows(tenant.id);
     for (const [method, path, body] of [
       ["GET", PATH, undefined],
       ["PUT", `${PATH}/openai`, { key: CANARY }],
@@ -260,7 +305,17 @@ describe("sin APP_SECRET (función apagada)", () => {
       expect(response.status, `${method} ${path}`).toBe(404);
       expect(await response.json()).toMatchObject({ code: "byok_disabled" });
     }
-    const previous = await rows(tenant.id);
-    expect(previous.every((row) => row.ciphertext.startsWith("v1."))).toBe(true); // nada nuevo ni en claro
+    expect(await rows(tenant.id)).toEqual(before);
+  });
+
+  it("al arrancar sin APP_SECRET avisa en el registro (sin ningún valor) de que la función está desactivada", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      await start(undefined);
+      const messages = warn.mock.calls.map((call) => String(call[0]));
+      expect(messages.some((message) => message.includes("APP_SECRET") && message.includes("desactivad"))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -45,14 +45,14 @@ ALTER TABLE "TenantExternalKey" ADD CONSTRAINT "TenantExternalKey_createdBy_fkey
 
 -- Permisos de mínimo privilegio (se repiten en docker/postgres/init-roles.sql, que vuelve a conceder SELECT sobre todas las tablas
 -- a cf_worker en cada `infra:up`: sin repetir aquí el REVOKE, el worker recuperaría la lectura del cifrado).
--- cf_api: crear, leer, reemplazar el cifrado (UPDATE solo de esas columnas, no de a quién ni a qué proveedor pertenece) y borrar de
+-- cf_api: crear, leer, reemplazar el cifrado (UPDATE solo de esas columnas: ni a quién ni a qué proveedor pertenece, ni quién la guardó primero) y borrar de
 -- verdad: una clave retirada no debe quedar cifrada en la base. Sin TRUNCATE. cf_worker: NINGÚN permiso; la clave le llega del API.
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'cf_api') THEN
     REVOKE ALL ON "TenantExternalKey" FROM cf_api;
     GRANT SELECT, INSERT, DELETE ON "TenantExternalKey" TO cf_api;
-    GRANT UPDATE ("ciphertext", "keyVersion", "last4", "createdBy", "rotatedAt") ON "TenantExternalKey" TO cf_api;
+    GRANT UPDATE ("ciphertext", "keyVersion", "last4", "rotatedAt") ON "TenantExternalKey" TO cf_api;
   END IF;
   IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'cf_worker') THEN
     REVOKE ALL ON "TenantExternalKey" FROM cf_worker;

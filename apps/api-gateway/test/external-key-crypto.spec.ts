@@ -122,5 +122,7 @@ describe("keyHint", () => {
 
   it("no revela una clave corta entera", () => {
     expect(keyHint("abcdef")).toBe("");
+    expect(keyHint("a".repeat(19))).toBe(""); // 4 de 19 sería más de la quinta parte
+    expect(keyHint("a".repeat(19) + "z")).toBe("aaaz");
   });
 });

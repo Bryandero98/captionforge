@@ -87,38 +87,47 @@ describe("loadConfig: interfaz web", () => {
   });
 
   describe("APP_SECRET (claves externas propias, ADR 0020)", () => {
-    const SECRET = "a-valid-app-secret-of-32-bytes-or-more!";
+    const HEX = "9f2c6a41d07b83e5a1c4f6d2b9087e53c1a4d6f8b20e7395a1c4d6f8e0b2a497"; // randomBytes(32).toString("hex")
+    const BASE64URL = "k3Jx9mQ2vL8nR5tY7uZ1aB4cD6eF0gH2iJ4kL6mN8oP"; // 43 caracteres, como randomBytes(32).toString("base64url")
+    const BASE64 = "k3Jx9mQ2vL8nR5tY7uZ1aB4cD6eF0gH2iJ4kL6mN8oP=";
 
     it("sin valor la función queda apagada: no hay secreto y el resto de la configuración carga", () => {
       expect(loadConfig(base).byok.appSecret).toBeUndefined();
       expect(loadConfig({ ...base, APP_SECRET: "" }).byok.appSecret).toBeUndefined();
     });
 
-    it("con 32 bytes o más la enciende", () => {
-      expect(loadConfig({ ...base, APP_SECRET: SECRET }).byok.appSecret).toBe(SECRET);
-      expect(loadConfig({ ...base, APP_SECRET: "x".repeat(32) }).byok.appSecret).toBe("x".repeat(32));
+    it.each([
+      ["hexadecimal de 32 bytes", HEX],
+      ["base64url de 32 bytes", BASE64URL],
+      ["base64 de 32 bytes", BASE64],
+    ])("acepta un secreto aleatorio: %s", (_name, value) => {
+      expect(loadConfig({ ...base, APP_SECRET: value }).byok.appSecret).toBe(value);
     });
 
-    it("uno definido pero demasiado corto falla al arrancar, sin repetir el valor", () => {
-      expect(() => loadConfig({ ...base, APP_SECRET: "corto-pero-secreto" })).toThrow(/APP_SECRET.*32/);
+    it.each([
+      ["demasiado corto", "corto-pero-secreto"],
+      ["hexadecimal de solo 20 bytes", HEX.slice(0, 40)],
+      ["hexadecimal de 25 bytes (50 caracteres)", HEX.slice(0, 50)],
+      ["un carácter repetido", "a".repeat(64)],
+      ["pocos caracteres distintos", "ab".repeat(32)],
+      ["una frase con espacios", "una frase larga de mas de treinta y dos bytes"],
+      ["texto con símbolos fuera del alfabeto", "!".repeat(20) + HEX],
+      ["no ASCII", "ñ".repeat(48)],
+    ])("rechaza al arrancar un secreto que no parece aleatorio: %s, sin repetir el valor", (_name, value) => {
+      expect(() => loadConfig({ ...base, APP_SECRET: value })).toThrow(/APP_SECRET/);
       let message = "";
       try {
-        loadConfig({ ...base, APP_SECRET: "corto-pero-secreto" });
+        loadConfig({ ...base, APP_SECRET: value });
       } catch (error) {
         message = (error as Error).message;
       }
-      expect(message).not.toContain("corto-pero-secreto");
+      expect(message).not.toContain(value);
     });
 
     it("espacios al principio o al final (error típico de un .env) fallan al arrancar", () => {
-      expect(() => loadConfig({ ...base, APP_SECRET: ` ${SECRET}` })).toThrow(/APP_SECRET.*espacios/);
-      expect(() => loadConfig({ ...base, APP_SECRET: `${SECRET}\n` })).toThrow(/APP_SECRET.*espacios/);
-    });
-
-    it("el mínimo se mide en bytes, no en caracteres", () => {
-      // 16 caracteres de 2 bytes cada uno = 32 bytes: vale. 15 de ellos = 30 bytes: no.
-      expect(() => loadConfig({ ...base, APP_SECRET: "ñ".repeat(16) })).not.toThrow();
-      expect(() => loadConfig({ ...base, APP_SECRET: "ñ".repeat(15) })).toThrow(/APP_SECRET/);
+      expect(() => loadConfig({ ...base, APP_SECRET: ` ${HEX}` })).toThrow(/APP_SECRET.*espacios/);
+      expect(() => loadConfig({ ...base, APP_SECRET: `${HEX}
+` })).toThrow(/APP_SECRET.*espacios/);
     });
   });
 });
