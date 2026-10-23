@@ -14,6 +14,14 @@ export interface ExternalKeyView {
   rotatedAt: string | null;
 }
 
+/** No hay clave guardada para ese espacio y proveedor (la entrega al worker lo traduce a 404). */
+export class ExternalKeyNotFoundError extends Error {
+  constructor() {
+    super("No hay una clave guardada para ese proveedor.");
+    this.name = "ExternalKeyNotFoundError";
+  }
+}
+
 /** Error con `code` estable: la interfaz decide el texto por el código, no por el mensaje (como `role_forbidden`). */
 const coded = (Exception: typeof BadRequestException | typeof NotFoundException, status: number, error: string, code: string, message: string) =>
   new Exception({ statusCode: status, error, code, message });
@@ -33,6 +41,22 @@ export class ExternalKeysService {
   ) {
     this.cipher = config.byok.appSecret === undefined ? undefined : new ExternalKeyCipher(config.byok.appSecret);
     if (this.cipher === undefined) this.logger.warn("APP_SECRET no está definido: las claves externas propias están desactivadas.");
+  }
+
+  /** ¿Está activa la función (hay APP_SECRET)? */
+  get enabled(): boolean {
+    return this.cipher !== undefined;
+  }
+
+  /**
+   * Descifra la clave de un espacio para ENTREGARLA al worker por el canal interno. Es el único sitio donde la clave sale de la base en
+   * claro: quien llama (internal-server) ya comprobó el token y que el trabajo está en curso y es de ese espacio y proveedor.
+   */
+  async reveal(tenantId: string, provider: ExternalProvider): Promise<string> {
+    const cipher = this.requireCipher();
+    const row = await this.prisma.tenantExternalKey.findUnique({ where: { tenantId_provider: { tenantId, provider } }, select: { ciphertext: true, keyVersion: true } });
+    if (row === null) throw new ExternalKeyNotFoundError();
+    return cipher.decrypt(row.ciphertext, { tenantId, provider, keyVersion: row.keyVersion });
   }
 
   /** Sin APP_SECRET la función está apagada: 404, nunca un cifrado con un valor por defecto. */

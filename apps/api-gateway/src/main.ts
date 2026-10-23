@@ -18,6 +18,7 @@ import { AppModule } from "./app.module.js";
 import { type AppConfig, loadConfig } from "./config/config.js";
 import { JsonLogger } from "./observability/json-logger.js";
 import { MetricsService } from "./observability/metrics.service.js";
+import { startInternalServer } from "./internal/internal-server.js";
 import { startMetricsServer } from "./observability/metrics-server.js";
 import { clientKey } from "./security/client-key.js";
 import { describePolicy, evaluate } from "./security/request-guard.js";
@@ -282,6 +283,10 @@ async function bootstrap(): Promise<void> {
   if (config.observability.metricsPort > 0) {
     await startMetricsServer(app, { host: config.observability.metricsHost, port: config.observability.metricsPort });
     new Logger("Métricas").log(`Métricas en ${config.observability.metricsHost}:${config.observability.metricsPort}/metrics (red interna; no se publica)`);
+  }
+  if (config.internal.port > 0 && config.internal.workerToken !== undefined) {
+    await startInternalServer(app, { host: config.internal.host, port: config.internal.port, workerToken: config.internal.workerToken, rateLimitPerMinute: config.internal.rateLimitPerMinute });
+    new Logger("Interno").log(`Canal interno del worker en ${config.internal.host}:${config.internal.port} (red interna; no se publica)`);
   }
   // La política efectiva queda en el registro: un ALLOWED_HOSTS o ALLOWED_ORIGINS mal puesto se ve al arrancar.
   new Logger("Seguridad").log(`Política de navegador activa — ${describePolicy(config.security)}`);

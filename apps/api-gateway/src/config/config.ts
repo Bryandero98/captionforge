@@ -50,6 +50,11 @@ export interface AppConfig {
    * Es un secreto: no se registra ni se devuelve en ninguna respuesta.
    */
   byok: { appSecret: string | undefined };
+  /**
+   * Canal interno del worker (ADR 0020), en un puerto aparte que no se publica. `port` 0 = apagado. `workerToken` es un secreto: no se
+   * registra ni se devuelve. `rateLimitPerMinute` 0 = sin límite.
+   */
+  internal: { host: string; port: number; workerToken: string | undefined; rateLimitPerMinute: number };
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
   /** Seguridad del API: clave por defecto de la interfaz web y límites de uso por IP (0 = sin límite). */
@@ -190,27 +195,40 @@ function parseObservability(env: NodeJS.ProcessEnv, integer: (name: string, fall
 }
 
 /** Alfabeto de un secreto aleatorio en hexadecimal, base64 o base64url, de al menos 32 bytes (43 caracteres en base64). */
-const APP_SECRET_FORMAT = /^[A-Za-z0-9+/_-]{43,}={0,2}$/;
+const SECRET_FORMAT = /^[A-Za-z0-9+/_-]{43,}={0,2}$/;
 /** Un secreto aleatorio usa muchos símbolos distintos; `aaaa…` o `abab…` pasan el largo pero no son un secreto. */
-const APP_SECRET_MIN_DISTINCT = 12;
+const SECRET_MIN_DISTINCT = 12;
 
 /**
- * APP_SECRET: sin valor, BYOK apagado. Definido, debe ser un secreto ALEATORIO (hex, base64 o base64url) de 32 bytes o más: HKDF no
- * estira un secreto débil, y con un volcado de la base alguien podría probar frases sin conexión. Ningún espacio ni salto de línea en
- * los extremos (un .env mal copiado cambiaría la clave derivada y dejaría ilegibles las claves ya guardadas). El mensaje nunca
- * repite el valor.
+ * Un secreto del servicio (APP_SECRET, WORKER_INTERNAL_TOKEN): sin valor, `undefined`. Definido, debe ser ALEATORIO (hex, base64 o
+ * base64url) de 32 bytes o más: HKDF no estira un secreto débil, y con un volcado de la base o un token adivinable alguien podría probar
+ * frases sin conexión. Ningún espacio ni salto de línea en los extremos (un .env mal copiado cambiaría la clave derivada y dejaría
+ * ilegibles las claves ya guardadas). El mensaje nunca repite el valor.
  */
-function parseAppSecret(raw: string | undefined): string | undefined {
+function parseRandomSecret(name: string, raw: string | undefined): string | undefined {
   if (raw === undefined || raw === "") return undefined;
-  if (raw !== raw.trim()) throw new Error("APP_SECRET no puede llevar espacios ni saltos de línea al principio o al final");
+  if (raw !== raw.trim()) throw new Error(`${name} no puede llevar espacios ni saltos de línea al principio o al final`);
   // En hexadecimal cada byte son 2 caracteres: 32 bytes = 64 (el largo de 43 es el del base64).
   const hexOnly = /^[0-9a-fA-F]+$/.test(raw);
-  if (!APP_SECRET_FORMAT.test(raw) || (hexOnly && raw.length < MIN_APP_SECRET_BYTES * 2) || new Set(raw).size < APP_SECRET_MIN_DISTINCT) {
+  if (!SECRET_FORMAT.test(raw) || (hexOnly && raw.length < MIN_APP_SECRET_BYTES * 2) || new Set(raw).size < SECRET_MIN_DISTINCT) {
     throw new Error(
-      `APP_SECRET debe ser un secreto aleatorio de ${MIN_APP_SECRET_BYTES} bytes o más en hexadecimal o base64, no una frase (genera uno con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")`,
+      `${name} debe ser un secreto aleatorio de ${MIN_APP_SECRET_BYTES} bytes o más en hexadecimal o base64, no una frase (genera uno con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")`,
     );
   }
   return raw;
+}
+
+/**
+ * Canal interno del worker (ADR 0020): un listener aparte que entrega al worker la clave externa de SU trabajo. INTERNAL_PORT=0 (por
+ * defecto) lo apaga. Encendido exige WORKER_INTERNAL_TOKEN (nunca queda abierto sin autenticación) y que no sea el mismo valor que
+ * APP_SECRET. Escucha en el loopback salvo que se diga otra cosa; en Docker se pone 0.0.0.0 y el puerto NO se publica.
+ */
+function parseInternal(env: NodeJS.ProcessEnv, integer: (name: string, fallback: number, options?: { allowZero?: boolean; max?: number }) => number, appSecret: string | undefined): AppConfig["internal"] {
+  const port = integer("INTERNAL_PORT", 0, { allowZero: true, max: 65_535 });
+  const workerToken = parseRandomSecret("WORKER_INTERNAL_TOKEN", env.WORKER_INTERNAL_TOKEN);
+  if (port > 0 && workerToken === undefined) throw new Error("INTERNAL_PORT requiere WORKER_INTERNAL_TOKEN: el canal interno no se abre sin autenticación");
+  if (workerToken !== undefined && workerToken === appSecret) throw new Error("WORKER_INTERNAL_TOKEN no puede ser el mismo valor que APP_SECRET");
+  return { host: (env.INTERNAL_HOST ?? "127.0.0.1").trim() || "127.0.0.1", port, workerToken, rateLimitPerMinute: integer("INTERNAL_RATE_LIMIT_PER_MINUTE", 120, { allowZero: true }) };
 }
 
 /** PUBLIC_URL: origen público del servicio. Sin valor, el de la dirección local. */
@@ -252,6 +270,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("WEB_API_KEY debe tener al menos 32 caracteres (es la DEFAULT_API_KEY del .env)");
   }
 
+  const appSecret = parseRandomSecret("APP_SECRET", env.APP_SECRET);
+
   return {
     host: env.HOST ?? "127.0.0.1",
     port: integer("PORT", 3000),
@@ -275,7 +295,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       providers: { github: parseProvider(env, "github"), google: parseProvider(env, "google") },
     },
     features: { diarization: parseDiarization(env) },
-    byok: { appSecret: parseAppSecret(env.APP_SECRET) },
+    byok: { appSecret },
+    internal: parseInternal(env, integer, appSecret),
     observability: parseObservability(env, integer),
     reaper: {
       intervalMs: integer("REAPER_INTERVAL_SECONDS", 60, { allowZero: true }) * 1000,

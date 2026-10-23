@@ -130,4 +130,52 @@ describe("loadConfig: interfaz web", () => {
 ` })).toThrow(/APP_SECRET.*espacios/);
     });
   });
+
+  describe("canal interno del worker (ADR 0020)", () => {
+    const TOKEN = "d41f9a6c27b8e035f1a49c62d8b07e3a95c1f4d60b28e7a3c91d5f8b02e6a47c";
+    const SECRET = "9f2c6a41d07b83e5a1c4f6d2b9087e53c1a4d6f8b20e7395a1c4d6f8e0b2a497";
+
+    it("apagado por defecto: sin puerto no hay listener ni hace falta el token", () => {
+      expect(loadConfig(base).internal).toMatchObject({ port: 0, host: "127.0.0.1", workerToken: undefined });
+    });
+
+    it("con INTERNAL_PORT y WORKER_INTERNAL_TOKEN queda configurado, solo en el loopback si no se dice otra cosa", () => {
+      const config = loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: TOKEN });
+      expect(config.internal).toMatchObject({ port: 3100, host: "127.0.0.1", workerToken: TOKEN });
+      expect(loadConfig({ ...base, INTERNAL_PORT: "3100", INTERNAL_HOST: "0.0.0.0", WORKER_INTERNAL_TOKEN: TOKEN }).internal.host).toBe("0.0.0.0");
+    });
+
+    it("un puerto sin token falla al arrancar: el listener nunca queda abierto sin autenticación", () => {
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "3100" })).toThrow(/WORKER_INTERNAL_TOKEN/);
+    });
+
+    it.each([
+      ["corto", "corto"],
+      ["una frase", "una frase larga con espacios de mas de treinta y dos bytes"],
+      ["un carácter repetido", "a".repeat(64)],
+    ])("un token que no parece aleatorio falla al arrancar, sin repetirlo: %s", (_name, value) => {
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: value })).toThrow(/WORKER_INTERNAL_TOKEN/);
+      let message = "";
+      try {
+        loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: value });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain(value);
+    });
+
+    it("el token no puede ser el mismo valor que APP_SECRET (dos secretos, dos funciones)", () => {
+      expect(() => loadConfig({ ...base, APP_SECRET: SECRET, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: SECRET })).toThrow(/WORKER_INTERNAL_TOKEN.*APP_SECRET/);
+    });
+
+    it("un puerto fuera de rango o que no es número falla", () => {
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "70000", WORKER_INTERNAL_TOKEN: TOKEN })).toThrow(/INTERNAL_PORT/);
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "abc", WORKER_INTERNAL_TOKEN: TOKEN })).toThrow(/INTERNAL_PORT/);
+    });
+
+    it("el límite de peticiones por minuto tiene un valor por defecto y se puede cambiar", () => {
+      expect(loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: TOKEN }).internal.rateLimitPerMinute).toBe(120);
+      expect(loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: TOKEN, INTERNAL_RATE_LIMIT_PER_MINUTE: "30" }).internal.rateLimitPerMinute).toBe(30);
+    });
+  });
 });
