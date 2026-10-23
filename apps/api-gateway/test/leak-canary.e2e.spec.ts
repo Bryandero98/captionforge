@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -27,6 +27,7 @@ import { loadConfig } from "../src/config/config.js";
 import { createApp } from "../src/main.js";
 import { startInternalServer } from "../src/internal/internal-server.js";
 import { hashApiKey } from "../src/tenancy/api-key.js";
+import { type Haystack, dirHaystacks, findLeaks as scan, needlesFor, redisHaystacks as scanRedis } from "./support/leak-scan.js";
 import { createTestTenant, disposeTestTenants, type TestTenant } from "./support/tenancy.js";
 
 const APP_SECRET = "5b7e1c93a2d84f60b1e97c35d8a20f46c3b95e17a4d68f02b7c1e93a5d84f60b";
@@ -39,18 +40,6 @@ const raiz = join(aqui, "..", "..", "..");
 const workerDir = join(raiz, "apps", "ai-worker");
 const PROBE = join(workerDir, "tests", "support", "canary_probe.py");
 
-/** Lo que busca el escáner: el canario y las formas triviales en que un descuido lo dejaría (trozo, base64, URL, hex). */
-const NEEDLES: { name: string; value: string }[] = [
-  { name: "clave completa", value: CANARY },
-  { name: "trozo central", value: CANARY.slice(3, 28) },
-  { name: "sufijo", value: CANARY.slice(-16) },
-  { name: "base64", value: Buffer.from(CANARY).toString("base64").replace(/=+$/, "") },
-  { name: "base64 con desfase 1", value: Buffer.from(`x${CANARY}`).toString("base64").slice(2).replace(/=+$/, "") },
-  { name: "base64 con desfase 2", value: Buffer.from(`xx${CANARY}`).toString("base64").slice(3).replace(/=+$/, "") },
-  { name: "URL codificada", value: encodeURIComponent(CANARY) },
-  { name: "hexadecimal", value: Buffer.from(CANARY).toString("hex") },
-];
-
 function findPython(): string | undefined {
   return [
     process.env.AI_WORKER_PYTHON,
@@ -60,6 +49,7 @@ function findPython(): string | undefined {
     join(raiz, ".venv", "bin", "python"),
   ].find((candidate): candidate is string => Boolean(candidate) && existsSync(candidate as string));
 }
+const NEEDLES = needlesFor(CANARY);
 const python = findPython();
 const inCi = Boolean(process.env.CI);
 
@@ -164,38 +154,7 @@ async function enqueue(jobId: string): Promise<void> {
   await queue.add("translate", { jobId, tenantId: tenant.id, kind: "TRANSLATE", options: { provider: "openai", targetLanguage: "es" } }, { jobId });
 }
 
-/** Todas las claves de Redis serializadas con DUMP (sirve para cualquier tipo: cadena, hash, lista, flujo, conjunto ordenado). */
-async function redisHaystacks(): Promise<{ where: string; text: string }[]> {
-  const names: string[] = [];
-  let cursor = "0";
-  do {
-    const [next, batch] = await redis.scan(cursor, "COUNT", 500);
-    names.push(...batch);
-    cursor = next;
-  } while (cursor !== "0");
-  const found: { where: string; text: string }[] = [];
-  for (const name of names) {
-    const dump = (await redis.callBuffer("DUMP", name)) as Buffer | null;
-    found.push({ where: `redis:${name}`, text: Buffer.concat([Buffer.from(name), dump ?? Buffer.alloc(0)]).toString("latin1") });
-  }
-  return found;
-}
-
-function workDirHaystacks(): { where: string; text: string }[] {
-  const found: { where: string; text: string }[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory)) {
-      const path = join(directory, entry);
-      found.push({ where: `work:${path.slice(workDir.length)}`, text: path.slice(workDir.length) }); // también los NOMBRES
-      if (statSync(path).isDirectory()) walk(path);
-      else found.push({ where: `work:${path.slice(workDir.length)}`, text: readFileSync(path).toString("latin1") });
-    }
-  };
-  walk(workDir);
-  return found;
-}
-
-async function databaseHaystacks(): Promise<{ where: string; text: string }[]> {
+async function databaseHaystacks(): Promise<Haystack[]> {
   const jobs = await dbOwner.query(`SELECT row_to_json(j)::text AS row FROM "Job" j WHERE j."tenantId" = $1`, [tenant.id]);
   const events = await dbOwner.query(`SELECT row_to_json(e)::text AS row FROM "AuditEvent" e WHERE e."tenantId" = $1`, [tenant.id]).catch(() => ({ rows: [] as { row: string }[] }));
   return [
@@ -204,16 +163,9 @@ async function databaseHaystacks(): Promise<{ where: string; text: string }[]> {
   ];
 }
 
-/** Devuelve cada lugar donde aparece alguna de las formas del canario. Vacío = cero fugas. */
-function findLeaks(haystacks: { where: string; text: string }[]): string[] {
-  const leaks: string[] = [];
-  for (const { where, text } of haystacks) {
-    for (const needle of NEEDLES) {
-      if (text.includes(needle.value)) leaks.push(`${where} contiene ${needle.name}`);
-    }
-  }
-  return leaks;
-}
+const findLeaks = (haystacks: Haystack[]): string[] => scan(haystacks, NEEDLES);
+const redisHaystacks = (): Promise<Haystack[]> => scanRedis(redis);
+const workDirHaystacks = (): Haystack[] => dirHaystacks(workDir);
 
 const fingerprint = (value: string): string => createHash("sha256").update(value).digest("hex").slice(0, 12);
 
@@ -286,7 +238,7 @@ describe("el entorno de la prueba", () => {
 describe.skipIf(!python)("prueba canario: el recorrido completo de la clave", () => {
   let jobId = "";
   let run: ProbeRun;
-  let haystacks: { where: string; text: string }[] = [];
+  let haystacks: Haystack[] = [];
 
   beforeAll(async () => {
     // El sitio de partida SÍ contiene la clave, cifrada: si el escáner la encuentra en la base antes de empezar, el escáner está roto.
