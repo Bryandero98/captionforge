@@ -28,6 +28,8 @@ OPENAI_URL = "https://api.openai.com"
 ELEVENLABS_URL = "https://api.elevenlabs.io"
 #: Modelo de traducción de OpenAI: barato y suficiente para subtítulos. No es configurable por trabajo (control del gasto).
 OPENAI_TRANSLATE_MODEL = "gpt-4o-mini"
+OPENAI_TTS_MODEL = "tts-1"
+ELEVENLABS_TTS_MODEL = "eleven_multilingual_v2"
 
 _KEY_MISSING = "El espacio no tiene guardada la clave de este proveedor. Un Dueño debe guardarla en Claves externas."
 _KEY_REASONS = {
@@ -41,6 +43,12 @@ _KEY_REASONS = {
 class Translator(Protocol):
     async def translate(self, texts: list[str], source: str, target: str) -> list[str]:
         """Traduce `texts` (en orden, uno a uno). Devuelve exactamente una cadena por cada entrada."""
+        ...
+
+
+class Voice(Protocol):
+    async def synthesize(self, text: str, voice: str) -> bytes:
+        """Audio MP3 de `text` con la voz `voice` del proveedor."""
         ...
 
 
@@ -88,6 +96,44 @@ class OpenAITranslator:
         return _read_translations(parse_json(response), len(texts))
 
 
+#: Un MP3 sin sonido o una página de error con estado 200 no es voz: se rechaza antes de gastar tiempo de ffmpeg en ello.
+_MIN_AUDIO_BYTES = 200
+
+
+def _read_audio(response: httpx.Response) -> bytes:
+    content_type = response.headers.get("content-type", "").lower()
+    audio = response.content
+    if len(audio) < _MIN_AUDIO_BYTES or not (content_type.startswith("audio/") or content_type.startswith("application/octet-stream")):
+        raise external_failure("EXTERNAL_UNAVAILABLE")
+    return audio
+
+
+class OpenAIVoice:
+    """Texto a voz de OpenAI (`/v1/audio/speech`). El modelo es fijo: la persona elige la voz, no el precio por carácter."""
+
+    def __init__(self, http: ProviderHttp) -> None:
+        self._http = http
+
+    async def synthesize(self, text: str, voice: str) -> bytes:
+        response = await self._http.post_json(
+            "/v1/audio/speech", {"model": OPENAI_TTS_MODEL, "voice": voice, "input": text, "response_format": "mp3"}
+        )
+        return _read_audio(response)
+
+
+class ElevenLabsVoice:
+    """Texto a voz de ElevenLabs. El id de voz lo acota el contrato (`[A-Za-z0-9_-]{1,64}`): no puede formar otra ruta."""
+
+    def __init__(self, http: ProviderHttp) -> None:
+        self._http = http
+
+    async def synthesize(self, text: str, voice: str) -> bytes:
+        response = await self._http.post_json(
+            f"/v1/text-to-speech/{voice}?output_format=mp3_44100_128", {"text": text, "model_id": ELEVENLABS_TTS_MODEL}
+        )
+        return _read_audio(response)
+
+
 def _read_translations(body: Any, expected: int) -> list[str]:
     try:
         content = body["choices"][0]["message"]["content"]
@@ -108,12 +154,14 @@ class Adapters:
         external_keys: ExternalKeyClient | None,
         *,
         translators: Mapping[str, Translator] | None = None,
+        voices: Mapping[str, Voice] | None = None,
         base_urls: Mapping[str, str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._external_keys = external_keys
         self._translators = dict(translators or {})
+        self._voices = dict(voices or {})
         self._base_urls = {"openai": OPENAI_URL, "elevenlabs": ELEVENLABS_URL, **(base_urls or {})}
         self._transport = transport
         self._sleep = sleep
@@ -147,3 +195,19 @@ class Adapters:
                 yield OpenAITranslator(self._http(provider, {"authorization": f"Bearer {secret.reveal()}"}))
             return
         raise JobFailure("INTERNAL", "El proveedor de traducción no está disponible en este worker.")
+
+    @contextlib.asynccontextmanager
+    async def voice(self, provider: str, job_id: str) -> AsyncIterator[Voice]:
+        injected = self._voices.get(provider)
+        if injected is not None:
+            yield injected
+            return
+        if provider == "openai":
+            async with self._secret(provider, job_id) as secret:
+                yield OpenAIVoice(self._http(provider, {"authorization": f"Bearer {secret.reveal()}"}))
+            return
+        if provider == "elevenlabs":
+            async with self._secret(provider, job_id) as secret:
+                yield ElevenLabsVoice(self._http(provider, {"xi-api-key": secret.reveal()}))
+            return
+        raise JobFailure("INTERNAL", "El proveedor de voz no está disponible en este worker.")

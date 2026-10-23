@@ -19,16 +19,17 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from bullmq import Worker
-from captionforge_contracts import BurnJob, CancelMessage, JobError, TranscribeJob, TranslateJob
+from captionforge_contracts import BurnJob, CancelMessage, DubJob, JobError, TranscribeJob, TranslateJob
 
 from .adapters import Adapters
 from .burn import BurnRunner
 from .config import WorkerConfig
 from .db import JobRepository
+from .dub import DubRunner
 from .errors import JobCancelled, JobFailure, classify
 from .external_key import ExternalKeyClient
 from .models import ModelProvider
-from .progress import BURN_STAGE_RANGES, STAGE_RANGES, TRANSLATE_STAGE_RANGES, Progress
+from .progress import BURN_STAGE_RANGES, DUB_STAGE_RANGES, STAGE_RANGES, TRANSLATE_STAGE_RANGES, Progress
 from .storage import Storage
 from .transcribe import TranscribeRunner
 from .translate import TranslateRunner
@@ -75,6 +76,7 @@ class AiWorker:
         # Proveedores de traducción y voz (ADR 0020); los externos piden su clave al API justo antes de usarla.
         self.adapters = adapters or Adapters(self.external_keys)
         self.translator = TranslateRunner(config, self.storage, self.adapters)
+        self.dubber = DubRunner(config, self.storage, self.adapters)
         self._workers: list[Worker] = []
         self._cancel_task: asyncio.Task[None] | None = None
         self._cancel_events: dict[str, threading.Event] = {}
@@ -97,6 +99,10 @@ class AiWorker:
     async def process_translate(self, job: Any, token: str, signal: Any) -> dict[str, Any]:
         """Procesador de la cola de traducción."""
         return await self._process(job, signal, TranslateJob, self.translator.run, TRANSLATE_STAGE_RANGES)
+
+    async def process_dub(self, job: Any, token: str, signal: Any) -> dict[str, Any]:
+        """Procesador de la cola de doblaje."""
+        return await self._process(job, signal, DubJob, self.dubber.run, DUB_STAGE_RANGES)
 
     async def _process(
         self,
@@ -316,6 +322,7 @@ class AiWorker:
             self._new_worker(self.config.queue_name, self.process),
             self._new_worker(self.config.burn_queue_name, self.process_burn),
             self._new_worker(self.config.translate_queue_name, self.process_translate),
+            self._new_worker(self.config.dub_queue_name, self.process_dub),
         ]
         subscribed = asyncio.Event()
         self._cancel_task = asyncio.create_task(self._listen_for_cancellations(subscribed))
