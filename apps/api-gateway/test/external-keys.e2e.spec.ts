@@ -2,6 +2,7 @@
 // existe cifrada. PostgreSQL, Redis y S3 reales (npm run infra:up).
 import { randomBytes, randomUUID } from "node:crypto";
 
+import { Redis } from "ioredis";
 import pg from "pg";
 import { Logger } from "@nestjs/common";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -217,6 +218,35 @@ describe("guardar, listar y borrar (Dueño)", () => {
   });
 });
 
+describe("cero fugas en Redis", () => {
+  it("tras guardar claves, ninguna clave de Redis (colas, cuotas, cancelaciones) contiene el texto de la clave ni un trozo reconocible", async () => {
+    const redis = new Redis({ host: baseConfig.redis.host, port: baseConfig.redis.port, password: baseConfig.redis.password });
+    try {
+      const secrets = [CANARY, ELEVEN];
+      expect((await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY })).status).toBe(200);
+      expect((await call(on, "PUT", `${PATH}/elevenlabs`, cookies.get("OWNER"), { key: ELEVEN })).status).toBe(200);
+      const names: string[] = [];
+      let cursor = "0";
+      do {
+        const [next, batch] = await redis.scan(cursor, "COUNT", 500);
+        names.push(...batch);
+        cursor = next;
+      } while (cursor !== "0");
+      expect(names.length).toBeGreaterThan(0); // Redis tiene datos reales (colas, cuotas): la búsqueda no es sobre el vacío
+      for (const name of names) {
+        const dump = (await redis.callBuffer("DUMP", name)) as Buffer | null; // serializa cualquier tipo (cadena, hash, lista, flujo...)
+        const haystack = Buffer.concat([Buffer.from(name), dump ?? Buffer.alloc(0)]).toString("latin1");
+        for (const secret of secrets) {
+          expect(haystack.includes(secret), `la clave aparece en Redis (${name})`).toBe(false);
+          expect(haystack.includes(secret.slice(3, 28)), `un trozo de la clave aparece en Redis (${name})`).toBe(false);
+        }
+      }
+    } finally {
+      redis.disconnect();
+    }
+  });
+});
+
 describe("concurrencia", () => {
   it("varios PUT a la vez de un proveedor nuevo terminan todos en 200 y dejan una sola fila", async () => {
     const keys = Array.from({ length: 6 }, () => `eleven-carrera-${randomBytes(18).toString("hex")}`);
@@ -288,7 +318,7 @@ describe("validación (el mensaje nunca repite lo que se envió)", () => {
   it("los espacios y saltos de línea en los extremos se quitan (error típico al pegar)", async () => {
     const pasted = `sk-pegada-${randomBytes(18).toString("hex")}`;
     expect((await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: `  ${pasted}\r\n` })).status).toBe(200);
-    const [row] = await rows(tenant.id);
+    const row = (await rows(tenant.id)).find((candidate) => candidate.provider === "openai");
     expect(new ExternalKeyCipher(APP_SECRET).decrypt(row!.ciphertext, { tenantId: tenant.id, provider: "openai", keyVersion: 1 })).toBe(pasted);
   });
 });
