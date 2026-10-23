@@ -54,9 +54,14 @@ permisos distintos, sin romper el aislamiento entre espacios ni las claves de AP
 5. **Miembros.** `GET /v1/workspaces/members`, `PUT /v1/workspaces/members/:userId` `{role}` y `DELETE …` (Dueño). El cambio y el borrado
    se hacen en una transacción que bloquea (`SELECT … FOR UPDATE`) las filas `OWNER` del espacio ordenadas por `userId`, y recién entonces
    cuenta: dos peticiones simultáneas no pueden dejar el espacio sin Dueño, ni se interbloquean entre sí. Los cambios usan `updateMany`/`deleteMany` (si otra petición ya quitó a
-   la persona, `404` y no `500`). Al degradar o quitar a un Dueño se **revocan sus invitaciones sin usar** en la misma transacción: un
-   enlace no sobrevive a quien lo creó. No se puede quitar a alguien su **único** espacio (`last_membership`): quedaría sin ninguna
-   membresía y con un `401` permanente. Quien es quitado no necesita que se
+   la persona, `404` y no `500`). Al degradar o quitar a un Dueño se **revocan sus invitaciones sin usar y las claves de API que creó
+   en ese espacio** en la misma transacción: ni un enlace ni una clave sobreviven a quien los creó (`ApiKey.createdBy`; si algo
+   falla, el cambio de rol tampoco ocurre). Las claves se **revocan** (`revokedAt`) y no se borran: `cf_api` no tiene `DELETE` sobre
+   `ApiKey` y la fila conserva el rastro. Las claves anteriores a la columna no tienen creador atribuible y no se tocan. No se puede quitar a alguien su **único** espacio (`last_membership`): quedaría sin ninguna
+   membresía y con un `401` permanente. Esa comprobación cuenta las membresías de la persona, que viven en OTROS espacios y por tanto
+   fuera del cerrojo de Dueños: dos Dueños de espacios distintos que la quitan a la vez la dejarían sin ninguno. Por eso la transacción
+   empieza con un **cerrojo consultivo sobre la persona** (`pg_advisory_xact_lock(hashtextextended(<userId>, 0))`) y solo después
+   bloquea los Dueños del espacio (orden fijo: persona → Dueños por `userId`, sin ciclos). Quien es quitado no necesita que se
    toquen sus sesiones: el espacio activo se comprueba en cada petición y, sin membresía, la sesión vuelve a su primer espacio.
 6. **Migración en dos tiempos (expandir y contraer).** `20261024000000_memberships` crea `Membership`, rellena una membresía `OWNER` por cada
    `User.tenantId` y deja `User.tenantId` como «espacio personal» sin tocar; `20261025000000_invitations` añade `Invitation`. Quitar la
@@ -77,6 +82,13 @@ permisos distintos, sin romper el aislamiento entre espacios ni las claves de AP
    no sirve (404/410/400, o tras unirse) y se **conserva** ante un fallo pasajero (red, 5xx, 429) para poder reintentar. Si aceptar sale bien
    pero abrir el espacio falla, se dice que ya es miembro. Se oculta lo que el rol no puede usar, pero la autoridad es siempre el servidor.
    Sin almacenamiento (modo privado) el enlace vale en esa carga pero no sobrevive al inicio de sesión: hay que abrirlo otra vez.
+
+## Resiliencia de la cola (auditoría v1.0-RC)
+Las conexiones a Redis de la cola (BullMQ) y del publicador se crean con `enableOfflineQueue: false` y `commandTimeout` de 4 s. Con los
+valores por defecto, una caída de Redis dejaba las subidas colgadas ~4 min y `/health` ~10 s; ahora fallan al instante (caído) o a los 4 s
+(colgado) y el llamador responde 503. Un comando emitido antes de la primera conexión espera hasta ese tope en vez de fallar. Lo cubre
+`queue-resilience.e2e.spec.ts` con un proxy TCP delante de Redis. Es independiente del *fail-open* de las cuotas (ADR 0017), que solo
+decide si se deja pasar el tráfico sin contar.
 
 ## Aplazado respecto a la propuesta inicial
 - **Restringir una invitación a un correo.** Descartado por la decisión 3: sin verificación de correo, un campo `email` daría falsa seguridad.

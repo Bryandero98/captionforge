@@ -484,6 +484,85 @@ describe("quien deja de ser Dueño no deja enlaces vivos", () => {
   });
 });
 
+describe("carrera entre espacios: no dejar a una persona sin ninguno", () => {
+  it("DETERMINISTA: dos Dueños de espacios distintos quitan a la MISMA persona a la vez → se serializan: uno la quita y el otro recibe last_membership", async () => {
+    const [spaceA, spaceB] = [await createTestTenant("espacio-a"), await createTestTenant("espacio-b")];
+    const [boss, bossB] = [await person("jefa-a", spaceA.id, "OWNER"), await person("jefa-b", spaceB.id, "OWNER")];
+    const shared = await person("compartida", spaceA.id, "EDITOR");
+    await owner.query(`INSERT INTO "Membership" ("userId", "tenantId", role) VALUES ($1, $2, 'EDITOR')`, [shared.id, spaceB.id]);
+    const count = async (): Promise<number> => (await owner.query(`SELECT 1 FROM "Membership" WHERE "userId" = $1`, [shared.id])).rowCount ?? 0;
+
+    // Una transacción ajena sostiene el cerrojo consultivo de esa persona: las dos peticiones deben ESPERAR (sin el cerrojo contarían 2 y borrarían las dos).
+    await owner.query("BEGIN");
+    let released = false;
+    try {
+      await owner.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [shared.id]);
+      const removals = [call(boss, "DELETE", `/v1/workspaces/members/${shared.id}`), call(bossB, "DELETE", `/v1/workspaces/members/${shared.id}`)];
+      const outcome = await Promise.race([Promise.all(removals).then(() => "respondieron"), new Promise<"pendientes">((resolve) => setTimeout(() => resolve("pendientes"), 700))]);
+      expect(outcome, "sin el cerrojo consultivo responderían ya, cada una con un recuento viejo de 2 espacios").toBe("pendientes");
+      await owner.query("COMMIT");
+      released = true;
+      const results = await Promise.all(removals);
+      const statuses = results.map((r) => r.status).sort();
+      expect(statuses).toEqual([204, 409]);
+      const refused = results.find((r) => r.status === 409)!;
+      expect(await json(refused)).toMatchObject({ code: "last_membership" });
+    } finally {
+      if (!released) await owner.query("ROLLBACK");
+    }
+    expect(await count(), "la persona conserva exactamente un espacio").toBe(1);
+  });
+});
+
+describe("quien deja de ser Dueño pierde también sus claves de API", () => {
+  const createKey = async (by: Person, name: string): Promise<string> => {
+    const response = await call(by, "POST", "/v1/keys", { name });
+    expect(response.status).toBe(201);
+    return (await json<{ key: string }>(response)).key;
+  };
+  const keyWorks = async (key: string): Promise<boolean> => (await call(null, "GET", "/v1/jobs", undefined, { "x-api-key": key })).status === 200;
+
+  it("al degradar o quitar a un Dueño sus claves dejan de valer; las de los demás y las anteriores a createdBy siguen", async () => {
+    for (const how of ["degradar", "quitar"] as const) {
+      const duo = await createTestTenant(`claves-${how}`);
+      const [boss, second] = [await person("jefa", duo.id, "OWNER"), await person("segundo", duo.id, "OWNER")];
+      await owner.query(`INSERT INTO "Membership" ("userId", "tenantId", role) VALUES ($1, $2, 'OWNER')`, [second.id, (await createTestTenant(`propio-claves-${how}`)).id]); // otro espacio: se le puede quitar
+      const [bossKey, secondKey] = [await createKey(boss, "de la jefa"), await createKey(second, "del segundo")];
+      expect(await keyWorks(bossKey)).toBe(true);
+      expect(await keyWorks(secondKey)).toBe(true);
+      expect((await owner.query<{ createdBy: string }>(`SELECT "createdBy" FROM "ApiKey" WHERE name = 'del segundo' AND "tenantId" = $1`, [duo.id])).rows[0]?.createdBy).toBe(second.id);
+
+      const act = how === "degradar" ? call(boss, "PUT", `/v1/workspaces/members/${second.id}`, { role: "EDITOR" }) : call(boss, "DELETE", `/v1/workspaces/members/${second.id}`);
+      expect((await act).status).toBeLessThan(300);
+      expect(await keyWorks(secondKey), `${how}: la clave de quien cayó`).toBe(false);
+      expect(await keyWorks(bossKey), `${how}: la clave del Dueño que sigue`).toBe(true);
+      expect(await keyWorks(duo.apiKey), `${how}: una clave anterior a createdBy (sin creador) no se toca`).toBe(true);
+      const revoked = (await owner.query(`SELECT 1 FROM "ApiKey" WHERE "tenantId" = $1 AND "createdBy" = $2 AND "revokedAt" IS NOT NULL`, [duo.id, second.id])).rowCount;
+      expect(revoked, "queda revocada (con su rastro), no borrada").toBe(1);
+    }
+  });
+
+  it("es ATÓMICO: si falla otra parte del mismo cambio, el rol no cambia y las claves siguen valiendo", async () => {
+    const duo = await createTestTenant("claves-atomico");
+    const [boss, second] = [await person("jefa", duo.id, "OWNER"), await person("segundo", duo.id, "OWNER")];
+    const key = await createKey(second, "de quien cae");
+    expect((await call(second, "POST", "/v1/workspaces/invites", { role: "VIEWER" })).status).toBe(201); // para que el UPDATE de Invitation tenga una fila
+    const name = `fail_${second.id.replaceAll("-", "")}`;
+    await owner.query(`CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fallo provocado por la prueba'; END $$`);
+    await owner.query(`CREATE TRIGGER ${name} BEFORE UPDATE ON "Invitation" FOR EACH ROW WHEN (NEW."createdBy" = '${second.id}') EXECUTE FUNCTION ${name}()`);
+    try {
+      expect((await call(boss, "PUT", `/v1/workspaces/members/${second.id}`, { role: "EDITOR" })).status).toBe(500);
+      expect(await roleOf(second.id, duo.id), "el cambio de rol se deshizo").toBe("OWNER");
+      expect(await keyWorks(key), "la clave sigue valiendo: nada a medias").toBe(true);
+    } finally {
+      await owner.query(`DROP TRIGGER ${name} ON "Invitation"`);
+      await owner.query(`DROP FUNCTION ${name}()`);
+    }
+    expect((await call(boss, "PUT", `/v1/workspaces/members/${second.id}`, { role: "EDITOR" })).status).toBe(200);
+    expect(await keyWorks(key)).toBe(false);
+  });
+});
+
 describe("gestionar miembros (solo Dueño)", () => {
   it("lista a los miembros con su rol", async () => {
     const { members } = await json<{ members: { userId: string; name: string | null; role: string }[] }>(await call(ana, "GET", "/v1/workspaces/members"));

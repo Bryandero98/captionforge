@@ -144,6 +144,11 @@ export class WorkspacesService {
   private async changeMembership(tenantId: string, targetId: string, decide: (current: Role, owners: number, memberships: number) => { role: Role } | null): Promise<void> {
     if (!UUID.test(targetId)) throw new NotFoundException("Esa persona no es miembro de este espacio.");
     await this.prisma.$transaction(async (tx) => {
+      // 1.º cerrojo consultivo sobre la PERSONA afectada: dos Dueños de espacios distintos que la quitan a la vez se serializan, y el
+      // segundo ve que ese era su único espacio (`last_membership`). Sin él, ambos contarían 2 y la dejarían sin ninguno (401 permanente).
+      // Orden fijo para no crear ciclos: persona → filas de Dueños del espacio (por userId). `$executeRaw` porque pg_advisory_xact_lock
+      // devuelve `void`, que el cliente de Prisma no sabe leer con $queryRaw.
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${targetId}, 0))`);
       const locked = await tx.$queryRaw<{ userId: string }[]>(Prisma.sql`SELECT "userId" FROM "Membership" WHERE "tenantId" = ${tenantId}::uuid AND role = 'OWNER' ORDER BY "userId" FOR UPDATE`);
       const target = await tx.membership.findUnique({ where: { userId_tenantId: { userId: targetId, tenantId } }, select: { role: true } });
       if (!target) throw new NotFoundException("Esa persona no es miembro de este espacio.");
@@ -151,8 +156,14 @@ export class WorkspacesService {
       // deleteMany/updateMany: si otra petición quitó a esa persona entre medias, es un 404 y no un 500 (P2025).
       const done = change === null ? await tx.membership.deleteMany({ where: { userId: targetId, tenantId } }) : await tx.membership.updateMany({ where: { userId: targetId, tenantId }, data: { role: change.role } });
       if (done.count === 0) throw new NotFoundException("Esa persona no es miembro de este espacio.");
-      // Quien deja de ser Dueño no deja enlaces vivos: sus invitaciones sin usar se revocan en la misma transacción.
-      if (change === null || change.role !== "OWNER") await tx.invitation.updateMany({ where: { tenantId, createdBy: targetId, acceptedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
+      // Quien deja de ser Dueño no deja nada vivo: sus invitaciones sin usar y las claves de API que creó en este espacio se revocan en
+      // la MISMA transacción (si algo falla, el cambio de rol tampoco ocurre). Se revocan (revokedAt) y no se borran: cf_api no tiene
+      // DELETE sobre ApiKey y la fila conserva el rastro de quién la creó. Las claves anteriores a `createdBy` no se pueden atribuir.
+      if (change === null || change.role !== "OWNER") {
+        const now = new Date();
+        await tx.invitation.updateMany({ where: { tenantId, createdBy: targetId, acceptedAt: null, revokedAt: null }, data: { revokedAt: now } });
+        await tx.apiKey.updateMany({ where: { tenantId, createdBy: targetId, revokedAt: null }, data: { revokedAt: now } });
+      }
     });
   }
 

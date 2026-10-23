@@ -58,7 +58,7 @@ export class AccountController {
   @Post("keys")
   @HttpCode(201)
   @MinRole("OWNER")
-  async create(@TenantId() tenantId: string, @SessionUserId() _userId: string, @Body() body: unknown): Promise<KeyView & { key: string }> {
+  async create(@TenantId() tenantId: string, @SessionUserId() userId: string, @Body() body: unknown): Promise<KeyView & { key: string }> {
     const name = (body as { name?: unknown } | null)?.name;
     if (typeof name !== "string" || name.trim() === "" || name.trim().length > MAX_NAME) {
       throw new BadRequestException(`name debe ser un texto de 1 a ${MAX_NAME} caracteres.`);
@@ -66,7 +66,7 @@ export class AccountController {
     const active = await this.prisma.apiKey.count({ where: { tenantId, revokedAt: null } });
     if (active >= MAX_ACTIVE_KEYS) throw new ConflictException(`Ya tienes ${MAX_ACTIVE_KEYS} claves activas. Revoca alguna antes de crear otra.`);
     const key = generateApiKey();
-    const row = await this.prisma.apiKey.create({ data: { id: randomUUID(), tenantId, name: name.trim(), prefix: displayPrefix(key), keyHash: hashApiKey(key) } });
+    const row = await this.prisma.apiKey.create({ data: { id: randomUUID(), tenantId, name: name.trim(), prefix: displayPrefix(key), keyHash: hashApiKey(key), createdBy: userId } });
     return { ...toView(row), key };
   }
 

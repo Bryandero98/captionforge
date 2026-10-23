@@ -3,7 +3,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Logger } from "@nestjs/common";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { PROVIDERS } from "../src/auth/providers.js";
 import { loadConfig } from "../src/config/config.js";
@@ -128,6 +129,26 @@ describe("flujo de inicio de sesión", () => {
       const response = await fetch(`${base}/auth/${name}/start`, noFollow);
       expect(response.status, name).toBe(302);
       expect(response.headers.get("location")).toBe("/?login_error=unavailable");
+    }
+  });
+
+  it("si GitHub no entrega los correos (límite, caída), el inicio de sesión CONTINÚA sin correo y el fallo queda registrado", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn");
+    provider.failEmails = 503;
+    try {
+      const who = profile({ emails: [{ email: "perdido@ejemplo.com", primary: true, verified: true }] });
+      const { jar, callback } = await signIn(who);
+      expect(callback.status).toBe(302);
+      expect(callback.headers.get("location")).toBe("/"); // sin ?login_error=
+      const user = await prisma.user.findUniqueOrThrow({ where: { provider_subject: { provider: "github", subject: String(who.id) } } });
+      expect(user.email).toBeNull();
+      expect((await api(jar, "/v1/me")).status).toBe(200);
+      const logged = warn.mock.calls.map(([message]) => String(message)).find((message) => message.includes("correos de github"));
+      expect(logged, "el fallo deja un aviso").toBeDefined();
+      expect(logged).not.toContain("token-"); // nunca el token del proveedor
+    } finally {
+      provider.failEmails = null;
+      warn.mockRestore();
     }
   });
 

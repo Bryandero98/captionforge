@@ -71,7 +71,16 @@ export class AuthService {
     const accessToken = (token as { access_token?: unknown }).access_token;
     if (typeof accessToken !== "string" || accessToken === "") throw new ProviderError("El proveedor no devolvió un token de acceso.");
     const profile = await this.getJson(settings.endpoints.profile, accessToken);
-    const emails = settings.endpoints.emails === undefined ? null : await this.getJson(settings.endpoints.emails, accessToken).catch(() => null);
+    let emails: unknown = null;
+    if (settings.endpoints.emails !== undefined) {
+      try {
+        emails = await this.getJson(settings.endpoints.emails, accessToken);
+      } catch (error) {
+        // El inicio de sesión sigue sin correo (el perfil ya basta para identificar a la persona), pero el fallo deja rastro: sin él, un
+        // límite de GitHub o una caída dejaban cuentas sin correo y nadie sabía por qué. Solo el mensaje: nunca el token ni el cuerpo.
+        this.logger.warn(`No se pudieron obtener los correos de ${provider}; se continúa sin correo: ${(error as Error).message}`);
+      }
+    }
     const parsed = definition.parseProfile(profile, emails);
     if (parsed === null) throw new ProviderError("El perfil del proveedor no trae un identificador.");
     return parsed;

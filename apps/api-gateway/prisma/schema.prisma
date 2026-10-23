@@ -56,6 +56,7 @@ model User {
   memberships         Membership[]
   invitationsCreated  Invitation[] @relation("InvitationCreator")
   invitationsAccepted Invitation[] @relation("InvitationAcceptor")
+  apiKeysCreated      ApiKey[]     @relation("ApiKeyCreator")
 
   @@unique([provider, subject])
   @@index([tenantId])
@@ -90,10 +91,14 @@ model ApiKey {
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
   revokedAt  DateTime?
+  /// Quién la creó (ADR 0019): al dejar de ser Dueño del espacio, sus claves se revocan. Nula en las anteriores a esta columna.
+  createdBy  String?   @db.Uuid
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  creator User?  @relation("ApiKeyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([createdBy])
 }
 
 model Job {
