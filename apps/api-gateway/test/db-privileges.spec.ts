@@ -122,12 +122,37 @@ describe("tablas de tenencia y sesiones (ADR 0015 y 0016)", () => {
     await owner.query(`DELETE FROM "Tenant" WHERE id = $1`, [tenant]);
   });
 
-  it("membresías (ADR 0019): cf_api las lee y las crea, pero no cambia roles ni las borra; cf_worker no las ve", async () => {
+  it("membresías (ADR 0019): cf_api las lee, las crea, cambia el ROL y las borra, pero no reescribe a quién pertenecen; cf_worker no las ve", async () => {
     await api.query(`INSERT INTO "Membership" ("userId", "tenantId", role) VALUES ($1, $2, 'OWNER')`, [userRow, tenantRow]);
     expect((await api.query(`SELECT role::text AS role FROM "Membership" WHERE "userId" = $1`, [userRow])).rows).toEqual([{ role: "OWNER" }]);
-    await expect(api.query(`UPDATE "Membership" SET role = 'VIEWER' WHERE "userId" = $1`, [userRow])).rejects.toThrow(/permission denied/);
-    await expect(api.query(`DELETE FROM "Membership" WHERE "userId" = $1`, [userRow])).rejects.toThrow(/permission denied/);
+    await api.query(`UPDATE "Membership" SET role = 'VIEWER' WHERE "userId" = $1`, [userRow]);
+    for (const column of ["userId", "tenantId"]) {
+      await expect(api.query(`UPDATE "Membership" SET "${column}" = $2 WHERE "userId" = $1`, [userRow, randomUUID()]), column).rejects.toThrow(/permission denied/);
+    }
+    await api.query(`DELETE FROM "Membership" WHERE "userId" = $1`, [userRow]);
     await expect(worker.query(`SELECT 1 FROM "Membership"`)).rejects.toThrow(/permission denied/);
+  });
+
+  it("invitaciones: cf_api crea, lee y marca aceptada o revocada; no borra ni reescribe el token, el rol o el espacio; cf_worker no las ve", async () => {
+    const invitation = randomUUID();
+    await api.query(`INSERT INTO "Invitation" (id, "tenantId", role, "tokenHash", "createdBy", "expiresAt") VALUES ($1, $2, 'VIEWER', $3, $4, now() + interval '7 days')`, [invitation, tenantRow, randomUUID(), userRow]);
+    await api.query(`UPDATE "Invitation" SET "acceptedAt" = now(), "acceptedBy" = $2 WHERE id = $1`, [invitation, userRow]);
+    await api.query(`UPDATE "Invitation" SET "revokedAt" = now() WHERE id = $1`, [invitation]);
+    for (const column of ["tokenHash", "role", "tenantId", "expiresAt", "createdBy"]) {
+      const value = column === "role" ? `'OWNER'::"Role"` : column === "expiresAt" ? "now()" : column === "tenantId" || column === "createdBy" ? `'${randomUUID()}'` : `'x'`;
+      await expect(api.query(`UPDATE "Invitation" SET "${column}" = ${value} WHERE id = $1`, [invitation]), column).rejects.toThrow(/permission denied/);
+    }
+    await expect(api.query(`DELETE FROM "Invitation" WHERE id = $1`, [invitation])).rejects.toThrow(/permission denied/);
+    await expect(worker.query(`SELECT 1 FROM "Invitation"`)).rejects.toThrow(/permission denied/);
+    await owner.query(`DELETE FROM "Invitation" WHERE id = $1`, [invitation]);
+  });
+
+  it("sesión: cf_api solo cambia el espacio activo, no a quién pertenece", async () => {
+    const session = randomUUID();
+    await api.query(`INSERT INTO "Session" (id, "userId", "tokenHash", "expiresAt") VALUES ($1, $2, $3, now() + interval '1 day')`, [session, userRow, randomUUID()]);
+    await api.query(`UPDATE "Session" SET "tenantId" = $2 WHERE id = $1`, [session, tenantRow]);
+    await expect(api.query(`UPDATE "Session" SET "userId" = $2 WHERE id = $1`, [session, randomUUID()])).rejects.toThrow(/permission denied/);
+    await api.query(`DELETE FROM "Session" WHERE id = $1`, [session]);
   });
 
   it("cf_api solo cambia ApiKey.lastUsedAt y ApiKey.revokedAt: no el hash, ni el dueño, ni el nombre", async () => {

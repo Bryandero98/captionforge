@@ -23,6 +23,8 @@ declare module "fastify" {
     tenantId?: string;
     /** Persona de la sesión de navegador; no existe con una clave de API (esas son del tenant, no de una persona). */
     userId?: string;
+    /** La sesión de navegador concreta (para cambiar su espacio activo). */
+    sessionId?: string;
   }
 }
 
@@ -94,6 +96,7 @@ export class TenantAuthGuard implements CanActivate {
     }
     request.tenantId = session.tenantId;
     request.userId = session.userId;
+    request.sessionId = session.sessionId;
     request.role = session.role;
     return true;
   }

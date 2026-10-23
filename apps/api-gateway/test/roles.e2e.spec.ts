@@ -14,6 +14,7 @@ import { CapabilitiesController } from "../src/capabilities/capabilities.control
 import { loadConfig } from "../src/config/config.js";
 import { HealthController } from "../src/health/health.controller.js";
 import { JobsController } from "../src/jobs/jobs.controller.js";
+import { WorkspacesController } from "../src/workspaces/workspaces.controller.js";
 import { createApp } from "../src/main.js";
 import { hashApiKey } from "../src/tenancy/api-key.js";
 import { requiredRole, satisfies, type Role } from "../src/tenancy/roles.js";
@@ -31,6 +32,15 @@ const EXPECTED: Record<string, Role | "public"> = {
   "GET /auth/:provider/callback": "public",
   "POST /auth/logout": "public",
   "GET /v1/me": "VIEWER",
+  "POST /v1/me/workspace": "VIEWER",
+  "GET /v1/workspaces": "VIEWER",
+  "GET /v1/workspaces/members": "OWNER",
+  "PUT /v1/workspaces/members/:userId": "OWNER",
+  "DELETE /v1/workspaces/members/:userId": "OWNER",
+  "GET /v1/workspaces/invites": "OWNER",
+  "POST /v1/workspaces/invites": "OWNER",
+  "DELETE /v1/workspaces/invites/:id": "OWNER",
+  "POST /v1/workspaces/invites/:token/accept": "VIEWER",
   "GET /v1/keys": "OWNER",
   "POST /v1/keys": "OWNER",
   "DELETE /v1/keys/:id": "OWNER",
@@ -48,7 +58,7 @@ const EXPECTED: Record<string, Role | "public"> = {
 /** Las rutas que existen de verdad, leídas de los decoradores de los controladores (no de una lista aparte). */
 function discoverRoutes(): string[] {
   const found: string[] = [];
-  for (const controller of [HealthController, CapabilitiesController, AuthController, AccountController, JobsController]) {
+  for (const controller of [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, JobsController]) {
     const base = String(Reflect.getMetadata(PATH_METADATA, controller) ?? "");
     for (const name of Object.getOwnPropertyNames(controller.prototype)) {
       const handler = (controller.prototype as unknown as Record<string, unknown>)[name];
@@ -63,10 +73,13 @@ function discoverRoutes(): string[] {
   return found.sort();
 }
 
+/** Rutas que identifican a una PERSONA, no a un tenant: una clave de API (que no es de nadie) recibe 403 aunque su rol alcance. */
+const PERSON_ONLY = new Set(["POST /v1/me/workspace", "GET /v1/workspaces", "POST /v1/workspaces/invites/:token/accept", "POST /v1/workspaces/invites", "GET /v1/keys", "POST /v1/keys", "DELETE /v1/keys/:id"]);
+
 /** Una URL concreta para la ruta, con ids que no existen: así una petición permitida termina en 400/404, sin efectos. */
 function urlFor(route: string): { method: string; path: string } {
   const [method = "GET", pattern = "/"] = route.split(" ");
-  const path = pattern.replace(":provider", "github").replace(":name", "srt").replace(/:id/g, randomUUID());
+  const path = pattern.replace(":provider", "github").replace(":name", "srt").replace(":token", `cfi_${randomBytes(32).toString("base64url")}`).replace(":userId", randomUUID()).replace(/:id/g, randomUUID());
   return { method, path };
 }
 
@@ -170,7 +183,7 @@ describe.each(ROLES)("sesión de %s", (actual) => {
 describe("clave de API (actúa siempre como Editor)", () => {
   it.each(PROTECTED)("%s (mínimo %s)", async (route, required) => {
     const response = await call(route, { apiKey: tenant.apiKey });
-    if (satisfies("EDITOR", required)) expect([401, 403], `la clave debería poder ${route}`).not.toContain(response.status);
+    if (satisfies("EDITOR", required) && !PERSON_ONLY.has(route)) expect([401, 403], `la clave debería poder ${route}`).not.toContain(response.status);
     else expect(response.status, `la clave no debería poder ${route}`).toBe(403);
   });
 });

@@ -37,6 +37,7 @@ model Tenant {
   jobs        Job[]
   memberships Membership[]
   sessions    Session[]
+  invitations Invitation[]
 }
 
 // Persona. `provider` + `subject` identifican la cuenta en el proveedor de inicio de sesión (github, google): los
@@ -50,9 +51,11 @@ model User {
   subject   String?
   createdAt DateTime @default(now())
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  sessions    Session[]
-  memberships Membership[]
+  tenant              Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sessions            Session[]
+  memberships         Membership[]
+  invitationsCreated  Invitation[] @relation("InvitationCreator")
+  invitationsAccepted Invitation[] @relation("InvitationAcceptor")
 
   @@unique([provider, subject])
   @@index([tenantId])
@@ -152,5 +155,26 @@ model Membership {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@id([userId, tenantId])
+  @@index([tenantId])
+}
+
+/// Enlace mágico para unirse a un espacio de trabajo (ADR 0019): un solo uso, 7 días. Solo se guarda el SHA-256 del token.
+model Invitation {
+  id         String    @id @db.Uuid
+  tenantId   String    @db.Uuid
+  /// Rol que recibe quien acepta; nunca OWNER (el Dueño se promueve después).
+  role       Role
+  tokenHash  String    @unique
+  createdBy  String    @db.Uuid
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  acceptedBy String?   @db.Uuid
+  revokedAt  DateTime?
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  creator  User   @relation("InvitationCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  acceptor User?  @relation("InvitationAcceptor", fields: [acceptedBy], references: [id], onDelete: SetNull)
+
   @@index([tenantId])
 }

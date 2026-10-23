@@ -121,10 +121,20 @@ BEGIN
     REVOKE ALL ON "Session" FROM cf_api, cf_worker;
     GRANT SELECT, INSERT, DELETE ON "Session" TO cf_api;
   END IF;
-  -- Membresías (ADR 0019): por ahora el API las lee y crea la del Dueño al registrar a una persona; no las cambia ni las borra.
+  -- Membresías e invitaciones (ADR 0019): el API cambia el ROL de un miembro y lo quita (no reescribe a quién pertenece cada
+  -- fila); las invitaciones se crean, se leen y se marcan aceptadas o revocadas, nunca se borran; la sesión solo cambia de espacio activo.
   IF to_regclass('public."Membership"') IS NOT NULL THEN
     REVOKE ALL ON "Membership" FROM cf_api, cf_worker;
-    GRANT SELECT, INSERT ON "Membership" TO cf_api;
+    GRANT SELECT, INSERT, DELETE ON "Membership" TO cf_api;
+    GRANT UPDATE ("role") ON "Membership" TO cf_api;
+  END IF;
+  IF to_regclass('public."Invitation"') IS NOT NULL THEN
+    REVOKE ALL ON "Invitation" FROM cf_api, cf_worker;
+    GRANT SELECT, INSERT ON "Invitation" TO cf_api;
+    GRANT UPDATE ("acceptedAt", "acceptedBy", "revokedAt") ON "Invitation" TO cf_api;
+  END IF;
+  IF to_regclass('public."Session"') IS NOT NULL THEN
+    GRANT UPDATE ("tenantId") ON "Session" TO cf_api;
   END IF;
 END
 $$;

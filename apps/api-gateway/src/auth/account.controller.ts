@@ -7,6 +7,7 @@ import type { Role } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { displayPrefix, generateApiKey, hashApiKey } from "../tenancy/api-key.js";
 import { MinRole } from "../tenancy/roles.js";
+import { WorkspacesService } from "../workspaces/workspaces.service.js";
 import { OptionalSessionUserId, SessionUserId, TenantId } from "../tenancy/tenant-auth.guard.js";
 
 /** Tope de claves activas por tenant: un escudo operativo, no un límite de producto. */
@@ -25,7 +26,10 @@ interface KeyView {
 /** La cuenta de quien tiene la sesión (o la clave) y sus claves de API. Todo filtrado por el tenant de la petición. */
 @Controller("v1")
 export class AccountController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workspaces: WorkspacesService,
+  ) {}
 
   /** Quién soy. Con clave de API solo hay tenant (las claves no son de una persona). */
   @Get("me")
@@ -33,6 +37,14 @@ export class AccountController {
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { id: true, name: true } });
     const user = userId === undefined ? null : await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, provider: true } });
     return { tenant, role: request.role ?? null, user };
+  }
+
+  /** Cambia el espacio de trabajo activo de ESTA sesión (ADR 0019). Cualquier miembro puede: pide solo Lector, no Editor. */
+  @Post("me/workspace")
+  @HttpCode(200)
+  @MinRole("VIEWER")
+  switchWorkspace(@SessionUserId() userId: string, @Req() request: FastifyRequest, @Body() body: unknown) {
+    return this.workspaces.switchWorkspace(request.sessionId ?? "", userId, body);
   }
 
   @Get("keys")

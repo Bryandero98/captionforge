@@ -163,14 +163,14 @@ export class AuthService {
    * la sesión recuerda si la persona sigue siendo miembro; si no, el primero al que se unió. Sin ninguna membresía no hay
    * identidad utilizable (null): fail-closed.
    */
-  async findSession(token: string): Promise<{ userId: string; tenantId: string; role: Role } | null> {
+  async findSession(token: string): Promise<{ sessionId: string; userId: string; tenantId: string; role: Role } | null> {
     const row = await this.prisma.session.findUnique({
       where: { tokenHash: hashApiKey(token) },
-      select: { expiresAt: true, tenantId: true, user: { select: { id: true, memberships: { select: { tenantId: true, role: true }, orderBy: { createdAt: "asc" } } } } },
+      select: { id: true, expiresAt: true, tenantId: true, user: { select: { id: true, memberships: { select: { tenantId: true, role: true }, orderBy: { createdAt: "asc" } } } } },
     });
     if (!row || row.expiresAt.getTime() <= Date.now()) return null;
     const active = row.user.memberships.find((membership) => membership.tenantId === row.tenantId) ?? row.user.memberships[0];
-    return active === undefined ? null : { userId: row.user.id, tenantId: active.tenantId, role: active.role };
+    return active === undefined ? null : { sessionId: row.id, userId: row.user.id, tenantId: active.tenantId, role: active.role };
   }
 
   failure(error: unknown): BadGatewayException {
