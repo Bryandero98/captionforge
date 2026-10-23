@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .diarization import resolve_hf_token
+from .external_key import validate_base_url, validate_token
 
 TRANSCRIBE_QUEUE = "captionforge.transcribe"
 BURN_QUEUE = "captionforge.burn"
@@ -56,6 +57,9 @@ class WorkerConfig:
     diarization_total_timeout: float = 7200.0
     # Token de Hugging Face (HF_TOKEN o HF_TOKEN_FILE). repr=False: nunca debe salir en un log ni en un traceback.
     hf_token: str | None = field(default=None, repr=False)
+    # Canal interno del API (ADR 0020): de ahí se pide la clave externa de cada trabajo TRANSLATE/DUB. Ambos o ninguno.
+    api_internal_url: str | None = None
+    worker_internal_token: str | None = field(default=None, repr=False)
 
     @property
     def redis_connection(self) -> dict[str, object]:
@@ -83,6 +87,17 @@ class WorkerConfig:
                 raise ConfigError(f"{name} debe ser positivo (recibido {raw!r})")
             return value
 
+        internal_url = (env.get("API_INTERNAL_URL") or "").strip() or None
+        internal_token = env.get("WORKER_INTERNAL_TOKEN") or None
+        if (internal_url is None) != (internal_token is None):
+            raise ConfigError("API_INTERNAL_URL y WORKER_INTERNAL_TOKEN deben definirse juntos")
+        if internal_url is not None and internal_token is not None:
+            try:
+                internal_url = validate_base_url(internal_url)
+                validate_token(internal_token)
+            except ValueError as error:
+                raise ConfigError(f"Canal interno: {error}") from None  # el mensaje no repite el valor
+
         return cls(
             redis_host=need("REDIS_HOST"),
             redis_port=int(number("REDIS_PORT", 6379, integer=True)),
@@ -106,4 +121,6 @@ class WorkerConfig:
             diarization_stall_timeout=number("DIARIZATION_STALL_TIMEOUT_SECONDS", 600.0),
             diarization_total_timeout=number("DIARIZATION_TOTAL_TIMEOUT_SECONDS", 7200.0),
             hf_token=resolve_hf_token(env),
+            api_internal_url=internal_url,
+            worker_internal_token=internal_token,
         )

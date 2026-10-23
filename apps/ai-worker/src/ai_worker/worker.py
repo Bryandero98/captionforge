@@ -25,6 +25,7 @@ from .burn import BurnRunner
 from .config import WorkerConfig
 from .db import JobRepository
 from .errors import JobCancelled, JobFailure, classify
+from .external_key import ExternalKeyClient
 from .models import ModelProvider
 from .progress import BURN_STAGE_RANGES, STAGE_RANGES, Progress
 from .storage import Storage
@@ -62,6 +63,12 @@ class AiWorker:
         self.models = models or ModelProvider()
         self.transcriber = TranscribeRunner(config, self.storage, self.models)
         self.burner = BurnRunner(config, self.storage)
+        # Cliente del canal interno (ADR 0020): lo usarán los trabajos TRANSLATE y DUB para pedir la clave de su espacio al API.
+        self.external_keys: ExternalKeyClient | None = (
+            ExternalKeyClient(config.api_internal_url, config.worker_internal_token)
+            if config.api_internal_url and config.worker_internal_token
+            else None
+        )
         self._workers: list[Worker] = []
         self._cancel_task: asyncio.Task[None] | None = None
         self._cancel_events: dict[str, threading.Event] = {}

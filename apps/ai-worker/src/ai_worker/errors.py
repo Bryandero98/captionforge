@@ -9,6 +9,7 @@ from captionforge.models import InsufficientDiskSpaceError
 from captionforge.pipeline import FfmpegTimeoutError
 from captionforge.waveform import WaveformExtractionError
 
+from .redaction import REDACTOR
 from .storage import ObjectNotFound
 
 log = logging.getLogger("ai_worker")
@@ -18,6 +19,8 @@ class JobFailure(Exception):
     """Fallo con código del contrato. `message` es para la persona usuaria: sin rutas ni secretos."""
 
     def __init__(self, code: str, message: str) -> None:
+        # El mensaje se guarda en PostgreSQL y se muestra a la persona: una clave externa (p. ej. dentro del error de un proveedor) no puede llegar ahí.
+        message = REDACTOR.redact(message)
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
