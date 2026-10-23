@@ -46,7 +46,7 @@ async function start(overrides: { webRoot?: string | undefined; rateLimitPerMinu
       security: {
         webApiKey: overrides.webApiKey,
         rateLimitPerMinute: overrides.rateLimitPerMinute ?? 0,
-        uploadRateLimitPerMinute: 0,
+        uploadRateLimitPerMinute: 0, tenantUploadsPerHour: 0, tenantMaxQueuedJobs: 0,
         trustProxy: false,
         maxConcurrentUploads: 0,
         maxConcurrentUploadsPerClient: 0,

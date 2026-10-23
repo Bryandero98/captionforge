@@ -16,6 +16,7 @@ import {
   ServiceUnavailableException,
   Sse,
   UnsupportedMediaTypeException,
+  UseInterceptors,
   type MessageEvent,
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -23,6 +24,7 @@ import { Observable } from "rxjs";
 
 import { clientKey } from "../security/client-key.js";
 import { ConnectionLimits } from "../security/connection-limits.js";
+import { Quota, TenantQuotaInterceptor } from "../quota/tenant-quota.interceptor.js";
 import { StorageService } from "../storage/storage.service.js";
 import { TenantId } from "../tenancy/tenant-auth.guard.js";
 import { JobIdPipe } from "./job-id.pipe.js";
@@ -49,6 +51,8 @@ export class JobsController {
    */
   @Post("transcribe")
   @HttpCode(202)
+  @UseInterceptors(TenantQuotaInterceptor)
+  @Quota("upload")
   async transcribe(
     @TenantId() tenantId: string,
     @Req() req: FastifyRequest,
@@ -221,6 +225,8 @@ export class JobsController {
   /** Quema los subtítulos actuales sobre el video: { "style": "modern", "karaoke": false } (ambos opcionales). */
   @Post(":id/burn")
   @HttpCode(202)
+  @UseInterceptors(TenantQuotaInterceptor)
+  @Quota("queue")
   burn(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
     return this.jobs.createBurn(tenantId, id, body);
   }

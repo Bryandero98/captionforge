@@ -30,7 +30,7 @@ async function start(overrides: { maxUploadBytes?: number; uploadRateLimitPerMin
       security: {
         webApiKey: undefined,
         rateLimitPerMinute: 0,
-        uploadRateLimitPerMinute: overrides.uploadRateLimitPerMinute ?? 0,
+        uploadRateLimitPerMinute: overrides.uploadRateLimitPerMinute ?? 0, tenantUploadsPerHour: 0, tenantMaxQueuedJobs: 0,
         trustProxy: false,
         maxConcurrentUploads: 0,
         maxConcurrentUploadsPerClient: 0,

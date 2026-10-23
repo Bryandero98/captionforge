@@ -1,0 +1,49 @@
+{
+  "uid": "captionforge-api",
+  "title": "CaptionForge · API",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Peticiones por segundo (por estado)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "captionforge-prometheus" },
+      "targets": [{ "expr": "sum by (status) (rate(captionforge_http_requests_total[5m]))", "legendFormat": "{{status}}" }]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Latencia p95 por ruta (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "captionforge-prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, route) (rate(captionforge_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{route}}" }]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Trabajos por estado",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "captionforge-prometheus" },
+      "targets": [{ "expr": "captionforge_jobs", "legendFormat": "{{status}}" }]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Cuotas negadas y fallos de Redis (por hora)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "captionforge-prometheus" },
+      "targets": [
+        { "expr": "sum by (reason) (increase(captionforge_quota_denied_total[1h]))", "legendFormat": "negadas: {{reason}}" },
+        { "expr": "increase(captionforge_quota_redis_failures_total[1h])", "legendFormat": "Redis falló (fail-open)" }
+      ]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Inicios de sesión por resultado (por hora)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "captionforge-prometheus" },
+      "targets": [{ "expr": "sum by (provider, result) (increase(captionforge_logins_total[1h]))", "legendFormat": "{{provider}} {{result}}" }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Memoria del proceso (MiB)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "captionforge-prometheus" },
+      "targets": [{ "expr": "process_resident_memory_bytes / 1048576", "legendFormat": "RSS" }]
+    }
+  ]
+}

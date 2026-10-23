@@ -1,0 +1,47 @@
+# Proxy inverso (ADR 0017). Perfil `proxy`: docker compose --profile app --profile proxy up -d
+#
+# SITE_ADDRESS: un dominio real (captions.ejemplo.com) obtiene y renueva su certificado de Let's Encrypt solo, con los
+# puertos 80 y 443 abiertos al exterior. `localhost` (por defecto) usa la CA interna de Caddy para probar en tu equipo.
+{
+	admin off
+}
+
+{$SITE_ADDRESS:localhost} {
+	# Las métricas NUNCA salen por aquí: tampoco existen en el puerto del API (van por la red interna, en otro puerto),
+	# pero si alguien las expusiera por error, esta regla las sigue cerrando con 404.
+	@metrics path /metrics /metrics/*
+	handle @metrics {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy api-gateway:3000 {
+			# SSE (/v1/jobs/:id/events) y descargas grandes: nada de acumular en memoria.
+			flush_interval -1
+			# Caddy descarta el X-Forwarded-For que traiga el cliente y pone la IP real, además de X-Forwarded-Proto y -Host:
+			# el API (TRUST_PROXY) los usa para el límite por IP y para saber que la conexión original fue HTTPS.
+			header_up X-Request-Id {http.request.uuid}
+		}
+	}
+
+	header {
+		# 0 = no activar HSTS (por defecto, para no fijarlo en `localhost`). En producción: HSTS_MAX_AGE=31536000.
+		Strict-Transport-Security "max-age={$HSTS_MAX_AGE:0}"
+		-Server
+	}
+
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				# Caddy ya oculta Cookie y Authorization; la clave de API y los códigos de OAuth, no.
+				request>headers>X-Api-Key delete
+				request>uri query {
+					replace code REDACTED
+					replace state REDACTED
+				}
+			}
+		}
+	}
+}
