@@ -1,7 +1,7 @@
 // Errores del API como valores con código estable: la interfaz decide el texto por `code`, nunca por el
 // mensaje del servidor (que viene en español y puede cambiar). El `detail` del servidor se muestra solo como apoyo.
 
-/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"not_found"|"too_slow"|"conflict"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
+/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"role_forbidden"|"gone"|"not_found"|"too_slow"|"conflict"|"last_owner"|"invite_limit"|"last_membership"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
 
 /** @type {Record<number, ErrorCode>} */
 const CODE_BY_STATUS = {
@@ -11,6 +11,7 @@ const CODE_BY_STATUS = {
   404: "not_found",
   408: "too_slow",
   409: "conflict",
+  410: "gone",
   413: "too_large",
   415: "unsupported_type",
   421: "misdirected",
@@ -20,6 +21,9 @@ const CODE_BY_STATUS = {
 
 /** Lo que tiene sentido volver a intentar tal cual: saturación pasajera, fallo del servidor o de la red. */
 const RETRYABLE = new Set(["rate_limited", "busy", "server", "network", "timeout", "aborted"]);
+
+/** `code` estable de un 409 del API (ADR 0019): distingue «último Dueño» de «tope de invitaciones» y de «único espacio». */
+const CONFLICT_CODES = new Set(["last_owner", "invite_limit", "last_membership"]);
 
 const MAX_DETAIL = 300;
 const MAX_RETRY_AFTER_SECONDS = 300;
@@ -91,6 +95,10 @@ export function errorFromResponse(status, bodyText, retryAfterHeader) {
   } catch {
     // Una página de error de un proxy no es JSON: el código sale del estado.
   }
-  const code = CODE_BY_STATUS[status] ?? (status >= 500 ? "server" : "unexpected");
+  // Un 403 con `code: role_forbidden` es el rol (ADR 0019); cualquier otro 403 sigue siendo «esta página no está autorizada».
+  const roleDenied = status === 403 && body !== null && typeof body === "object" && /** @type {{ code?: unknown }} */ (body).code === "role_forbidden";
+  const bodyCode = body !== null && typeof body === "object" ? /** @type {{ code?: unknown }} */ (body).code : undefined;
+  const conflictCode = status === 409 && typeof bodyCode === "string" && CONFLICT_CODES.has(bodyCode) ? /** @type {ErrorCode} */ (bodyCode) : null;
+  const code = roleDenied ? "role_forbidden" : (conflictCode ?? CODE_BY_STATUS[status] ?? (status >= 500 ? "server" : "unexpected"));
   return new ApiError({ status, code, detail: detailOf(body), retryAfter: parseRetryAfter(retryAfterHeader) });
 }

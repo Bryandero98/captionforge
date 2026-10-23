@@ -7,7 +7,7 @@ const root = (/** @type {string} */ baseUrl) => baseUrl.replace(/\/+$/, "");
 const isRecord = (/** @type {unknown} */ value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 /** @typedef {{ id: string, name: string, prefix: string, createdAt: string, lastUsedAt: string | null, revokedAt: string | null }} ApiKeyView */
-/** @typedef {{ tenant: { id: string, name: string }, user: { name: string | null, email: string | null, provider: string | null } | null }} Me */
+/** @typedef {{ tenant: { id: string, name: string }, role: "OWNER" | "EDITOR" | "VIEWER" | null, user: { id: string, name: string | null, email: string | null, provider: string | null } | null }} Me */
 
 /**
  * Proveedores configurados en el servidor. Nunca lanza: sin respuesta, ninguno.
