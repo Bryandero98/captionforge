@@ -19,7 +19,7 @@ from captionforge.pipeline import _run_ffmpeg
 from captionforge_contracts import DubJob, DubResult
 
 from .adapters import Adapters
-from .audio import MAX_TEMPO, RATE, join_wavs, plan_tempo, wav_duration, write_silence
+from .audio import MAX_TEMPO, RATE, has_audio_stream, join_wavs, plan_tempo, wav_duration, write_silence
 from .config import WorkerConfig
 from .errors import JobCancelled, JobFailure
 from .progress import Progress
@@ -27,6 +27,7 @@ from .storage import EtagMismatch, Storage
 from .translate import check_caps, read_segments
 
 AUDIO_NAME = "dub.mp3"
+VIDEO_NAME = "dubbed.mp4"
 #: Tope de caracteres que aceptan los proveedores por petición (OpenAI 4096, ElevenLabs 5000): un segmento más largo no es un subtítulo.
 MAX_SEGMENT_CHARACTERS = 4000
 #: Un desborde menor que esto no se considera desborde (el MP3 añade unos milisegundos de relleno).
@@ -94,6 +95,20 @@ class DubRunner:
         duration = await self._decode(raw, trimmed, _TRIM_SILENCE, f"atempo={MAX_TEMPO:.4f}")
         return trimmed, duration, duration > slot + _FIT_TOLERANCE
 
+    async def _mix(self, video: Path, voice: Path, output: Path, *, duck: bool) -> None:
+        """Pone la voz en el video sin recodificar la imagen. `duck` baja el audio original solo mientras la voz habla (compresión
+        con cadena lateral); si el video no trae audio, no hay nada que bajar y queda solo la voz."""
+        if duck and await has_audio_stream(video):
+            graph = (
+                "[1:a]asplit=2[sc][fg];"
+                "[0:a][sc]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=350[bg];"
+                "[bg][fg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]"
+            )
+            audio_map = ["-filter_complex", graph, "-map", "0:v:0", "-map", "[a]"]
+        else:
+            audio_map = ["-map", "0:v:0", "-map", "1:a:0"]
+        await self._ffmpeg("-i", str(video), "-i", str(voice), *audio_map, "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(output))
+
     async def _run(self, payload: DubJob, progress: Progress, cancel: threading.Event, job_dir: Path) -> dict[str, Any]:
         job_id = str(payload.jobId)
         provider = str(payload.options.provider.value)
@@ -110,9 +125,15 @@ class DubRunner:
         characters = check_caps(self._config, segments)
         if any(len(segment.text.strip()) > MAX_SEGMENT_CHARACTERS for segment in segments):
             raise JobFailure("JOB_TOO_LARGE", f"Un segmento supera los {MAX_SEGMENT_CHARACTERS} caracteres: es demasiado largo para sintetizarlo.")
-        if mix != "none":
-            raise JobFailure("INTERNAL", "La mezcla con el video todavía no está disponible.")
         self._check(cancel)
+
+        # El video se descarga ANTES de sintetizar: si ya no existe, se descubre sin haber gastado nada en el proveedor.
+        video: Path | None = None
+        if mix != "none":
+            await progress.report("downloading_input", 0.5, "Descargando el video")
+            video = job_dir / "input.bin"
+            await asyncio.to_thread(self._storage.download, payload.input.bucket, payload.input.objectKey, video)
+            self._check(cancel)
 
         pending = [index for index, segment in enumerate(segments) if segment.text.strip()]
         pieces: list[Piece] = []
@@ -148,9 +169,19 @@ class DubRunner:
         await self._ffmpeg("-i", str(track), "-c:a", "libmp3lame", "-b:a", "96k", "-ar", str(RATE), str(audio_path))
         self._check(cancel)
 
-        await progress.report("uploading", 0.0, "Subiendo el audio")
-        audio_key = f"{payload.outputPrefix}{AUDIO_NAME}"
-        await asyncio.to_thread(self._storage.upload_file, audio_path, audio_key, "audio/mpeg")
+        artifacts = {"audio": f"{payload.outputPrefix}{AUDIO_NAME}"}
+        dubbed: Path | None = None
+        if video is not None:
+            await progress.report("mixing", 0.5, "Mezclando la voz con el video")
+            dubbed = job_dir / VIDEO_NAME
+            await self._mix(video, audio_path, dubbed, duck=mix == "duck")
+            artifacts["video"] = f"{payload.outputPrefix}{VIDEO_NAME}"
+            self._check(cancel)
+
+        await progress.report("uploading", 0.0, "Subiendo el resultado")
+        await asyncio.to_thread(self._storage.upload_file, audio_path, artifacts["audio"], "audio/mpeg")
+        if dubbed is not None:
+            await asyncio.to_thread(self._storage.upload_file, dubbed, artifacts["video"], "video/mp4")
 
         return DubResult.model_validate(
             {
@@ -161,6 +192,6 @@ class DubRunner:
                 "segmentCount": len(segments),
                 "characters": characters,
                 "overflowSegments": [piece.index for piece in pieces if piece.overflow],
-                "artifacts": {"audio": audio_key},
+                "artifacts": artifacts,
             }
         ).model_dump(mode="json", exclude_none=True)
