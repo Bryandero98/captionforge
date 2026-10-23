@@ -1,0 +1,10 @@
+# Perfil `metrics` (ADR 0018). Lee las métricas del API por la red interna de Docker: ese puerto no se publica en el anfitrión.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: captionforge-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api-gateway:9090"]
