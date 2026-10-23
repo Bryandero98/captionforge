@@ -59,6 +59,7 @@ export async function disposeTestTenants(): Promise<void> {
   for (const id of createdTenants.splice(0)) {
     await pool().query(`DELETE FROM "Job" WHERE "tenantId" = $1`, [id]);
     await pool().query(`DELETE FROM "ApiKey" WHERE "tenantId" = $1`, [id]);
+    await pool().query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [id]);
     await pool().query(`DELETE FROM "User" WHERE "tenantId" = $1`, [id]);
     await pool().query(`DELETE FROM "Tenant" WHERE "id" = $1`, [id]);
   }

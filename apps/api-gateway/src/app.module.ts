@@ -13,6 +13,8 @@ import { ReaperService } from "./jobs/reaper.service.js";
 import { MetricsService } from "./observability/metrics.service.js";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { QueueService } from "./queue/queue.service.js";
+import { ExternalKeysController } from "./external-keys/external-keys.controller.js";
+import { ExternalKeysService } from "./external-keys/external-keys.service.js";
 import { WorkspacesController } from "./workspaces/workspaces.controller.js";
 import { WorkspacesService } from "./workspaces/workspaces.service.js";
 import { TenantQuotaInterceptor } from "./quota/tenant-quota.interceptor.js";
@@ -28,7 +30,7 @@ export class AppModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, JobsController],
+      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, JobsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         PrismaService,
@@ -37,6 +39,7 @@ export class AppModule {
         JobsService,
         AuthService,
         WorkspacesService,
+        ExternalKeysService,
         ReaperService,
         ConnectionLimits,
         MetricsService,

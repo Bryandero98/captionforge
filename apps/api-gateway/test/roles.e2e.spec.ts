@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AccountController } from "../src/auth/account.controller.js";
 import { AuthController } from "../src/auth/auth.controller.js";
 import { CapabilitiesController } from "../src/capabilities/capabilities.controller.js";
+import { ExternalKeysController } from "../src/external-keys/external-keys.controller.js";
 import { loadConfig } from "../src/config/config.js";
 import { HealthController } from "../src/health/health.controller.js";
 import { JobsController } from "../src/jobs/jobs.controller.js";
@@ -42,6 +43,9 @@ const EXPECTED: Record<string, Role | "public"> = {
   "DELETE /v1/workspaces/invites/:id": "OWNER",
   "GET /v1/workspaces/invites/:token": "VIEWER",
   "POST /v1/workspaces/invites/:token/accept": "VIEWER",
+  "GET /v1/workspaces/current/external-keys": "OWNER",
+  "PUT /v1/workspaces/current/external-keys/:provider": "OWNER",
+  "DELETE /v1/workspaces/current/external-keys/:provider": "OWNER",
   "GET /v1/keys": "OWNER",
   "POST /v1/keys": "OWNER",
   "DELETE /v1/keys/:id": "OWNER",
@@ -59,7 +63,7 @@ const EXPECTED: Record<string, Role | "public"> = {
 /** Las rutas que existen de verdad, leídas de los decoradores de los controladores (no de una lista aparte). */
 function discoverRoutes(): string[] {
   const found: string[] = [];
-  for (const controller of [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, JobsController]) {
+  for (const controller of [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, JobsController]) {
     const base = String(Reflect.getMetadata(PATH_METADATA, controller) ?? "");
     for (const name of Object.getOwnPropertyNames(controller.prototype)) {
       const handler = (controller.prototype as unknown as Record<string, unknown>)[name];
