@@ -111,6 +111,41 @@ describe("configuración", () => {
     expect(loadConfig({ ...process.env, WEB_API_KEY: "cfk_" + "a".repeat(64) }).security.webApiKey).toBe("cfk_" + "a".repeat(64));
   });
 
+  describe("inicio de sesión (ADR 0016)", () => {
+    const clean = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => {
+      const env = { ...process.env } as Record<string, string | undefined>;
+      for (const name of ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "PUBLIC_URL", "LOCAL_MODE", "SESSION_TTL_DAYS", "WEB_API_KEY", "PORT"]) delete env[name];
+      return { ...env, ...extra };
+    };
+
+    it("por defecto: modo local, sin proveedores, dirección local y sesiones de 30 días", () => {
+      const { auth } = loadConfig(clean());
+      expect(auth.localMode).toBe(true);
+      expect(auth.providers).toEqual({ github: undefined, google: undefined });
+      expect(auth.publicUrl).toBe("http://localhost:3000");
+      expect(auth.sessionTtlMs).toBe(30 * 86_400_000);
+    });
+
+    it("un proveedor se activa con su Client ID y su Client Secret, y con uno solo el arranque falla", () => {
+      expect(loadConfig(clean({ GITHUB_CLIENT_ID: "id", GITHUB_CLIENT_SECRET: "secreto" })).auth.providers.github).toMatchObject({ clientId: "id", clientSecret: "secreto" });
+      expect(() => loadConfig(clean({ GITHUB_CLIENT_ID: "id" }))).toThrow(/GITHUB_CLIENT_ID y GITHUB_CLIENT_SECRET/);
+      expect(() => loadConfig(clean({ GOOGLE_CLIENT_SECRET: "secreto" }))).toThrow(/GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET/);
+    });
+
+    it("PUBLIC_URL se normaliza a un origen y rechaza rutas, credenciales y esquemas raros", () => {
+      expect(loadConfig(clean({ PUBLIC_URL: "https://Captions.Ejemplo.com/" })).auth.publicUrl).toBe("https://captions.ejemplo.com");
+      for (const bad of ["captions.ejemplo.com", "ftp://x.com", "https://x.com/app", "https://u:p@x.com", "https://x.com/?a=1"]) {
+        expect(() => loadConfig(clean({ PUBLIC_URL: bad })), bad).toThrow(/PUBLIC_URL/);
+      }
+    });
+
+    it("fuera del modo local (LOCAL_MODE=false) la interfaz no recibe ninguna clave aunque haya WEB_API_KEY", () => {
+      const key = "cfk_" + "c".repeat(64);
+      expect(loadConfig(clean({ WEB_API_KEY: key })).security.webApiKey).toBe(key);
+      expect(loadConfig(clean({ WEB_API_KEY: key, LOCAL_MODE: "false" })).security.webApiKey).toBeUndefined();
+    });
+  });
+
   it.each([
     ["true", true],
     ["false", false],

@@ -32,7 +32,47 @@
     </header>
     <p class="lang-notice" id="lang-notice" role="status"></p>
 
+    <!-- Entrada y cuenta (ADR 0016). js/ui/account.js decide qué se ve según cómo entró la persona. -->
+    <section class="panel" id="login-panel" hidden aria-labelledby="login-title">
+      <h2 class="panel__status" id="login-title" data-i18n="login.title">Entra para usar CaptionForge</h2>
+      <p class="panel__detail" data-i18n="login.body">Tus videos y subtítulos son solo tuyos: nadie más puede verlos.</p>
+      <p class="panel__detail" id="login-error" role="alert" hidden></p>
+      <div class="panel__actions">
+        <a class="btn btn--primary" id="login-github" href="/auth/github/start" hidden data-i18n="login.github">Continuar con GitHub</a>
+        <a class="btn btn--secondary" id="login-google" href="/auth/google/start" hidden data-i18n="login.google">Continuar con Google</a>
+      </div>
+      <p class="panel__detail" id="login-none" hidden data-i18n="login.none">Este servidor no tiene ningún método de inicio de sesión configurado.</p>
+    </section>
+
+    <div class="account" id="account-bar" hidden>
+      <span class="account__name" id="account-name"></span>
+      <button type="button" class="btn btn--ghost" id="account-keys-toggle" aria-expanded="false" aria-controls="keys-panel" data-i18n="account.keys">Claves de API</button>
+      <button type="button" class="btn btn--ghost" id="account-signout" data-i18n="account.signOut">Salir</button>
+    </div>
+
+    <section class="panel" id="keys-panel" hidden aria-labelledby="keys-title">
+      <h2 class="panel__status" id="keys-title" data-i18n="keys.title">Claves de API</h2>
+      <p class="panel__detail" data-i18n="keys.intro">Para usar CaptionForge desde un script. Cada clave da acceso a todo lo tuyo: guárdala como una contraseña.</p>
+      <div class="keys__created" id="keys-created" hidden>
+        <p class="panel__status" data-i18n="keys.created.title">Copia tu clave ahora: no se volverá a mostrar.</p>
+        <code class="panel__detail panel__detail--mono keys__value" id="keys-created-value"></code>
+        <button type="button" class="btn btn--secondary" id="keys-copy" data-i18n="keys.copy">Copiar</button>
+        <p class="panel__detail" data-i18n="keys.usage">Úsala con la cabecera X-API-Key.</p>
+      </div>
+      <p class="panel__detail" id="keys-empty" hidden data-i18n="keys.empty">Todavía no tienes claves.</p>
+      <ul class="keys__list" id="keys-list"></ul>
+      <p class="panel__detail" id="keys-problem" role="alert" hidden></p>
+      <form class="keys__form" id="keys-form" novalidate>
+        <div class="field">
+          <label for="keys-name" data-i18n="keys.name.label">Nombre de la clave</label>
+          <input id="keys-name" type="text" maxlength="60" autocomplete="off" required>
+        </div>
+        <button type="submit" class="btn btn--primary" id="keys-create" data-i18n="keys.create">Crear clave</button>
+      </form>
+    </section>
+
     <main id="main" tabindex="-1">
+      <div id="app-content">
       <details class="guide" id="guide">
         <summary data-i18n="guide.title">Cómo usar CaptionForge, paso a paso</summary>
         <ol class="guide__steps">
@@ -227,6 +267,7 @@
 
       <!-- Anuncios para lector de pantalla: solo hitos (cada 25 %), no cada porcentaje. -->
       <p class="visually-hidden" id="announcer" aria-live="polite" aria-atomic="true"></p>
+      </div>
     </main>
   </div>
 </body>
