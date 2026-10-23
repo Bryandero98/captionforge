@@ -96,7 +96,7 @@ Every call needs your API key: add `-H "X-API-Key: <key>"` (the `DEFAULT_API_KEY
 
 Everything hangs off `/v1/jobs`. The worker writes the job state in PostgreSQL and the API reads
 it. Every route under `/v1/jobs` requires `X-API-Key: <key>` (or `Authorization: Bearer <key>`); `/health` and
-`/v1/capabilities` stay open. Keys and tenants are described in [ADR 0015](docs/adr/0015-tenencia-y-claves-de-api.md); sign-in with GitHub or Google, sessions and key management in [ADR 0016](docs/adr/0016-inicio-de-sesion-y-sesiones.md). A local single-user install (`LOCAL_MODE=true`, the default) needs no sign-in; for a shared server set `LOCAL_MODE=false`, `PUBLIC_URL` and the provider credentials in `.env` (see `.env.example`).
+`/v1/capabilities` stay open. Keys and tenants are described in [ADR 0015](docs/adr/0015-tenencia-y-claves-de-api.md); sign-in with GitHub or Google, sessions and key management in [ADR 0016](docs/adr/0016-inicio-de-sesion-y-sesiones.md). A local single-user install (`LOCAL_MODE=true`, the default) needs no sign-in; for a shared server set `LOCAL_MODE=false`, `PUBLIC_URL` and the provider credentials in `.env` (see `.env.example`). Public deployment with automatic TLS (Caddy, `--profile proxy`), per-tenant quotas and fail-open behaviour are in [ADR 0017](docs/adr/0017-perimetro-caddy-y-cuotas-por-tenant.md); JSON logs, `/metrics` (internal port only) and the Prometheus/Grafana profile (`--profile metrics`) are in [ADR 0018](docs/adr/0018-observabilidad-registros-json-y-metrics.md).
 
 | Method and route | What it does |
 |---|---|
@@ -187,7 +187,7 @@ The full picture, including what is **not** covered yet, is in
 | 4a | Caption editing, burn queue, download with `Range` | Done |
 | 5a | Hardening: limits, orphaned jobs, Host/Origin guard, supply chain | Done |
 | **4b** | **Web client on the new API** (REST, async multipart upload, live SSE) | **Done** — [user guide](docs/user-guide.md) · [guía de uso](docs/guia-de-uso.md) |
-| 5b | User accounts, ownership of jobs, observability, deployment | Pending |
+| 5b | User accounts, ownership of jobs, per-tenant quotas, Caddy/TLS, observability, deployment | Done (v1.0 candidate) |
 
 After the web client, ideas worth doing, deliberately not started:
 

@@ -347,6 +347,7 @@ services:
       S3_SECRET_KEY: ${S3_WORKER_SECRET_KEY}
       WORKER_CONCURRENCY: "1"
       SHUTDOWN_GRACE_SECONDS: ${SHUTDOWN_GRACE_SECONDS:-45} # menor que stop_grace_period
+      LOG_FORMAT: ${LOG_FORMAT:-json} # una línea JSON por evento, como el API (ADR 0018)
       WHISPER_DEFAULT_MODEL: ${WHISPER_DEFAULT_MODEL:-small}
       HF_HOME: /models/hf
       XDG_DATA_HOME: /models/xdg

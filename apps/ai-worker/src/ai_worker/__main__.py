@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import signal
 import sys
 
 from .config import ConfigError, WorkerConfig
+from .logfmt import configure_logging
 from .workdir import clean_stale_work
 from .worker import AiWorker
 
@@ -36,7 +36,7 @@ async def _main() -> None:
 
 
 def run() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    configure_logging()
     try:
         asyncio.run(_main())
     except ConfigError as error:

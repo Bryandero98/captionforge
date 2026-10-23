@@ -118,6 +118,28 @@ jobs:
       - name: API Gateway - construir la imagen de despliegue
         run: docker compose --profile app build migrate
 
+      - name: Perímetro - Caddy delante del API (TLS, /metrics cerrado, IP real, cookie Secure)
+        env:
+          TRUST_PROXY: 172.16.0.0/12
+          PUBLIC_URL: https://localhost
+          LOCAL_MODE: "false"
+          GITHUB_CLIENT_ID: ci-client-id
+          GITHUB_CLIENT_SECRET: ci-client-secret
+        run: |
+          docker compose --profile app --profile proxy up -d --wait api-gateway caddy
+          web() { curl -sk --resolve localhost:443:127.0.0.1 --resolve localhost:80:127.0.0.1 "$@"; }
+          test "$(web -o /dev/null -w '%{http_code}' https://localhost/health)" = 200
+          test "$(web -o /dev/null -w '%{http_code}' http://localhost/health)" = 308
+          test "$(web -o /dev/null -w '%{http_code}' https://localhost/metrics)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/metrics)" = 404
+          if curl -s -m 2 -o /dev/null http://127.0.0.1:9090/metrics; then echo "El puerto de métricas está publicado en el anfitrión"; exit 1; fi
+          web -D - -o /dev/null https://localhost/auth/github/start | grep -i '^set-cookie: __Host-cf_oauth=.*secure'
+          web -o /dev/null -H 'X-Forwarded-For: 203.0.113.9' https://localhost/v1/jobs
+          docker compose --profile app logs --no-color api-gateway | grep '"route":"/v1/jobs"' > "$RUNNER_TEMP/jobs.log"
+          test -s "$RUNNER_TEMP/jobs.log"
+          if grep -q 203.0.113.9 "$RUNNER_TEMP/jobs.log"; then echo "El API creyó un X-Forwarded-For falsificado"; exit 1; fi
+          docker compose --profile app exec -T api-gateway wget -qO- http://127.0.0.1:9090/metrics | grep -q captionforge_http_requests_total
+
       # Sin torch ni faster-whisper: el código heredado los importa de forma diferida y las pruebas
       # simulan Whisper. ffmpeg llega con imageio-ffmpeg (el mismo localizador que usa el worker).
       - name: AI Worker - entorno Python
@@ -137,7 +159,7 @@ jobs:
 
       - name: Apagar
         if: always()
-        run: docker compose down -v
+        run: docker compose --profile app --profile proxy --profile metrics down -v
 
   worker-image:
     name: AI Worker (imagen de despliegue)
