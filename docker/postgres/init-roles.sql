@@ -136,5 +136,12 @@ BEGIN
   IF to_regclass('public."Session"') IS NOT NULL THEN
     GRANT UPDATE ("tenantId") ON "Session" TO cf_api;
   END IF;
+  -- Claves externas (ADR 0020): el GRANT SELECT ... ON ALL TABLES de arriba le habría dado a cf_worker la lectura del cifrado.
+  -- cf_api reemplaza el cifrado y borra de verdad; sin TRUNCATE. cf_worker no tiene ningún permiso: la clave le llega del API.
+  IF to_regclass('public."TenantExternalKey"') IS NOT NULL THEN
+    REVOKE ALL ON "TenantExternalKey" FROM cf_api, cf_worker;
+    GRANT SELECT, INSERT, DELETE ON "TenantExternalKey" TO cf_api;
+    GRANT UPDATE ("ciphertext", "keyVersion", "last4", "createdBy", "rotatedAt") ON "TenantExternalKey" TO cf_api;
+  END IF;
 END
 $$;

@@ -109,6 +109,9 @@ const ARTIFACT_SUFFIX: Record<string, string> = {
 const ARTIFACTS_BY_KIND: Record<Job["kind"], readonly string[]> = {
   TRANSCRIBE: ["srt", "segments", "waveform"],
   BURN: ["video"],
+  // Traducir y doblar (ADR 0020): sus artefactos se declaran en la Fase 3; hasta entonces no se descarga ninguno (fail-closed).
+  TRANSLATE: [],
+  DUB: [],
 };
 
 const MAX_SEGMENTS_BYTES = 32 * 1024 * 1024;
