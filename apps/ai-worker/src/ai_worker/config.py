@@ -12,6 +12,8 @@ from .external_key import validate_base_url, validate_token
 
 TRANSCRIBE_QUEUE = "captionforge.transcribe"
 BURN_QUEUE = "captionforge.burn"
+TRANSLATE_QUEUE = "captionforge.translate"
+DUB_QUEUE = "captionforge.dub"
 CANCEL_CHANNEL = "captionforge:cancel"
 
 
@@ -33,6 +35,8 @@ class WorkerConfig:
     work_dir: Path
     queue_name: str = TRANSCRIBE_QUEUE
     burn_queue_name: str = BURN_QUEUE
+    translate_queue_name: str = TRANSLATE_QUEUE
+    dub_queue_name: str = DUB_QUEUE
     cancel_channel: str = CANCEL_CHANNEL
     concurrency: int = 1
     # El candado se renueva cada mitad de este tiempo; Whisper y ffmpeg corren fuera del bucle de
@@ -57,6 +61,9 @@ class WorkerConfig:
     diarization_total_timeout: float = 7200.0
     # Token de Hugging Face (HF_TOKEN o HF_TOKEN_FILE). repr=False: nunca debe salir en un log ni en un traceback.
     hf_token: str | None = field(default=None, repr=False)
+    # Topes de gasto por trabajo (ADR 0020 §7): se comprueban antes de llamar al proveedor. El API aplica los mismos al crear el trabajo.
+    max_job_characters: int = 50_000
+    max_job_segments: int = 1_000
     # Canal interno del API (ADR 0020): de ahí se pide la clave externa de cada trabajo TRANSLATE/DUB. Ambos o ninguno.
     api_internal_url: str | None = None
     worker_internal_token: str | None = field(default=None, repr=False)
@@ -120,6 +127,8 @@ class WorkerConfig:
             separation_total_timeout=number("SEPARATION_TOTAL_TIMEOUT_SECONDS", 3600.0),
             diarization_stall_timeout=number("DIARIZATION_STALL_TIMEOUT_SECONDS", 600.0),
             diarization_total_timeout=number("DIARIZATION_TOTAL_TIMEOUT_SECONDS", 7200.0),
+            max_job_characters=int(number("MAX_JOB_CHARACTERS", 50_000, integer=True)),
+            max_job_segments=int(number("MAX_JOB_SEGMENTS", 1_000, integer=True)),
             hf_token=resolve_hf_token(env),
             api_internal_url=internal_url,
             worker_internal_token=internal_token,

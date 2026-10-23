@@ -12,9 +12,10 @@ import {
 import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 
-import type { BurnJob, TranscribeJob } from "@captionforge/contracts/types";
+import type { BurnJob, TranscribeJob, TranslateJob } from "@captionforge/contracts/types";
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { ContractViolation, assertContract } from "../contracts/validators.js";
+import { ExternalKeysService } from "../external-keys/external-keys.service.js";
 import { Prisma, type Job, type JobStatus } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { QueueService } from "../queue/queue.service.js";
@@ -109,12 +110,16 @@ const ARTIFACT_SUFFIX: Record<string, string> = {
 const ARTIFACTS_BY_KIND: Record<Job["kind"], readonly string[]> = {
   TRANSCRIBE: ["srt", "segments", "waveform"],
   BURN: ["video"],
-  // Traducir y doblar (ADR 0020): sus artefactos se declaran en la Fase 3; hasta entonces no se descarga ninguno (fail-closed).
-  TRANSLATE: [],
+  // Traducir y doblar (ADR 0020). El doblaje declara sus artefactos al implementarse (fail-closed hasta entonces).
+  TRANSLATE: ["segments"],
   DUB: [],
 };
 
 const MAX_SEGMENTS_BYTES = 32 * 1024 * 1024;
+
+/** Error con `code` estable: la interfaz decide el texto por el código, no por el mensaje. */
+const coded = (Exception: new (response: object) => Error, status: number, error: string, code: string, message: string): Error =>
+  new Exception({ statusCode: status, error, code, message });
 const BURN_STYLES = ["modern", "tiktok", "youtube", "minimal"] as const;
 
 /** Nombre de descarga: el del video original con la extensión del artefacto (sin su extensión de video). */
@@ -145,6 +150,7 @@ export class JobsService {
     private readonly storage: StorageService,
     private readonly queue: QueueService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly externalKeys: ExternalKeysService,
   ) {}
 
   /**
@@ -401,6 +407,109 @@ export class JobsService {
     }
     if (typeof karaoke !== "boolean") throw new BadRequestException("karaoke debe ser verdadero o falso.");
     return { style: style as BurnJob["options"]["style"], karaoke };
+  }
+
+  /**
+   * Traduce los subtítulos de una transcripción (ADR 0020). `argos` es local y gratis; `openai` usa la clave propia del espacio:
+   * si no está, 409 `external_key_missing` ANTES de crear nada ni encolar (falla rápido, sin gastar). Los topes de caracteres y de
+   * segmentos se aplican aquí (413 `job_too_large`) y el worker los vuelve a comprobar.
+   */
+  async createTranslate(tenantId: string, parentId: string, rawOptions: unknown): Promise<JobView> {
+    const options = this.parseTranslateOptions(rawOptions);
+    const { job: parent, segmentsKey } = await this.completedTranscription(tenantId, parentId);
+    const detected = (parent.result as { detectedLanguage?: unknown } | null)?.detectedLanguage;
+    if (typeof detected !== "string" || !/^[a-z]{2,3}$/.test(detected)) {
+      throw new ConflictException("La transcripción no tiene un idioma detectado del que traducir.");
+    }
+    if (detected === options.targetLanguage) {
+      throw coded(BadRequestException, 400, "Bad Request", "same_language", "Los subtítulos ya están en ese idioma.");
+    }
+
+    const { segments, etag } = await this.readSegments(segmentsKey);
+    this.assertSpendingCaps(segments);
+    if (options.provider !== "argos") await this.requireExternalKey(tenantId, options.provider);
+
+    const active = await this.prisma.job.count({
+      where: { tenantId, kind: "TRANSLATE", parentJobId: parent.id, status: { in: ["QUEUED", "RUNNING"] } },
+    });
+    if (active > 0) throw new ConflictException("Ya hay una traducción en curso para esta transcripción. Espera a que termine o cancélala.");
+
+    const id = randomUUID();
+    const outputPrefix = `jobs/${id}/out/`;
+    const payload: TranslateJob = {
+      schemaVersion: 1,
+      jobId: id,
+      requestedAt: new Date().toISOString(),
+      segments: { bucket: this.storage.bucket, objectKey: segmentsKey, etag },
+      outputPrefix,
+      options: { provider: options.provider, sourceLanguage: detected, targetLanguage: options.targetLanguage },
+    };
+    try {
+      assertContract("translate-job.v1", payload);
+    } catch (error) {
+      if (error instanceof ContractViolation) throw new BadRequestException(error.message);
+      throw error;
+    }
+
+    // Job.options guarda el proveedor y los idiomas, jamás una clave: es lo que el canal interno compara con lo que pide el worker.
+    const job = await this.prisma.job.create({
+      data: {
+        id,
+        tenantId,
+        kind: "TRANSLATE",
+        parentJobId: parent.id,
+        inputBucket: parent.inputBucket,
+        inputKey: parent.inputKey,
+        originalFilename: parent.originalFilename,
+        contentType: parent.contentType,
+        sizeBytes: parent.sizeBytes,
+        outputPrefix,
+        options: payload.options as unknown as Prisma.InputJsonValue,
+      },
+    });
+    try {
+      await this.queue.enqueueTranslate(payload);
+    } catch (error) {
+      await this.failEnqueue(id, error, []); // el video de entrada es de la transcripción: no se borra
+    }
+    return toView(job);
+  }
+
+  private parseTranslateOptions(raw: unknown): { provider: TranslateJob["options"]["provider"]; targetLanguage: string } {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new BadRequestException("Las opciones deben ser un objeto JSON.");
+    const given = raw as Record<string, unknown>;
+    const unknown = Object.keys(given).filter((key) => key !== "provider" && key !== "targetLanguage");
+    if (unknown.length > 0) throw new BadRequestException(`Opciones desconocidas: ${unknown.join(", ")}.`);
+    const provider = given.provider ?? "argos";
+    if (provider !== "argos" && provider !== "openai") throw new BadRequestException("provider debe ser: argos, openai.");
+    const target = given.targetLanguage;
+    if (typeof target !== "string" || !/^[a-z]{2,3}$/.test(target)) throw new BadRequestException("targetLanguage debe ser un código de idioma en minúsculas (p. ej. es).");
+    return { provider, targetLanguage: target };
+  }
+
+  /** Topes de gasto (ADR 0020 §7): un trabajo que los excede se rechaza antes de pedir nada al proveedor. */
+  private assertSpendingCaps(segments: Segment[]): void {
+    const characters = segments.reduce((sum, segment) => sum + segment.text.trim().length, 0);
+    const { maxJobCharacters, maxJobSegments } = this.config.ai;
+    if (segments.length > maxJobSegments || characters > maxJobCharacters) {
+      throw coded(
+        PayloadTooLargeException,
+        413,
+        "Payload Too Large",
+        "job_too_large",
+        `El trabajo tiene ${segments.length} segmentos y ${characters} caracteres; el máximo es ${maxJobSegments} segmentos y ${maxJobCharacters} caracteres.`,
+      );
+    }
+  }
+
+  /** 409 antes de encolar: sin clave del proveedor el trabajo fallaría en el worker después de ocupar la cola. */
+  private async requireExternalKey(tenantId: string, provider: "openai" | "elevenlabs"): Promise<void> {
+    if (!this.externalKeys.enabled) {
+      throw coded(ConflictException, 409, "Conflict", "byok_disabled", "Las claves externas propias no están activadas en este servidor.");
+    }
+    if (!(await this.externalKeys.has(tenantId, provider))) {
+      throw coded(ConflictException, 409, "Conflict", "external_key_missing", "Falta la clave del proveedor. Un Dueño del espacio debe guardarla antes.");
+    }
   }
 
   async get(tenantId: string, id: string): Promise<JobView> {

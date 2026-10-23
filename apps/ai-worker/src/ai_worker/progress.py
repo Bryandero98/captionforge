@@ -82,6 +82,22 @@ BURN_STAGE_RANGES: dict[str, tuple[float, float]] = {
 }
 
 
+# Traducir: leer, traducir por lotes (casi todo el tiempo si el proveedor es externo) y guardar.
+TRANSLATE_STAGE_RANGES: dict[str, tuple[float, float]] = {
+    "downloading_input": (0.0, 5.0),
+    "translating": (5.0, 92.0),
+    "uploading": (92.0, 99.0),
+}
+
+# Doblar: leer, sintetizar cada frase, ensamblar el audio, mezclar con el video (si se pidió) y subir.
+DUB_STAGE_RANGES: dict[str, tuple[float, float]] = {
+    "downloading_input": (0.0, 5.0),
+    "synthesizing": (5.0, 70.0),
+    "mixing": (70.0, 94.0),
+    "uploading": (94.0, 99.0),
+}
+
+
 class ProgressSink(Protocol):
     async def updateProgress(self, progress: dict[str, Any]) -> Any: ...  # noqa: N802 - nombre de bullmq.Job
 

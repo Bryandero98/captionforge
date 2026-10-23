@@ -50,6 +50,8 @@ export interface AppConfig {
    * Es un secreto: no se registra ni se devuelve en ninguna respuesta.
    */
   byok: { appSecret: string | undefined };
+  /** Topes de gasto por trabajo de traducir/doblar (ADR 0020 §7): el dinero es de la persona usuaria. El worker aplica los mismos. */
+  ai: { maxJobCharacters: number; maxJobSegments: number };
   /**
    * Canal interno del worker (ADR 0020), en un puerto aparte que no se publica. `port` 0 = apagado. `workerToken` es un secreto: no se
    * registra ni se devuelve. `rateLimitPerMinute` 0 = sin límite.
@@ -296,6 +298,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     features: { diarization: parseDiarization(env) },
     byok: { appSecret },
+    ai: { maxJobCharacters: integer("MAX_JOB_CHARACTERS", 50_000), maxJobSegments: integer("MAX_JOB_SEGMENTS", 1_000) },
     internal: parseInternal(env, integer, appSecret),
     observability: parseObservability(env, integer),
     reaper: {

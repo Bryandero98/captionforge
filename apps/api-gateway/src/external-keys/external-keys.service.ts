@@ -59,6 +59,12 @@ export class ExternalKeysService {
     return cipher.decrypt(row.ciphertext, { tenantId, provider, keyVersion: row.keyVersion });
   }
 
+  /** ¿Tiene el espacio una clave guardada para ese proveedor? (no la descifra). Falla rápido al crear un trabajo, antes de encolarlo. */
+  async has(tenantId: string, provider: ExternalProvider): Promise<boolean> {
+    if (this.cipher === undefined) return false;
+    return (await this.prisma.tenantExternalKey.count({ where: { tenantId, provider } })) > 0;
+  }
+
   /** Sin APP_SECRET la función está apagada: 404, nunca un cifrado con un valor por defecto. */
   private requireCipher(): ExternalKeyCipher {
     if (this.cipher === undefined) throw coded(NotFoundException, 404, "Not Found", "byok_disabled", "Las claves externas propias no están activadas en este servidor.");

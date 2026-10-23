@@ -19,17 +19,19 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from bullmq import Worker
-from captionforge_contracts import BurnJob, CancelMessage, JobError, TranscribeJob
+from captionforge_contracts import BurnJob, CancelMessage, JobError, TranscribeJob, TranslateJob
 
+from .adapters import Adapters
 from .burn import BurnRunner
 from .config import WorkerConfig
 from .db import JobRepository
 from .errors import JobCancelled, JobFailure, classify
 from .external_key import ExternalKeyClient
 from .models import ModelProvider
-from .progress import BURN_STAGE_RANGES, STAGE_RANGES, Progress
+from .progress import BURN_STAGE_RANGES, STAGE_RANGES, TRANSLATE_STAGE_RANGES, Progress
 from .storage import Storage
 from .transcribe import TranscribeRunner
+from .translate import TranslateRunner
 
 log = logging.getLogger("ai_worker")
 
@@ -56,6 +58,7 @@ class AiWorker:
         repo: JobRepository | None = None,
         storage: Storage | None = None,
         models: ModelProvider | None = None,
+        adapters: Adapters | None = None,
     ) -> None:
         self.config = config
         self.repo = repo or JobRepository(config.database_url)
@@ -69,6 +72,9 @@ class AiWorker:
             if config.api_internal_url and config.worker_internal_token
             else None
         )
+        # Proveedores de traducción y voz (ADR 0020); los externos piden su clave al API justo antes de usarla.
+        self.adapters = adapters or Adapters(self.external_keys)
+        self.translator = TranslateRunner(config, self.storage, self.adapters)
         self._workers: list[Worker] = []
         self._cancel_task: asyncio.Task[None] | None = None
         self._cancel_events: dict[str, threading.Event] = {}
@@ -87,6 +93,10 @@ class AiWorker:
     async def process_burn(self, job: Any, token: str, signal: Any) -> dict[str, Any]:
         """Procesador de la cola de quemado."""
         return await self._process(job, signal, BurnJob, self.burner.run, BURN_STAGE_RANGES)
+
+    async def process_translate(self, job: Any, token: str, signal: Any) -> dict[str, Any]:
+        """Procesador de la cola de traducción."""
+        return await self._process(job, signal, TranslateJob, self.translator.run, TRANSLATE_STAGE_RANGES)
 
     async def _process(
         self,
@@ -139,7 +149,7 @@ class AiWorker:
         solo del bucket configurado (el quemado lee del trabajo padre, por eso las entradas no se atan al id)."""
         if payload.outputPrefix != f"jobs/{job_id}/out/":
             return False
-        refs = [payload.input, *([payload.segments] if hasattr(payload, "segments") else [])]
+        refs = [*([payload.input] if hasattr(payload, "input") else []), *([payload.segments] if hasattr(payload, "segments") else [])]
         return all(ref.bucket == self.storage.bucket for ref in refs)
 
     async def _execute(
@@ -305,13 +315,17 @@ class AiWorker:
         self._workers = [
             self._new_worker(self.config.queue_name, self.process),
             self._new_worker(self.config.burn_queue_name, self.process_burn),
+            self._new_worker(self.config.translate_queue_name, self.process_translate),
         ]
         subscribed = asyncio.Event()
         self._cancel_task = asyncio.create_task(self._listen_for_cancellations(subscribed))
         # Si Redis no está disponible al arrancar, fallar (y que Docker reinicie el proceso) en vez de quedarse
         # esperando sin consumir ni avisar.
         await asyncio.wait_for(subscribed.wait(), timeout=60)
-        log.info("worker listo (colas %s y %s)", self.config.queue_name, self.config.burn_queue_name)
+        log.info(
+            "worker listo (colas %s)",
+            ", ".join(worker.name for worker in self._workers),
+        )
 
     async def stop(self) -> None:
         """Cierre ordenado: no toma trabajo nuevo, deja terminar el que está en curso hasta

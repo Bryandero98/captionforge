@@ -26,7 +26,12 @@ def isolated(config):  # noqa: ANN001
     """Cola y canal únicos por prueba: ninguna ve los trabajos ni las cancelaciones de otra."""
     tag = uuid.uuid4().hex[:8]
     return dataclasses.replace(
-        config, queue_name=f"cf.test.{tag}", burn_queue_name=f"cf.test.burn.{tag}", cancel_channel=f"cf:test:cancel:{tag}"
+        config,
+        queue_name=f"cf.test.{tag}",
+        burn_queue_name=f"cf.test.burn.{tag}",
+        translate_queue_name=f"cf.test.translate.{tag}",
+        dub_queue_name=f"cf.test.dub.{tag}",
+        cancel_channel=f"cf:test:cancel:{tag}",
     )
 
 

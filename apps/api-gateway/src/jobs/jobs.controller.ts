@@ -231,6 +231,15 @@ export class JobsController {
     return this.jobs.createBurn(tenantId, id, body);
   }
 
+  /** Traduce los subtítulos: { "provider": "argos" | "openai", "targetLanguage": "es" }. Con `openai` hace falta la clave del espacio. */
+  @Post(":id/translate")
+  @HttpCode(202)
+  @UseInterceptors(TenantQuotaInterceptor)
+  @Quota("queue")
+  translate(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
+    return this.jobs.createTranslate(tenantId, id, body);
+  }
+
   @Get(":id/artifacts/:name")
   async artifact(
     @TenantId() tenantId: string,

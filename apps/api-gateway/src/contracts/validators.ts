@@ -22,6 +22,10 @@ const SCHEMA_FILES = [
   "job-progress.v1",
   "transcribe-job.v1",
   "transcribe-result.v1",
+  "translate-job.v1",
+  "translate-result.v1",
+  "dub-job.v1",
+  "dub-result.v1",
 ] as const;
 
 export type ContractName =
@@ -31,7 +35,11 @@ export type ContractName =
   | "job-error.v1"
   | "job-progress.v1"
   | "transcribe-job.v1"
-  | "transcribe-result.v1";
+  | "transcribe-result.v1"
+  | "translate-job.v1"
+  | "translate-result.v1"
+  | "dub-job.v1"
+  | "dub-result.v1";
 
 export class ContractViolation extends Error {
   constructor(
