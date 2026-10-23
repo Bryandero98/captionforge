@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/main.js";
 import { loadConfig } from "../src/config/config.js";
 import { FakeProvider } from "./support/fake-provider.js";
+import { closeBrowser } from "./support/browser.js";
 
 const CANDIDATES = [
   process.env.CHROME_PATH,
@@ -49,7 +50,8 @@ const hidden = (page: Page, selector: string) => page.$eval(selector, (element) 
 const settled = (page: Page) =>
   page.waitForFunction(() => {
     const doc = (globalThis as unknown as { document: { getElementById(id: string): { hidden: boolean } } }).document;
-    return !doc.getElementById("login-panel").hidden || !doc.getElementById("app-content").hidden;
+    // #app-content puede verse antes de que el JS arranque: la barra de cuenta y la pantalla de entrada las fija createAccount de golpe.
+    return !doc.getElementById("login-panel").hidden || !doc.getElementById("account-bar").hidden;
   });
 
 /** Página con el idioma fijado en español y vigilancia de errores reales (los 401/404 esperados de la entrada no cuentan). */
@@ -89,7 +91,7 @@ describe.skipIf(browserPath === undefined)("inicio de sesión en un navegador re
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
+    await closeBrowser(browser);
     if (owner !== undefined) {
       const users = await owner.query<{ tenantId: string }>(`SELECT "tenantId" FROM "User" WHERE provider = 'github' AND subject = $1`, [String(GITHUB_ID)]);
       for (const { tenantId } of users.rows) {

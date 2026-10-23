@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/config.js";
 import { createApp } from "../src/main.js";
 import { FakeProvider, type FakeProfile } from "./support/fake-provider.js";
+import { closeBrowser } from "./support/browser.js";
 
 const CANDIDATES = [
   process.env.CHROME_PATH,
@@ -78,6 +79,11 @@ const waitFor = (page: Page, selector: string, predicate: "visible" | "hidden") 
     predicate,
   );
 
+/** Clic por DOM (no por coordenadas): en un runner lento el panel de equipo carga su lista tras abrirse y desplaza el formulario entre que Puppeteer calcula la posición y hace el clic. */
+const press = (page: Page, selector: string) => page.$eval(selector, (element) => (element as unknown as { click(): void }).click());
+/** El panel de equipo ya cargó sus miembros (hay al menos una fila): a partir de aquí el layout no se mueve. */
+const teamLoaded = (page: Page) =>
+  page.waitForFunction(() => ((globalThis as unknown as { document: Doc }).document.getElementById("team-members").children.length ?? 0) > 0, { timeout: 15_000 });
 const dialogOpen = (page: Page) => page.$eval("#invite-confirm", (element) => (element as unknown as { open: boolean }).open);
 /** Espera a que la pantalla de confirmación esté abierta: `settled` puede resolver antes de que la página termine de arrancar. */
 const dialogShown = (page: Page) =>
@@ -106,7 +112,7 @@ async function open(who: FakeProfile, path = "/") {
 }
 
 async function signInWithGithub(page: Page): Promise<void> {
-  await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), page.click("#login-github")]);
+  await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), press(page, "#login-github")]);
   await settled(page);
 }
 
@@ -126,7 +132,7 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
+    await closeBrowser(browser);
     if (owner !== undefined) {
       const subjects = [ANA, BETO, CARLA, DANI].map((p) => String(p.id));
       const users = await owner.query<{ id: string; tenantId: string }>(`SELECT id, "tenantId" FROM "User" WHERE provider = 'github' AND subject = ANY($1::text[])`, [subjects]);
@@ -147,10 +153,11 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
     await signInWithGithub(ana.page);
     expect(await textOf(ana.page, "#account-role")).toBe("Dueño");
     expect(await hidden(ana.page, "#account-team-toggle")).toBe(false);
-    await ana.page.click("#account-team-toggle");
+    await press(ana.page, "#account-team-toggle");
     await waitFor(ana.page, "#team-panel", "visible");
+    await teamLoaded(ana.page);
     await ana.page.select("#team-invite-role", "EDITOR");
-    await ana.page.click("#team-invite-form button[type=submit]");
+    await press(ana.page, "#team-invite-form button[type=submit]");
     await waitFor(ana.page, "#team-link-box", "visible");
     const link = await text(ana.page, "#team-link");
     expect(link).toMatch(/\/\?invite=cfi_[A-Za-z0-9_-]{43}$/);
@@ -174,7 +181,7 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
     expect(await textOf(beto.page, "#account-role")).toBe("Dueño"); // sigue en su espacio propio hasta decidir
 
     // El clic explícito es lo que acepta; la página se recarga ya dentro del equipo de Ana.
-    await Promise.all([beto.page.waitForNavigation({ waitUntil: "domcontentloaded" }), beto.page.click("#invite-confirm-join")]);
+    await Promise.all([beto.page.waitForNavigation({ waitUntil: "domcontentloaded" }), press(beto.page, "#invite-confirm-join")]);
     await settled(beto.page);
     expect(await memberRole(BETO.id, teamId)).toBe("EDITOR");
     expect(await textOf(beto.page, "#account-notice")).toContain("Editor");
@@ -203,7 +210,7 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
     // ── 5. Ana ve a Beto en el equipo y lo pasa a Lector.
     await ana.page.reload({ waitUntil: "domcontentloaded" });
     await settled(ana.page);
-    await ana.page.click("#account-team-toggle");
+    await press(ana.page, "#account-team-toggle");
     await ana.page.waitForFunction(() => (globalThis as unknown as { document: Doc }).document.getElementById("team-members").children.length === 2);
     await ana.page.select("#team-members li:nth-child(2) select", "VIEWER");
     await ana.page.waitForFunction(() => {
@@ -211,7 +218,7 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
       return select?.value === "VIEWER";
     });
     const betoRole = async () => (await owner.query<{ role: string }>(`SELECT m.role::text AS role FROM "Membership" m JOIN "User" u ON u.id = m."userId" WHERE u.subject = $1 AND m."tenantId" = $2`, [String(BETO.id), teamId])).rows[0]?.role;
-    await expect.poll(betoRole).toBe("VIEWER");
+    await expect.poll(betoRole, { timeout: 15_000 }).toBe("VIEWER");
 
     // Beto recarga: ahora es Lector. Ve su aviso y ya no tiene formulario de subida.
     await beto.page.reload({ waitUntil: "domcontentloaded" });
@@ -221,10 +228,10 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
     expect(await hidden(beto.page, "#upload-form")).toBe(true);
 
     // ── 6. Ana lo expulsa (pide confirmar: dos pulsaciones). Beto vuelve a su espacio propio, como Dueño de lo suyo.
-    await ana.page.click("#team-members li:nth-child(2) button");
+    await press(ana.page, "#team-members li:nth-child(2) button");
     expect(await betoRole()).toBe("VIEWER"); // la primera pulsación solo pide confirmar
-    await ana.page.click("#team-members li:nth-child(2) button");
-    await expect.poll(betoRole).toBeUndefined();
+    await press(ana.page, "#team-members li:nth-child(2) button");
+    await expect.poll(betoRole, { timeout: 15_000 }).toBeUndefined();
     await beto.page.reload({ waitUntil: "domcontentloaded" });
     await settled(beto.page);
     expect(await textOf(beto.page, "#account-role")).toBe("Dueño");
@@ -233,7 +240,7 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
     // ── 7. Ana no puede degradarse a sí misma: es la única Dueña (409), y la interfaz lo explica.
     await ana.page.reload({ waitUntil: "domcontentloaded" });
     await settled(ana.page);
-    await ana.page.click("#account-team-toggle");
+    await press(ana.page, "#account-team-toggle");
     await ana.page.waitForFunction(() => (globalThis as unknown as { document: Doc }).document.getElementById("team-members").children.length === 1);
     await ana.page.select("#team-members li:nth-child(1) select", "EDITOR");
     await ana.page.waitForFunction(() => !(globalThis as unknown as { document: Doc }).document.getElementById("team-problem").hidden);
@@ -246,10 +253,11 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
   it("quien YA tiene sesión y abre un enlace ajeno ve la confirmación: «Ahora no» no lo une a nada y limpia el enlace", async () => {
     const boss = await open(ANA);
     await signInWithGithub(boss.page);
-    await boss.page.click("#account-team-toggle");
+    await press(boss.page, "#account-team-toggle");
     await waitFor(boss.page, "#team-panel", "visible");
+    await teamLoaded(boss.page);
     await boss.page.select("#team-invite-role", "VIEWER");
-    await boss.page.click("#team-invite-form button[type=submit]");
+    await press(boss.page, "#team-invite-form button[type=submit]");
     await waitFor(boss.page, "#team-link-box", "visible");
     const link = new URL(await text(boss.page, "#team-link"));
     const tenantOfAna = (await owner.query<{ tenantId: string }>(`SELECT "tenantId" FROM "User" WHERE subject = $1`, [String(ANA.id)])).rows[0]!.tenantId;
@@ -263,7 +271,7 @@ describe.skipIf(browserPath === undefined)("equipos en un navegador real", () =>
     await dialogShown(guest.page);
     expect(await dialogOpen(guest.page), "un enlace plantado no se consume solo").toBe(true);
     expect(await memberRole(DANI.id, tenantOfAna)).toBeUndefined();
-    await guest.page.click("#invite-confirm-decline");
+    await press(guest.page, "#invite-confirm-decline");
     expect(await dialogOpen(guest.page)).toBe(false);
     expect(await savedInvite(guest.page)).toBeNull();
     await guest.page.reload({ waitUntil: "domcontentloaded" });

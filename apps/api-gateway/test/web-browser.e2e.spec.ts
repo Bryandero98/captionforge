@@ -17,6 +17,7 @@ import { createApp } from "../src/main.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
 import { StorageService } from "../src/storage/storage.service.js";
 import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
+import { closeBrowser } from "./support/browser.js";
 
 // Las funciones de waitForFunction se ejecutan dentro del navegador; solo se declara lo que usan (sin cargar la librería DOM).
 declare const localStorage: { setItem(key: string, value: string): void; getItem(key: string): string | null };
@@ -144,7 +145,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
+    await closeBrowser(browser);
     if (prisma !== undefined) await prisma.job.deleteMany({ where: { originalFilename: { contains: token } } }).catch(() => undefined);
     for (const app of apps) await app.close();
     await disposeTestTenants();
@@ -200,7 +201,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     expect(await text(page, "#notice-text")).toContain("en cola");
     expect(await text(page, "#notice-job")).toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(await isVisible(page, "#progress-panel")).toBe(false);
-    expect(await jobsNamed(name)).toHaveLength(1);
+    expect(await jobsNamed(`${token}-${name}`)).toHaveLength(1);
     expect(spy.problems).toEqual([]);
     await page.close();
   }, 60_000);
@@ -222,7 +223,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
 
     // El servidor ve el corte de la conexión y descarta lo recibido: se espera a que pase, sin pausas fijas.
     await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(await jobsNamed(name)).toHaveLength(0);
+    expect(await jobsNamed(`${token}-${name}`)).toHaveLength(0);
     expect(spy.problems).toEqual([]);
     await page.close();
   }, 60_000);
@@ -901,8 +902,8 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await waitForJobText(page, "Listo");
     expect(await page.evaluate(() => document.activeElement?.id)).toBe("job-panel");
 
-    await page.click("#history-list li .btn--ghost");
-    expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(0);
+    await page.$eval("#history-list li .btn--ghost", (button) => (button as unknown as { click(): void }).click()); // clic DOM: el panel se desplaza tras «Abrir»
+    await page.waitForFunction(() => document.querySelectorAll("#history-list li").length === 0, { timeout: 15_000 });
     expect(await isVisible(page, "#history-empty")).toBe(true);
     expect(spy.problems).toEqual([]);
     await page.close();
