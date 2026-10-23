@@ -7,6 +7,7 @@ import { artifactUrl, getSegments } from "../api/jobs.js";
 import { cleanAudioStatus } from "../domain/clean-audio.js";
 import { formatDuration } from "../domain/format.js";
 import { diarizationStatus, segmentsToSrtWithSpeakers } from "../domain/speakers.js";
+import { characterCount } from "../domain/spend.js";
 import { segmentsToVtt } from "../domain/subtitles.js";
 import { createSegmentEditor } from "./segment-editor.js";
 
@@ -245,7 +246,8 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
     get context() {
       if (job === null || editor.segments.length === 0) return null;
       const hasWords = editor.segments.some((segment) => Array.isArray(segment.words) && segment.words.length > 0);
-      return { job, hasWords, dirty: editor.dirty };
+      const language = /** @type {{ detectedLanguage?: unknown } | null} */ (job.result ?? null)?.detectedLanguage;
+      return { job, hasWords, dirty: editor.dirty, characters: characterCount(editor.segments), language: typeof language === "string" ? language : null };
     },
   };
 }

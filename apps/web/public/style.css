@@ -519,6 +519,16 @@ select:disabled {
 .burn .btn {
   margin-top: 14px;
 }
+.ai .options {
+  align-items: start;
+}
+.ai .field input,
+.ai .field select {
+  width: 100%;
+}
+.ai .field .panel__detail {
+  margin: 4px 0 0;
+}
 .burn__video {
   display: block;
   width: 100%;

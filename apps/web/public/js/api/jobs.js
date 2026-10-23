@@ -6,7 +6,7 @@ import { ApiError, errorFromResponse } from "./errors.js";
 import { isTerminalStatus } from "./sse.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ARTIFACTS = new Set(["srt", "segments", "waveform", "video"]);
+const ARTIFACTS = new Set(["srt", "segments", "waveform", "video", "audio"]);
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /** @typedef {import("./sse.js").JobView} JobView */
@@ -24,7 +24,7 @@ function assertJobId(jobId) {
  * las descargas van por api/download.js (fetch + Blob).
  * @param {string} baseUrl
  * @param {string} jobId
- * @param {"srt" | "segments" | "waveform" | "video"} name
+ * @param {"srt" | "segments" | "waveform" | "video" | "audio"} name
  */
 export function artifactUrl(baseUrl, jobId, name) {
   assertJobId(jobId);
@@ -140,6 +140,25 @@ export async function startBurn({ baseUrl, jobId, style, karaoke, signal, fetchI
   if (style !== undefined) body.style = style;
   if (karaoke !== undefined) body.karaoke = karaoke;
   return asJobView(await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/burn`, method: "POST", body, signal, fetchImpl }));
+}
+
+/**
+ * Pide traducir los subtítulos de una transcripción (ADR 0020). `argos` es local; `openai` usa la clave propia del espacio y puede costar dinero.
+ * @param {{ baseUrl: string, jobId: string, provider: "argos" | "openai", targetLanguage: string, signal?: AbortSignal, fetchImpl?: typeof fetch }} options
+ */
+export async function startTranslate({ baseUrl, jobId, provider, targetLanguage, signal, fetchImpl }) {
+  assertJobId(jobId);
+  return asJobView(await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/translate`, method: "POST", body: { provider, targetLanguage }, signal, fetchImpl }));
+}
+
+/**
+ * Pide doblar con voz sintética (siempre con la clave propia del espacio). `translationId` dobla una traducción ya terminada en vez del original.
+ * @param {{ baseUrl: string, jobId: string, provider: "openai" | "elevenlabs", voice: string, mix: "none" | "replace" | "duck", translationId?: string, signal?: AbortSignal, fetchImpl?: typeof fetch }} options
+ */
+export async function startDub({ baseUrl, jobId, provider, voice, mix, translationId, signal, fetchImpl }) {
+  assertJobId(jobId);
+  const body = translationId === undefined ? { provider, voice, mix } : { provider, voice, mix, translationId };
+  return asJobView(await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/dub`, method: "POST", body, signal, fetchImpl }));
 }
 
 export { isTerminalStatus };

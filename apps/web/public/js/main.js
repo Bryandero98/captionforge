@@ -62,6 +62,8 @@ const externalKeys = createExternalKeys({ doc: document, baseUrl: config.baseUrl
 if (check.state === "confirm") confirm = createInviteConfirm({ doc: document, win: window, baseUrl: config.baseUrl, token: check.token, preview: check.preview, storage, session, t: createTranslator(lang) });
 createApp({
   doc: document,
+  // Un Lector ve y descarga, pero no lanza trabajos (traducir y doblar pueden costar dinero); el API también lo exige.
+  canLaunch: !(access.mode === "session" && access.me?.role === "VIEWER"),
   win: window,
   config,
   onTranslate: (t) => {
