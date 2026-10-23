@@ -802,7 +802,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     const range = await fetch(videoUrl, { headers: { Range: "bytes=0-9" } });
     expect({ status: range.status, length: (await range.arrayBuffer()).byteLength }).toEqual({ status: 206, length: 10 });
     // «Descargar video» baja el archivo con la clave (nombre del video original + .captioned.mp4).
-    await page.click("#burn-download");
+    await page.$eval("#burn-download", (button) => (button as unknown as { click(): void }).click()); // clic DOM: el video recién cargado desplaza el layout
     const foundVideo = () => readdirSync(downloads).find((entry) => entry.endsWith(".captioned.mp4"));
     for (let i = 0; i < 150 && foundVideo() === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(foundVideo()).toBe(`${token}-quema.captioned.mp4`);
