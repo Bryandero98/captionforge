@@ -690,6 +690,20 @@ select:disabled {
   grid-column: 2;
   grid-row: 1 / span 2;
 }
+.extkeys__item {
+  grid-template-columns: 1fr;
+}
+.extkeys__item .keys__detail,
+.extkeys__item .btn {
+  grid-column: 1;
+  grid-row: auto;
+}
+.extkeys__field {
+  margin: 0.25rem 0;
+}
+.extkeys__field input {
+  width: 100%;
+}
 .keys__created {
   display: grid;
   gap: 0.5rem;

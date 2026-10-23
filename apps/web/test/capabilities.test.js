@@ -9,7 +9,7 @@ describe("getCapabilities", () => {
   it("lee si identificar hablantes está disponible", async () => {
     const calls = [];
     const fetchImpl = async (url, init) => (calls.push({ url, init }), json({ diarization: { enabled: true } }));
-    assert.deepEqual(await getCapabilities({ baseUrl: "http://api.test/", fetchImpl }), { diarization: { enabled: true } });
+    assert.deepEqual((await getCapabilities({ baseUrl: "http://api.test/", fetchImpl })).diarization, { enabled: true });
     assert.equal(calls[0].url, "http://api.test/v1/capabilities");
     assert.equal(calls[0].init.cache, "no-store");
   });

@@ -5,6 +5,7 @@ import { readConfig } from "./config.js";
 import { createTranslator, detectLang } from "./i18n/index.js";
 import { createAccount } from "./ui/account.js";
 import { createApp } from "./ui/app.js";
+import { createExternalKeys } from "./ui/external-keys.js";
 import { createInviteConfirm } from "./ui/invite-confirm.js";
 
 const config = readConfig(document);
@@ -50,6 +51,14 @@ let account = null;
 /** @type {ReturnType<typeof createInviteConfirm> | null} */
 let confirm = null;
 account = createAccount({ doc: document, win: window, baseUrl: config.baseUrl, access, t: createTranslator(lang), notice, pendingInvite: pending !== null });
+/** Aviso para lectores de pantalla: se vacía y se vuelve a escribir para que se lea aunque el texto sea igual. */
+const announce = (/** @type {string} */ text) => {
+  const region = document.getElementById("announcer");
+  if (!region) return;
+  region.textContent = "";
+  window.setTimeout(() => (region.textContent = text), 50);
+};
+const externalKeys = createExternalKeys({ doc: document, baseUrl: config.baseUrl, access, t: createTranslator(lang), announce });
 if (check.state === "confirm") confirm = createInviteConfirm({ doc: document, win: window, baseUrl: config.baseUrl, token: check.token, preview: check.preview, storage, session, t: createTranslator(lang) });
 createApp({
   doc: document,
@@ -57,6 +66,7 @@ createApp({
   config,
   onTranslate: (t) => {
     account?.refresh(t);
+    externalKeys.refresh(t);
     confirm?.refresh(t);
   },
 });

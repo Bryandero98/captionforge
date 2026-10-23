@@ -51,6 +51,7 @@
       <span class="account__role" id="account-role"></span>
       <button type="button" class="btn btn--ghost" id="account-team-toggle" hidden aria-expanded="false" aria-controls="team-panel" data-i18n="account.team">Equipo</button>
       <button type="button" class="btn btn--ghost" id="account-keys-toggle" hidden aria-expanded="false" aria-controls="keys-panel" data-i18n="account.keys">Claves de API</button>
+      <button type="button" class="btn btn--ghost" id="account-extkeys-toggle" hidden aria-expanded="false" aria-controls="extkeys-panel" data-i18n="account.extkeys">Claves externas</button>
       <button type="button" class="btn btn--ghost" id="account-signout" data-i18n="account.signOut">Salir</button>
     </div>
 
@@ -114,6 +115,14 @@
         </div>
         <button type="submit" class="btn btn--primary" id="keys-create" data-i18n="keys.create">Crear clave</button>
       </form>
+    </section>
+
+    <!-- Claves de OpenAI / ElevenLabs del espacio (ADR 0020). Solo Dueño con sesión y BYOK activado: js/ui/external-keys.js la muestra; en modo local no existe. -->
+    <section class="panel" id="extkeys-panel" hidden aria-labelledby="extkeys-title">
+      <h2 class="panel__status" id="extkeys-title" data-i18n="extkeys.title">Claves externas</h2>
+      <p class="panel__detail" data-i18n="extkeys.intro">Para traducir y doblar con tus propias cuentas.</p>
+      <ul class="keys__list" id="extkeys-list"></ul>
+      <p class="panel__detail" id="extkeys-problem" role="alert" hidden></p>
     </section>
 
     <main id="main" tabindex="-1">
