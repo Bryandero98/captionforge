@@ -122,6 +122,14 @@ describe("tablas de tenencia y sesiones (ADR 0015 y 0016)", () => {
     await owner.query(`DELETE FROM "Tenant" WHERE id = $1`, [tenant]);
   });
 
+  it("membresías (ADR 0019): cf_api las lee y las crea, pero no cambia roles ni las borra; cf_worker no las ve", async () => {
+    await api.query(`INSERT INTO "Membership" ("userId", "tenantId", role) VALUES ($1, $2, 'OWNER')`, [userRow, tenantRow]);
+    expect((await api.query(`SELECT role::text AS role FROM "Membership" WHERE "userId" = $1`, [userRow])).rows).toEqual([{ role: "OWNER" }]);
+    await expect(api.query(`UPDATE "Membership" SET role = 'VIEWER' WHERE "userId" = $1`, [userRow])).rejects.toThrow(/permission denied/);
+    await expect(api.query(`DELETE FROM "Membership" WHERE "userId" = $1`, [userRow])).rejects.toThrow(/permission denied/);
+    await expect(worker.query(`SELECT 1 FROM "Membership"`)).rejects.toThrow(/permission denied/);
+  });
+
   it("cf_api solo cambia ApiKey.lastUsedAt y ApiKey.revokedAt: no el hash, ni el dueño, ni el nombre", async () => {
     await api.query(`UPDATE "ApiKey" SET "lastUsedAt" = now() WHERE id = $1`, [keyRow]);
     await api.query(`UPDATE "ApiKey" SET "revokedAt" = now() WHERE id = $1`, [keyRow]);

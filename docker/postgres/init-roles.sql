@@ -121,5 +121,10 @@ BEGIN
     REVOKE ALL ON "Session" FROM cf_api, cf_worker;
     GRANT SELECT, INSERT, DELETE ON "Session" TO cf_api;
   END IF;
+  -- Membresías (ADR 0019): por ahora el API las lee y crea la del Dueño al registrar a una persona; no las cambia ni las borra.
+  IF to_regclass('public."Membership"') IS NOT NULL THEN
+    REVOKE ALL ON "Membership" FROM cf_api, cf_worker;
+    GRANT SELECT, INSERT ON "Membership" TO cf_api;
+  END IF;
 END
 $$;

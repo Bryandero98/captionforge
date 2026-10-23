@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { APP_CONFIG, type AppConfig, type ProviderConfig } from "../config/config.js";
 import { Prisma } from "../generated/prisma/client.js";
+import type { Role } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { hashApiKey } from "../tenancy/api-key.js";
 import { PROVIDERS, type Profile, type ProviderId } from "./providers.js";
@@ -127,6 +128,8 @@ export class AuthService {
       this.prisma.$transaction([
         this.prisma.tenant.create({ data: { id: tenantId, name: label.slice(0, 100) } }),
         this.prisma.user.create({ data: { id: userId, tenantId, email, name: profile.name, provider, subject: profile.subject } }),
+        // Dueña de su espacio desde el primer momento (ADR 0019); sin membresía no habría rol y toda ruta se negaría.
+        this.prisma.membership.create({ data: { userId, tenantId, role: "OWNER" } }),
       ]);
     try {
       await create(profile.email);
@@ -155,14 +158,19 @@ export class AuthService {
     await this.prisma.session.deleteMany({ where: { tokenHash: hashApiKey(token) } });
   }
 
-  /** La sesión vigente de un token de cookie, o null. */
-  async findSession(token: string): Promise<{ userId: string; tenantId: string } | null> {
+  /**
+   * La sesión vigente de un token de cookie, con el espacio activo y el rol de la persona en él, o null. Espacio activo: el que
+   * la sesión recuerda si la persona sigue siendo miembro; si no, el primero al que se unió. Sin ninguna membresía no hay
+   * identidad utilizable (null): fail-closed.
+   */
+  async findSession(token: string): Promise<{ userId: string; tenantId: string; role: Role } | null> {
     const row = await this.prisma.session.findUnique({
       where: { tokenHash: hashApiKey(token) },
-      select: { expiresAt: true, user: { select: { id: true, tenantId: true } } },
+      select: { expiresAt: true, tenantId: true, user: { select: { id: true, memberships: { select: { tenantId: true, role: true }, orderBy: { createdAt: "asc" } } } } },
     });
     if (!row || row.expiresAt.getTime() <= Date.now()) return null;
-    return { userId: row.user.id, tenantId: row.user.tenantId };
+    const active = row.user.memberships.find((membership) => membership.tenantId === row.tenantId) ?? row.user.memberships[0];
+    return active === undefined ? null : { userId: row.user.id, tenantId: active.tenantId, role: active.role };
   }
 
   failure(error: unknown): BadGatewayException {

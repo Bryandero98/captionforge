@@ -14,6 +14,7 @@ import { PrismaService } from "./prisma/prisma.service.js";
 import { QueueService } from "./queue/queue.service.js";
 import { ConnectionLimits } from "./security/connection-limits.js";
 import { StorageService } from "./storage/storage.service.js";
+import { RolesGuard } from "./tenancy/roles.js";
 import { TenantAuthGuard } from "./tenancy/tenant-auth.guard.js";
 
 @Module({})
@@ -32,7 +33,9 @@ export class AppModule {
         AuthService,
         ReaperService,
         ConnectionLimits,
+        // El orden importa: primero quién eres (tenant y rol), luego lo que ese rol puede hacer.
         { provide: APP_GUARD, useClass: TenantAuthGuard },
+        { provide: APP_GUARD, useClass: RolesGuard },
       ],
     };
   }

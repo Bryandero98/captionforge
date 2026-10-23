@@ -32,9 +32,11 @@ model Tenant {
   name      String
   createdAt DateTime @default(now())
 
-  users   User[]
-  apiKeys ApiKey[]
-  jobs    Job[]
+  users       User[]
+  apiKeys     ApiKey[]
+  jobs        Job[]
+  memberships Membership[]
+  sessions    Session[]
 }
 
 // Persona. `provider` + `subject` identifican la cuenta en el proveedor de inicio de sesión (github, google): los
@@ -48,8 +50,9 @@ model User {
   subject   String?
   createdAt DateTime @default(now())
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  sessions Session[]
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sessions    Session[]
+  memberships Membership[]
 
   @@unique([provider, subject])
   @@index([tenantId])
@@ -60,11 +63,14 @@ model User {
 model Session {
   id        String   @id @db.Uuid
   userId    String   @db.Uuid
+  /// Espacio de trabajo activo; nulo = el primero de la persona (ADR 0019).
+  tenantId  String?  @db.Uuid
   tokenHash String   @unique
   createdAt DateTime @default(now())
   expiresAt DateTime
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
 
   @@index([userId])
   @@index([expiresAt])
@@ -126,4 +132,25 @@ model Job {
   @@index([parentJobId])
   @@index([tenantId, createdAt])
   @@index([tenantId, status])
+}
+
+/// Permisos de una persona en un espacio de trabajo (ADR 0019).
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+/// Una persona puede ser miembro de varios espacios, con un rol en cada uno. Un espacio con miembros no se borra.
+model Membership {
+  userId    String   @db.Uuid
+  tenantId  String   @db.Uuid
+  role      Role
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([userId, tenantId])
+  @@index([tenantId])
 }

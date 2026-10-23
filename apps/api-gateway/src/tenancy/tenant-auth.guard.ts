@@ -14,6 +14,7 @@ import { AuthService } from "../auth/auth.service.js";
 import { SESSION_COOKIE, cookieName, readCookie } from "../auth/cookies.js";
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import type { Role } from "../generated/prisma/enums.js";
 import { MAX_API_KEY_LENGTH, hashApiKey } from "./api-key.js";
 
 declare module "fastify" {
@@ -28,6 +29,9 @@ declare module "fastify" {
 /** Rutas sin autenticación: sondeos, funciones opcionales (solo booleanos) y el propio inicio de sesión. */
 const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/health", "/v1/capabilities"]);
 const isPublic = (path: string): boolean => PUBLIC_PATHS.has(path) || path.startsWith("/auth/");
+
+/** Una clave de API actúa siempre como Editor (ADR 0019): ni lee menos ni gestiona claves ni miembros. */
+const API_KEY_ROLE: Role = "EDITOR";
 
 /** Cada cuánto, como máximo, se vuelve a anotar `lastUsedAt` de una misma clave. */
 export const LAST_USED_REFRESH_MS = 60_000;
@@ -77,6 +81,7 @@ export class TenantAuthGuard implements CanActivate {
             });
       if (!row || row.revokedAt !== null) throw this.unauthorized(http.getResponse<FastifyReply>());
       request.tenantId = row.tenantId;
+      request.role = API_KEY_ROLE;
       this.touch(row.id, row.lastUsedAt);
       return true;
     }
@@ -89,6 +94,7 @@ export class TenantAuthGuard implements CanActivate {
     }
     request.tenantId = session.tenantId;
     request.userId = session.userId;
+    request.role = session.role;
     return true;
   }
 
