@@ -3,6 +3,7 @@ import { Reflector } from "@nestjs/core";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Observable } from "rxjs";
 
+import { MetricsService } from "../observability/metrics.service.js";
 import { TenantQuotaService, type QuotaDenial } from "./tenant-quota.service.js";
 
 export type QuotaKind = "upload" | "queue";
@@ -25,6 +26,7 @@ export class TenantQuotaInterceptor implements NestInterceptor {
   constructor(
     private readonly reflector: Reflector,
     private readonly quota: TenantQuotaService,
+    private readonly metrics: MetricsService,
   ) {}
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
@@ -33,6 +35,7 @@ export class TenantQuotaInterceptor implements NestInterceptor {
     if (kind !== undefined && request.tenantId !== undefined) {
       const denial = kind === "upload" ? await this.quota.checkUpload(request.tenantId) : await this.quota.checkQueue(request.tenantId);
       if (denial !== null) {
+        this.metrics.quotaDenied.inc({ reason: denial.reason });
         context.switchToHttp().getResponse<FastifyReply>().header("retry-after", String(denial.retryAfterSeconds));
         throw new HttpException(`${MESSAGES[denial.reason]} Inténtalo de nuevo en ${denial.retryAfterSeconds} s.`, HttpStatus.TOO_MANY_REQUESTS);
       }

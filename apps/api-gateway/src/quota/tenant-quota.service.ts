@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common
 import { Redis } from "ioredis";
 
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
+import { MetricsService } from "../observability/metrics.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 
 /** Motivo por el que una cuota niega la petición y cuántos segundos conviene esperar. */
@@ -38,6 +39,7 @@ export class TenantQuotaService implements OnModuleDestroy {
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly prisma: PrismaService,
+    private readonly metrics: MetricsService,
   ) {
     this.client = new Redis({
       host: config.redis.host,
@@ -81,6 +83,7 @@ export class TenantQuotaService implements OnModuleDestroy {
 
   private noteFailure(error: unknown): void {
     this.failures += 1;
+    this.metrics.quotaRedisFailures.inc();
     const now = Date.now();
     if (now - this.lastLoggedAt < LOG_EVERY_MS) return;
     this.lastLoggedAt = now;

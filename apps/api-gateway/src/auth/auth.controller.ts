@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { timingSafeEqual } from "node:crypto";
 
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
+import { MetricsService } from "../observability/metrics.service.js";
 import { CSRF_HEADER, CSRF_VALUE } from "../tenancy/tenant-auth.guard.js";
 import { AuthService } from "./auth.service.js";
 import { OAUTH_COOKIE, SESSION_COOKIE, clearCookie, cookieName, readCookie, setCookie } from "./cookies.js";
@@ -23,6 +24,7 @@ export class AuthController {
 
   constructor(
     private readonly auth: AuthService,
+    private readonly metrics: MetricsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.secure = config.auth.publicUrl.startsWith("https:");
@@ -57,12 +59,16 @@ export class AuthController {
     // La cookie del intento se consume SIEMPRE, salga bien o mal: un callback no se puede repetir.
     const attempt = readCookie(request.headers.cookie, cookieName(OAUTH_COOKIE, this.secure));
     reply.header("Set-Cookie", clearCookie(cookieName(OAUTH_COOKIE, this.secure), this.secure));
-    if (providerError !== undefined) return this.fail(reply, "denied");
+    if (providerError !== undefined) {
+      this.metrics.logins.inc({ provider, result: "denied" });
+      return this.fail(reply, "denied");
+    }
 
     const dot = attempt?.indexOf(".") ?? -1;
     const expectedState = attempt === undefined || dot < 1 ? undefined : attempt.slice(0, dot);
     const verifier = attempt === undefined || dot < 1 ? undefined : attempt.slice(dot + 1);
     if (typeof state !== "string" || typeof code !== "string" || code === "" || expectedState === undefined || verifier === undefined || !sameText(state, expectedState)) {
+      this.metrics.logins.inc({ provider, result: "state" });
       return this.fail(reply, "state");
     }
 
@@ -70,6 +76,7 @@ export class AuthController {
       const profile = await this.auth.exchange(provider, code, verifier);
       const { userId } = await this.auth.login(provider, profile);
       const session = await this.auth.openSession(userId);
+      this.metrics.logins.inc({ provider, result: "ok" });
       reply
         .header("Set-Cookie", [
           clearCookie(cookieName(OAUTH_COOKIE, this.secure), this.secure),
@@ -78,6 +85,7 @@ export class AuthController {
         .header("Cache-Control", "no-store")
         .redirect("/", 302);
     } catch (error) {
+      this.metrics.logins.inc({ provider, result: "provider_error" });
       this.auth.failure(error);
       this.fail(reply, "provider");
     }

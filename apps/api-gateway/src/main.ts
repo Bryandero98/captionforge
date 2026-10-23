@@ -4,7 +4,8 @@ import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { HttpException, Logger, type LogLevel } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { HttpException, Logger, type LoggerService, type LogLevel } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import multipart from "@fastify/multipart";
@@ -15,20 +16,24 @@ import type { FastifyRequest } from "fastify";
 
 import { AppModule } from "./app.module.js";
 import { type AppConfig, loadConfig } from "./config/config.js";
+import { JsonLogger } from "./observability/json-logger.js";
+import { MetricsService } from "./observability/metrics.service.js";
+import { startMetricsServer } from "./observability/metrics-server.js";
 import { clientKey } from "./security/client-key.js";
 import { describePolicy, evaluate } from "./security/request-guard.js";
 
 export async function createApp(
   config: AppConfig,
-  options: { logger?: LogLevel[] | false } = {},
+  options: { logger?: LogLevel[] | false | LoggerService } = {},
 ): Promise<NestFastifyApplication> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.register(config),
     // bodyLimit solo afecta a los cuerpos JSON (ediciones de subtítulos, opciones de quemado); las
     // subidas van por multipart y tienen su propio límite.
-    new FastifyAdapter({ bodyLimit: 4 * 1024 * 1024, trustProxy: config.security.trustProxy }),
-    { logger: options.logger ?? ["error", "warn", "log"] },
+    new FastifyAdapter({ bodyLimit: 4 * 1024 * 1024, trustProxy: config.security.trustProxy, genReqId: requestId }),
+    { logger: options.logger ?? (config.observability.logFormat === "json" ? new JsonLogger() : ["error", "warn", "log"]) },
   );
+  registerObservability(app, config);
   // La guardia va PRIMERO: los ganchos corren en orden de registro, y ni el CORS ni el límite de uso ni el
   // procesado del cuerpo deben ocurrir para una petición que ya se sabe ajena.
   await registerBrowserGuard(app, config);
@@ -47,6 +52,46 @@ export async function createApp(
   await registerRateLimit(app, config);
   app.enableShutdownHooks();
   return app;
+}
+
+/** Identificador de petición: el de Caddy (`X-Request-Id`) si es razonable; si no, uno nuevo. Nada de texto libre en los registros. */
+const REQUEST_ID = /^[A-Za-z0-9._-]{8,64}$/;
+function requestId(request: { headers: Record<string, string | string[] | undefined> }): string {
+  const header = request.headers["x-request-id"];
+  return typeof header === "string" && REQUEST_ID.test(header) ? header : randomUUID();
+}
+
+/**
+ * Métricas y registro de cada petición (ADR 0018). Se registra ANTES de la guardia de navegador para que también cuenten las
+ * peticiones rechazadas. La ruta es el PATRÓN (`/v1/jobs/:id`), nunca la URL: así ni los ids ni la cadena de consulta
+ * (códigos de OAuth) llegan a los registros ni a las etiquetas de las métricas. Cabeceras, cookies y cuerpo no se registran.
+ */
+function registerObservability(app: NestFastifyApplication, config: AppConfig): void {
+  const fastify = app.getHttpAdapter().getInstance();
+  const logger = new Logger("HTTP");
+  let cached: MetricsService | undefined;
+  fastify.addHook("onRequest", async (request, reply) => {
+    reply.header("X-Request-Id", request.id);
+  });
+  fastify.addHook("onResponse", async (request, reply) => {
+    const route = request.routeOptions?.url ?? "no_encontrada";
+    const seconds = reply.elapsedTime / 1000;
+    const metrics = (cached ??= app.get(MetricsService));
+    metrics.httpRequests.inc({ method: request.method, route, status: String(reply.statusCode) });
+    metrics.httpDuration.observe({ method: request.method, route }, seconds);
+    if (config.observability.logRequests && route !== "/health") {
+      logger.log({
+        event: "http_request",
+        requestId: request.id,
+        method: request.method,
+        route,
+        status: reply.statusCode,
+        durationMs: Math.round(reply.elapsedTime),
+        tenantId: request.tenantId,
+        ip: request.ip,
+      });
+    }
+  });
 }
 
 /**
@@ -234,6 +279,10 @@ async function bootstrap(): Promise<void> {
   const config = loadConfig();
   const app = await createApp(config);
   await app.listen(config.port, config.host);
+  if (config.observability.metricsPort > 0) {
+    await startMetricsServer(app, { host: config.observability.metricsHost, port: config.observability.metricsPort });
+    new Logger("Métricas").log(`Métricas en ${config.observability.metricsHost}:${config.observability.metricsPort}/metrics (red interna; no se publica)`);
+  }
   // La política efectiva queda en el registro: un ALLOWED_HOSTS o ALLOWED_ORIGINS mal puesto se ve al arrancar.
   new Logger("Seguridad").log(`Política de navegador activa — ${describePolicy(config.security)}`);
 }
