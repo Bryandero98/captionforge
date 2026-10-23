@@ -36,7 +36,7 @@ export function artifactUrl(baseUrl, jobId, name) {
  * @param {{ url: string, method?: string, body?: unknown, signal?: AbortSignal, fetchImpl?: typeof fetch }} request
  * @returns {Promise<unknown>}
  */
-async function requestJson({ url, method = "GET", body, signal, fetchImpl = (...args) => fetch(...args) }) {
+export async function requestJson({ url, method = "GET", body, signal, fetchImpl = (...args) => fetch(...args) }) {
   if (signal?.aborted) throw ApiError.aborted();
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
@@ -59,6 +59,7 @@ async function requestJson({ url, method = "GET", body, signal, fetchImpl = (...
     }
     const text = await response.text().catch(() => "");
     if (!response.ok) throw errorFromResponse(response.status, text, response.headers.get("retry-after"));
+    if (response.status === 204) return null;
     if (!(response.headers.get("content-type") ?? "").includes("application/json")) throw new ApiError({ status: response.status, code: "bad_response" });
     try {
       return JSON.parse(text);

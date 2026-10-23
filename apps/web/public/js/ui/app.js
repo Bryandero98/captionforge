@@ -32,9 +32,10 @@ const MODELS = ["base", "small", "medium"];
  *   follower?: typeof followJob,
  *   fetchJob?: typeof getJob,
  *   capabilities?: typeof getCapabilities,
+ *   onTranslate?: (t: (key: string, params?: Record<string, string | number>) => string) => void,
  * }} deps
  */
-export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob, capabilities = getCapabilities }) {
+export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob, capabilities = getCapabilities, onTranslate = () => {} }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -578,6 +579,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     // Región viva que solo cambia de contenido (ocultarla con `hidden` hace poco fiable el anuncio).
     els.langNotice.textContent = REVIEWED_LANGS.includes(lang) ? "" : t("lang.notice");
     fillSelects();
+    onTranslate(t); // la cuenta (ui/account.js) repinta lo que depende de los datos
   }
 
   /** Nombre del idioma en el idioma de la interfaz; si el navegador no lo conoce, el nombre del diccionario. */

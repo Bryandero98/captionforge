@@ -198,7 +198,7 @@ describe("CORS con lista cerrada de orígenes", () => {
     });
     expect(reply.status).toBe(204);
     expect(reply.headers["access-control-allow-origin"]).toBe(WEB);
-    expect(reply.headers["access-control-allow-methods"]).toBe("GET, HEAD, POST, PUT, OPTIONS");
+    expect(reply.headers["access-control-allow-methods"]).toBe("GET, HEAD, POST, PUT, DELETE, OPTIONS");
     expect(reply.headers["access-control-allow-headers"]).toMatch(/x-api-key/i);
     expect(reply.headers["access-control-allow-credentials"]).toBeUndefined();
     expect(reply.headers["access-control-max-age"]).toBeDefined();

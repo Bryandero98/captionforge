@@ -10,6 +10,15 @@ const MAX_KEY_LENGTH = 256;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 let apiKey = "";
+let sessionMode = false;
+
+/** Con sesión de navegador, toda petición lleva X-Requested-With: el API lo exige a las que modifican (CSRF, ADR 0016). */
+export const CSRF_HEADERS = Object.freeze({ "X-Requested-With": "captionforge" });
+
+/** Activa o desactiva el modo sesión (la cookie viaja sola; aquí solo se añade la cabecera anti-CSRF). @param {boolean} on */
+export function setSessionMode(on) {
+  sessionMode = on;
+}
 
 /** Fija la clave que llevarán las peticiones. Vacía o inválida = ninguna. @param {unknown} key */
 export function setApiKey(key) {
@@ -23,7 +32,8 @@ export const hasApiKey = () => apiKey !== "";
  * @returns {Record<string, string>}
  */
 export function authHeaders() {
-  return apiKey === "" ? {} : { "X-API-Key": apiKey };
+  if (apiKey !== "") return { "X-API-Key": apiKey };
+  return sessionMode ? { ...CSRF_HEADERS } : {};
 }
 
 /**

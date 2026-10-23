@@ -615,6 +615,71 @@ select:disabled {
     grid-template-columns: 1fr 1fr;
   }
 }
+/* Cuenta y claves de API (ADR 0016) */
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+.account__name {
+  margin-right: auto;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.keys__list {
+  list-style: none;
+  margin: 0.75rem 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.keys__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.keys__item.is-revoked {
+  opacity: 0.6;
+}
+.keys__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.keys__detail {
+  grid-column: 1;
+  margin: 0;
+}
+.keys__item .btn {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.keys__created {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-wash);
+}
+.keys__value {
+  display: block;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.keys__form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
 .history {
   margin-top: 40px;
 }
