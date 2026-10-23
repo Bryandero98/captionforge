@@ -76,7 +76,7 @@ function registerObservability(app: NestFastifyApplication, config: AppConfig): 
   fastify.addHook("onResponse", async (request, reply) => {
     const route = request.routeOptions?.url ?? "no_encontrada";
     const seconds = reply.elapsedTime / 1000;
-    const metrics: MetricsService = cached ?? (cached = app.get(MetricsService));
+    const metrics: MetricsService = cached ?? (cached = app.get(MetricsService) as MetricsService);
     metrics.httpRequests.inc({ method: request.method, route, status: String(reply.statusCode) });
     metrics.httpDuration.observe({ method: request.method, route }, seconds);
     if (config.observability.logRequests && route !== "/health") {
