@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PROVIDERS, type ProviderEndpoints, type ProviderId } from "../auth/providers.js";
+import { MIN_APP_SECRET_BYTES } from "../external-keys/external-key-crypto.js";
 
 export const APP_CONFIG = Symbol("APP_CONFIG");
 
@@ -44,6 +45,11 @@ export interface AppConfig {
   observability: { logFormat: "json" | "text"; logRequests: boolean; metricsHost: string; metricsPort: number };
   /** Funciones opcionales que el servidor anuncia en GET /v1/capabilities. */
   features: { diarization: boolean };
+  /**
+   * Claves externas propias (BYOK, ADR 0020). Sin `appSecret` la función queda apagada: nunca se cifra con un valor por defecto.
+   * Es un secreto: no se registra ni se devuelve en ninguna respuesta.
+   */
+  byok: { appSecret: string | undefined };
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
   /** Seguridad del API: clave por defecto de la interfaz web y límites de uso por IP (0 = sin límite). */
@@ -183,6 +189,17 @@ function parseObservability(env: NodeJS.ProcessEnv, integer: (name: string, fall
   };
 }
 
+/**
+ * APP_SECRET: sin valor, BYOK apagado. Definido, debe tener 32 bytes o más y ningún espacio ni salto de línea en los extremos (un
+ * .env mal copiado cambiaría la clave derivada y dejaría ilegibles las claves ya guardadas). El mensaje nunca repite el valor.
+ */
+function parseAppSecret(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  if (raw !== raw.trim()) throw new Error("APP_SECRET no puede llevar espacios ni saltos de línea al principio o al final");
+  if (Buffer.byteLength(raw, "utf8") < MIN_APP_SECRET_BYTES) throw new Error(`APP_SECRET debe tener al menos ${MIN_APP_SECRET_BYTES} bytes`);
+  return raw;
+}
+
 /** PUBLIC_URL: origen público del servicio. Sin valor, el de la dirección local. */
 function parsePublicUrl(raw: string | undefined, port: number): string {
   const value = (raw ?? "").trim();
@@ -245,6 +262,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       providers: { github: parseProvider(env, "github"), google: parseProvider(env, "google") },
     },
     features: { diarization: parseDiarization(env) },
+    byok: { appSecret: parseAppSecret(env.APP_SECRET) },
     observability: parseObservability(env, integer),
     reaper: {
       intervalMs: integer("REAPER_INTERVAL_SECONDS", 60, { allowZero: true }) * 1000,

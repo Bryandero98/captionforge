@@ -85,4 +85,40 @@ describe("loadConfig: interfaz web", () => {
   it.each(["off", "OFF", "none", "false"])("WEB_ROOT=%s desactiva la interfaz (despliegue solo de API)", (value) => {
     expect(loadConfig({ ...base, WEB_ROOT: value }).webRoot).toBeUndefined();
   });
+
+  describe("APP_SECRET (claves externas propias, ADR 0020)", () => {
+    const SECRET = "a-valid-app-secret-of-32-bytes-or-more!";
+
+    it("sin valor la función queda apagada: no hay secreto y el resto de la configuración carga", () => {
+      expect(loadConfig(base).byok.appSecret).toBeUndefined();
+      expect(loadConfig({ ...base, APP_SECRET: "" }).byok.appSecret).toBeUndefined();
+    });
+
+    it("con 32 bytes o más la enciende", () => {
+      expect(loadConfig({ ...base, APP_SECRET: SECRET }).byok.appSecret).toBe(SECRET);
+      expect(loadConfig({ ...base, APP_SECRET: "x".repeat(32) }).byok.appSecret).toBe("x".repeat(32));
+    });
+
+    it("uno definido pero demasiado corto falla al arrancar, sin repetir el valor", () => {
+      expect(() => loadConfig({ ...base, APP_SECRET: "corto-pero-secreto" })).toThrow(/APP_SECRET.*32/);
+      let message = "";
+      try {
+        loadConfig({ ...base, APP_SECRET: "corto-pero-secreto" });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain("corto-pero-secreto");
+    });
+
+    it("espacios al principio o al final (error típico de un .env) fallan al arrancar", () => {
+      expect(() => loadConfig({ ...base, APP_SECRET: ` ${SECRET}` })).toThrow(/APP_SECRET.*espacios/);
+      expect(() => loadConfig({ ...base, APP_SECRET: `${SECRET}\n` })).toThrow(/APP_SECRET.*espacios/);
+    });
+
+    it("el mínimo se mide en bytes, no en caracteres", () => {
+      // 16 caracteres de 2 bytes cada uno = 32 bytes: vale. 15 de ellos = 30 bytes: no.
+      expect(() => loadConfig({ ...base, APP_SECRET: "ñ".repeat(16) })).not.toThrow();
+      expect(() => loadConfig({ ...base, APP_SECRET: "ñ".repeat(15) })).toThrow(/APP_SECRET/);
+    });
+  });
 });
