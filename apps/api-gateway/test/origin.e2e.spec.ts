@@ -25,7 +25,7 @@ async function start(security: Record<string, unknown> = {}): Promise<{ port: nu
       security: {
         webApiKey: undefined,
         rateLimitPerMinute: 0,
-        uploadRateLimitPerMinute: 0,
+        uploadRateLimitPerMinute: 0, tenantUploadsPerHour: 0, tenantMaxQueuedJobs: 0,
         trustProxy: false,
         maxConcurrentUploads: 0,
         maxConcurrentUploadsPerClient: 0,

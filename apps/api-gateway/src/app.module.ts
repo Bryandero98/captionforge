@@ -10,8 +10,11 @@ import { HealthController } from "./health/health.controller.js";
 import { JobsController } from "./jobs/jobs.controller.js";
 import { JobsService } from "./jobs/jobs.service.js";
 import { ReaperService } from "./jobs/reaper.service.js";
+import { MetricsService } from "./observability/metrics.service.js";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { QueueService } from "./queue/queue.service.js";
+import { TenantQuotaInterceptor } from "./quota/tenant-quota.interceptor.js";
+import { TenantQuotaService } from "./quota/tenant-quota.service.js";
 import { ConnectionLimits } from "./security/connection-limits.js";
 import { StorageService } from "./storage/storage.service.js";
 import { RolesGuard } from "./tenancy/roles.js";
@@ -33,6 +36,9 @@ export class AppModule {
         AuthService,
         ReaperService,
         ConnectionLimits,
+        MetricsService,
+        TenantQuotaService,
+        TenantQuotaInterceptor,
         // El orden importa: primero quién eres (tenant y rol), luego lo que ese rol puede hacer.
         { provide: APP_GUARD, useClass: TenantAuthGuard },
         { provide: APP_GUARD, useClass: RolesGuard },

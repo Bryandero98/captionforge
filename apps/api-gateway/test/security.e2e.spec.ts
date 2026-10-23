@@ -12,7 +12,7 @@ const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 async function start(security: Partial<typeof baseConfig.security>): Promise<string> {
   await sharedTenant();
   const app = await createApp(
-    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { webApiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, trustProxy: false, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0, uploadRateWindowMs: 30_000, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"], ...security } },
+    { ...baseConfig, reaper: { ...baseConfig.reaper, intervalMs: 0 }, security: { webApiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, tenantUploadsPerHour: 0, tenantMaxQueuedJobs: 0, trustProxy: false, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0, uploadRateWindowMs: 30_000, maxEventStreams: 0, maxEventStreamsPerClient: 0, eventStreamMaxMs: 0, allowedOrigins: [], allowedHosts: ["localhost", "127.0.0.1", "[::1]"], ...security } },
     { logger: ["error"] },
   );
   await app.listen(0, "127.0.0.1");
@@ -86,12 +86,14 @@ describe("límite de uso", () => {
 describe("configuración", () => {
   it("los valores por defecto activan los límites y no entregan ninguna clave a la interfaz", () => {
     const env = { ...process.env } as Record<string, string | undefined>;
-    for (const name of ["WEB_API_KEY", "RATE_LIMIT_PER_MINUTE", "UPLOAD_RATE_LIMIT_PER_MINUTE", "REAPER_INTERVAL_SECONDS", "TRUST_PROXY", "MAX_CONCURRENT_UPLOADS", "MAX_CONCURRENT_UPLOADS_PER_CLIENT", "UPLOAD_MIN_BYTES_PER_SECOND", "UPLOAD_RATE_WINDOW_SECONDS", "MAX_EVENT_STREAMS", "MAX_EVENT_STREAMS_PER_CLIENT", "EVENT_STREAM_MAX_SECONDS", "ALLOWED_ORIGINS", "ALLOWED_HOSTS"]) delete env[name];
+    for (const name of ["WEB_API_KEY", "RATE_LIMIT_PER_MINUTE", "UPLOAD_RATE_LIMIT_PER_MINUTE", "REAPER_INTERVAL_SECONDS", "TRUST_PROXY", "TENANT_UPLOADS_PER_HOUR", "TENANT_MAX_QUEUED_JOBS", "MAX_CONCURRENT_UPLOADS", "MAX_CONCURRENT_UPLOADS_PER_CLIENT", "UPLOAD_MIN_BYTES_PER_SECOND", "UPLOAD_RATE_WINDOW_SECONDS", "MAX_EVENT_STREAMS", "MAX_EVENT_STREAMS_PER_CLIENT", "EVENT_STREAM_MAX_SECONDS", "ALLOWED_ORIGINS", "ALLOWED_HOSTS"]) delete env[name];
     const config = loadConfig(env);
     expect(config.security).toEqual({
       webApiKey: undefined,
       rateLimitPerMinute: 240,
       uploadRateLimitPerMinute: 10,
+      tenantUploadsPerHour: 60,
+      tenantMaxQueuedJobs: 20,
       trustProxy: false,
       maxConcurrentUploads: 4,
       maxConcurrentUploadsPerClient: 2,

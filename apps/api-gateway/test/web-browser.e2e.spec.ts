@@ -59,7 +59,7 @@ async function startApi(overrides: Overrides = {}): Promise<string> {
       security: {
         webApiKey: tenant.apiKey,
         rateLimitPerMinute: 0,
-        uploadRateLimitPerMinute: overrides.uploadRateLimitPerMinute ?? 0,
+        uploadRateLimitPerMinute: overrides.uploadRateLimitPerMinute ?? 0, tenantUploadsPerHour: 0, tenantMaxQueuedJobs: 0,
         trustProxy: false,
         maxConcurrentUploads: 0,
         maxConcurrentUploadsPerClient: 0,

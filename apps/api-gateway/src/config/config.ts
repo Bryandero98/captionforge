@@ -40,6 +40,8 @@ export interface AppConfig {
     sessionTtlMs: number;
     providers: { github?: ProviderConfig; google?: ProviderConfig };
   };
+  /** Registros y métricas (ADR 0018). `metricsPort` 0 desactiva el servidor de métricas; escucha en `metricsHost`, nunca en el puerto público. */
+  observability: { logFormat: "json" | "text"; logRequests: boolean; metricsHost: string; metricsPort: number };
   /** Funciones opcionales que el servidor anuncia en GET /v1/capabilities. */
   features: { diarization: boolean };
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
@@ -53,6 +55,9 @@ export interface AppConfig {
     webApiKey: string | undefined;
     rateLimitPerMinute: number;
     uploadRateLimitPerMinute: number;
+    /** Cuotas por tenant (ADR 0017, 0 = sin límite): subidas por hora (contador en Redis) y trabajos en cola o en curso. */
+    tenantUploadsPerHour: number;
+    tenantMaxQueuedJobs: number;
     /** Lista de redes de confianza (IP o CIDR) o booleano. `true` confía en TODA cabecera X-Forwarded-For. */
     trustProxy: boolean | string[];
     /** Operaciones largas a la vez (0 = sin límite): subidas en total y por cliente, y flujos SSE en total y por cliente. */
@@ -163,6 +168,21 @@ function parseProvider(env: NodeJS.ProcessEnv, id: ProviderId): ProviderConfig |
   return { clientId, clientSecret, endpoints: PROVIDERS[id].endpoints };
 }
 
+/** LOG_FORMAT (`text` por defecto, `json` en el contenedor), LOG_REQUESTS (una línea por petición; por defecto solo con json) y servidor de métricas. */
+function parseObservability(env: NodeJS.ProcessEnv, integer: (name: string, fallback: number, options?: { allowZero?: boolean; max?: number }) => number): AppConfig["observability"] {
+  const format = (env.LOG_FORMAT ?? "text").trim().toLowerCase();
+  if (format !== "text" && format !== "json") throw new Error(`LOG_FORMAT debe ser text o json (recibido "${env.LOG_FORMAT}")`);
+  const requests = (env.LOG_REQUESTS ?? "").trim().toLowerCase();
+  if (requests !== "" && requests !== "true" && requests !== "false") throw new Error(`LOG_REQUESTS debe ser true o false (recibido "${env.LOG_REQUESTS}")`);
+  return {
+    logFormat: format,
+    logRequests: requests === "" ? format === "json" : requests === "true",
+    // Solo el loopback por defecto: en el contenedor se pone 0.0.0.0 y el puerto no se publica en el host.
+    metricsHost: (env.METRICS_HOST ?? "127.0.0.1").trim(),
+    metricsPort: integer("METRICS_PORT", 9090, { allowZero: true, max: 65_535 }),
+  };
+}
+
 /** PUBLIC_URL: origen público del servicio. Sin valor, el de la dirección local. */
 function parsePublicUrl(raw: string | undefined, port: number): string {
   const value = (raw ?? "").trim();
@@ -225,6 +245,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       providers: { github: parseProvider(env, "github"), google: parseProvider(env, "google") },
     },
     features: { diarization: parseDiarization(env) },
+    observability: parseObservability(env, integer),
     reaper: {
       intervalMs: integer("REAPER_INTERVAL_SECONDS", 60, { allowZero: true }) * 1000,
       // Más que cualquier fase sin progreso del worker (ffmpeg corta a los 5 min sin actividad).
@@ -235,6 +256,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       webApiKey,
       rateLimitPerMinute: integer("RATE_LIMIT_PER_MINUTE", 240, { allowZero: true }),
       uploadRateLimitPerMinute: integer("UPLOAD_RATE_LIMIT_PER_MINUTE", 10, { allowZero: true }),
+      tenantUploadsPerHour: integer("TENANT_UPLOADS_PER_HOUR", 60, { allowZero: true }),
+      tenantMaxQueuedJobs: integer("TENANT_MAX_QUEUED_JOBS", 20, { allowZero: true }),
       trustProxy: parseTrustProxy(env.TRUST_PROXY),
       // Cada subida retiene ~15 MiB (3 partes de 5 MiB): con 4 a la vez son ~60 MiB de los 512 del contenedor.
       maxConcurrentUploads: integer("MAX_CONCURRENT_UPLOADS", 4, { allowZero: true }),
