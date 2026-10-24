@@ -102,6 +102,10 @@ curl -OJ http://127.0.0.1:3000/v1/jobs/<id>/artifacts/srt
 
 Cada llamada necesita tu clave de API: añade `-H "X-API-Key: <clave>"` (la `DEFAULT_API_KEY` de tu `.env`; también sirve `Authorization: Bearer <clave>`). Un trabajo pertenece al tenant dueño de la clave: otra clave recibe `404`, nunca `403`.
 
+## Archivos de audio
+
+Además de video (MP4, MOV, MKV, WEBM, AVI), CaptionForge acepta archivos de **solo audio**: **MP3, WAV, M4A, OGG y FLAC**. Siguen el mismo flujo (transcripción → traducción opcional → doblaje opcional). Con un audio la aplicación muestra un reproductor `<audio>` estándar con el original, oculta el quemado de subtítulos (no hay imagen) y la mezcla del doblaje con video, y entrega el doblaje como pista **`.mp3`**. Ver el [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md).
+
 ## Idiomas compatibles
 
 Los dos motores funcionan en local, sin cuenta y sin costo por uso.

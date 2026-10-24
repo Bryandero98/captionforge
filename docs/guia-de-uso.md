@@ -18,7 +18,7 @@ ningún marcador `{x}`).
 ## Paso a paso
 
 1. **Elige tus videos.** Arrastra hasta 20 a la zona punteada o pulsa «Elige un archivo». Formatos: MP4, MOV, MKV, WEBM
-   y AVI. Los archivos que no sirven se descartan y se explica por qué.
+   y AVI, o audio: MP3, WAV, M4A, OGG y FLAC (ver «Audio»). Los archivos que no sirven se descartan y se explica por qué.
 2. **Ajusta las opciones.** *Modelo*: Base es el más rápido y Medium el más preciso. *Idioma del audio*: déjalo en
    «Autodetectar» salvo que lo sepas. *Traducir a*: opcional, para obtener los subtítulos en otro idioma.
    *Limpiar ruido de fondo* (desactivado por defecto): actívalo si hay música o ruido fuerte sobre la voz. Tarda más, porque
@@ -45,6 +45,19 @@ ningún marcador `{x}`).
 7. **Traduce o dobla (opcional).** Con una transcripción terminada y los cambios guardados, «Traducir los subtítulos» y
    «Doblar con voz sintética» crean trabajos aparte. Traducir funciona sin cuenta externa; doblar necesita la clave de un
    proveedor guardada por el Dueño. Ver las secciones siguientes.
+
+## Audio: podcasts, notas de voz y grabaciones
+
+También puedes subir **audio sin video**: MP3, WAV, M4A, OGG y FLAC. Se transcribe igual que un video y, además:
+
+- Aparece un **reproductor de audio** con el archivo original para que lo escuches mientras corriges los subtítulos. Si ese original
+  ya caducó, el reproductor no aparece y todo lo demás sigue funcionando.
+- **No hay «Poner los subtítulos en el video»**: un audio no tiene imagen. Descarga el `.srt` o el `.vtt`.
+- **Traducir** funciona igual (motor local u OpenAI con tu clave): obtienes el texto traducido.
+- **Doblar** entrega solo la **pista de voz en `.mp3`** en el idioma elegido (primero se traduce, luego se dobla). El menú de salida
+  queda fijo en «Solo la pista de voz (.mp3)»: no hay video con el que mezclar.
+
+Con esto, un mismo audio puede ir a texto traducido (traducir) o volver como audio en otro idioma (doblar).
 
 ## Claves externas (solo el Dueño)
 

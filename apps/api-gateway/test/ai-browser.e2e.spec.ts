@@ -6,7 +6,8 @@
 //  - el modo local: traducir solo con el motor local y doblar bloqueado con su explicación.
 // Se omite si no hay Chrome o Edge.
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
@@ -116,9 +117,9 @@ async function open(base: string, problems: string[], failures: string[]): Promi
 }
 
 /** Sube un video de mentira por la interfaz y deja la transcripción terminada, como lo haría el worker. */
-async function transcribed(page: Page, name: string): Promise<string> {
+async function transcribed(page: Page, name: string, content: Buffer = randomBytes(20 * 1024)): Promise<string> {
   const path = join(dir, name);
-  writeFileSync(path, randomBytes(20 * 1024));
+  writeFileSync(path, content);
   await page.waitForSelector("#file-input");
   await (await page.$("#file-input"))!.uploadFile(path);
   await press(page, "#start");
@@ -140,6 +141,39 @@ async function transcribed(page: Page, name: string): Promise<string> {
   await owner.query(`UPDATE "Job" SET status = 'COMPLETED', stage = 'uploading', percent = 100, result = $2::jsonb, "finishedAt" = now(), "updatedAt" = now() WHERE id = $1`, [id, JSON.stringify(result)]);
   await page.waitForFunction(() => (globalThis as unknown as { document: { querySelectorAll(s: string): { length: number } } }).document.querySelectorAll("#result-segments li").length === 3, { timeout: 20_000 });
   return id;
+}
+
+/** Un WAV real (mono, 16 bits, 8 kHz) de `seconds` segundos de un tono: el navegador lo decodifica de verdad. */
+function wavTone(seconds: number): Buffer {
+  const rate = 8000;
+  const samples = Math.floor(rate * seconds);
+  const body = Buffer.alloc(samples * 2);
+  for (let i = 0; i < samples; i++) body.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 8000), i * 2);
+  const head = Buffer.alloc(44);
+  head.write("RIFF", 0);
+  head.writeUInt32LE(36 + body.length, 4);
+  head.write("WAVEfmt ", 8);
+  head.writeUInt32LE(16, 16);
+  head.writeUInt16LE(1, 20);
+  head.writeUInt16LE(1, 22);
+  head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate * 2, 28);
+  head.writeUInt16LE(2, 32);
+  head.writeUInt16LE(16, 34);
+  head.write("data", 36);
+  head.writeUInt32LE(body.length, 40);
+  return Buffer.concat([head, body]);
+}
+
+/** Un MP3 real hecho con ffmpeg, o undefined si esta máquina no lo tiene. */
+function mp3Tone(seconds: number): Buffer | undefined {
+  const target = join(dir, `tono-${randomUUID().slice(0, 6)}.mp3`);
+  try {
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `sine=frequency=440:duration=${seconds}`, "-c:a", "libmp3lame", target], { stdio: "ignore" });
+    return readFileSync(target);
+  } catch {
+    return undefined;
+  }
 }
 
 const jobsOf = async (parent: string, kind: "TRANSLATE" | "DUB") =>
@@ -353,6 +387,92 @@ describe.skipIf(browserPath === undefined)("traducir y doblar en un navegador re
       `POST /v1/jobs/${parent}/translate 409`,
       `POST /v1/jobs/${parent}/dub 409`,
     ]);
+  }, 180_000);
+
+
+  /** Un audio de verdad por la interfaz: reproductor <audio>, sin quemado y doblaje solo a pista de voz. */
+  async function audioScenario(extension: "mp3" | "wav", content: Buffer): Promise<void> {
+    provider.autoApprove = ANA;
+    const problems: string[] = [];
+    const failures: string[] = [];
+    const page = await open(sessionBase, problems, failures);
+    await page.waitForSelector("#login-github:not([hidden])");
+    await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), press(page, "#login-github")]);
+    await waitFor(page, "#account-bar", "visible");
+    const tenantId = (await owner.query<{ tenantId: string }>(`SELECT "tenantId" FROM "User" WHERE subject = $1`, [String(ANA.id)])).rows[0]!.tenantId;
+    await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId]);
+    await owner.query(
+      `INSERT INTO "TenantExternalKey" (id, "tenantId", provider, ciphertext, "keyVersion", last4) VALUES ($1, $2, 'openai'::"ExternalProvider", $3, 1, $4)`,
+      [randomUUID(), tenantId, new ExternalKeyCipher(APP_SECRET).encrypt(OPENAI_KEY, { tenantId, provider: "openai", keyVersion: 1 }), OPENAI_KEY.slice(-4)],
+    );
+
+    // El selector de archivos y el texto de formatos ya incluyen el audio.
+    expect(await page.$eval("#file-input", (input) => input.getAttribute("accept"))).toContain(".flac");
+    expect(await text(page, "#drop-formats")).toMatch(/MP3, WAV, M4A, OGG/);
+
+    const name = `audio-${randomUUID().slice(0, 8)}.${extension}`;
+    const parent = await transcribed(page, name, content);
+    expect((await owner.query<{ contentType: string }>(`SELECT "contentType" FROM "Job" WHERE id = $1`, [parent])).rows[0]!.contentType).toBe(extension === "mp3" ? "audio/mpeg" : "audio/wav");
+
+    // Reproductor <audio> estándar con el original (se pide con la clave y suena desde un Blob); no hay reproductor de video.
+    await waitFor(page, "#result-audio", "visible");
+    expect(await prop<string>(page, "#result-audio", "tagName")).toBe("AUDIO");
+    expect(await prop<boolean>(page, "#result-audio", "controls")).toBe(true);
+    expect(await prop<string>(page, "#result-audio", "src")).toMatch(/^blob:/);
+    expect(await page.$eval("#result-audio", (audio) => audio.getAttribute("aria-label"))).toContain(name);
+    await page.waitForFunction(
+      () => {
+        const audio = (globalThis as unknown as { document: { querySelector(s: string): { duration: number; error: unknown } | null } }).document.querySelector("#result-audio");
+        return audio !== null && audio.error === null && audio.duration > 0.5;
+      },
+      { timeout: 20_000 },
+    );
+    expect(await prop<boolean>(page, "#burn-video", "hidden")).toBe(true);
+
+    // Sin quemado de subtítulos y sin mezcla con video.
+    expect(await prop<boolean>(page, "#burn-form", "hidden")).toBe(true);
+    await waitFor(page, "#dub-form", "visible");
+    expect(await page.$$eval("#dub-mix option", (options) => options.map((option) => (option as unknown as { value: string }).value))).toEqual(["none"]);
+    expect(await prop<boolean>(page, "#dub-mix", "disabled")).toBe(true);
+
+    // Doblar: el trabajo se crea siempre sin mezcla y su resultado es solo la pista .mp3.
+    await submit(page, "#dub-form");
+    await waitDialog(page, true);
+    await press(page, "#spend-confirm-yes");
+    await waitFor(page, "#dub-panel", "visible");
+    const dubs = await jobsOf(parent, "DUB");
+    expect(dubs.map((job) => [job.status, job.options])).toEqual([["QUEUED", { provider: "openai", voice: "alloy", mix: "none" }]]);
+    queued.push({ queue: dubQueue, id: dubs[0]!.id });
+    const audio = `jobs/${dubs[0]!.id}/out/dub.mp3`;
+    await storage.putBuffer(audio, Buffer.from("ID3-audio-de-prueba"), "audio/mpeg");
+    const result = { schemaVersion: 1, jobId: dubs[0]!.id, provider: "openai", mix: "none", segmentCount: 3, characters: CHARACTERS, overflowSegments: [], artifacts: { audio } };
+    await owner.query(`UPDATE "Job" SET status = 'COMPLETED', stage = 'mixing', percent = 100, result = $2::jsonb, "finishedAt" = now(), "updatedAt" = now() WHERE id = $1`, [dubs[0]!.id, JSON.stringify(result)]);
+    await waitFor(page, "#dub-dl-audio", "visible");
+    expect(await prop<boolean>(page, "#dub-dl-video", "hidden")).toBe(true);
+
+    // El quemado tampoco existe en el servidor.
+    const burn = await page.evaluate(async (id: string) => (await fetch(`/v1/jobs/${id}/burn`, { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "captionforge" }, body: "{}", credentials: "same-origin" })).status, parent);
+    expect(burn).toBe(400);
+
+    expect(problems).toEqual([]);
+    expect(failures.filter((entry) => !entry.startsWith("GET /v1/me ") && !entry.startsWith("GET /v1/capabilities ") && !entry.startsWith("GET /web-config.json "))).toEqual([`POST /v1/jobs/${parent}/burn 400`]);
+    await page.close();
+  }
+
+  it("un WAV real: reproductor <audio>, sin quemado, doblaje solo a pista de voz", async () => {
+    await audioScenario("wav", wavTone(1.5));
+  }, 180_000);
+
+  const hasFfmpeg = (() => {
+    try {
+      execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  it.skipIf(!hasFfmpeg)("un MP3 real hecho con ffmpeg: lo mismo que el WAV", async () => {
+    await audioScenario("mp3", mp3Tone(1.5)!);
   }, 180_000);
 
   it("en modo local traducir usa solo el motor local y doblar queda bloqueado con su explicación", async () => {

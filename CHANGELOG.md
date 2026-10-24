@@ -8,6 +8,19 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
+### Issue #14: Multi-LLM con URL base propia y audio puro
+
+[ADR 0022](docs/adr/0022-url-base-propia-para-proveedores-de-ia.md) · [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md)
+
+#### Añadido
+
+- La clave de OpenAI admite una **URL base** y un **modelo** propios: DeepSeek, Gemini, Claude (capa de compatibilidad), Groq, OpenRouter,
+  Abacus u Ollama. El panel «Claves externas» trae un menú de servicios que rellena la URL y sugiere modelos. Los servidores locales solo con
+  `ALLOW_PRIVATE_BASE_URLS=true`; el worker resuelve el DNS en cada petición y no envía la clave a direcciones no permitidas.
+- **Audio puro** como entrada (MP3, WAV, M4A, OGG y FLAC): `mediaKind` en el trabajo, reproductor `<audio>` del original
+  (`GET /v1/jobs/:id/artifacts/source`, solo audio), doblaje a pista `.mp3`. Quemar subtítulos y mezclar el doblaje sobre un audio se
+  rechazan (`burn_not_available_for_audio`, `mix_not_available_for_audio`; en el worker `BURN_NEEDS_VIDEO`, `MIX_NEEDS_VIDEO`).
+
 ## [1.0.0] - 2026-10-23
 
 Reescritura del paquete local como servicio distribuido (API Gateway en NestJS, AI Worker en Python, PostgreSQL, Redis/BullMQ y

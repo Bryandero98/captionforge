@@ -18,7 +18,7 @@ placeholder changes).
 ## Step by step
 
 1. **Choose your videos.** Drag up to 20 onto the dotted area or press "Choose a file". Formats: MP4, MOV, MKV, WEBM
-   and AVI. Files that cannot be used are skipped and the reason is shown.
+   and AVI, or audio: MP3, WAV, M4A, OGG and FLAC (see "Audio"). Files that cannot be used are skipped and the reason is shown.
 2. **Set the options.** *Model*: Base is the fastest, Medium the most accurate. *Audio language*: leave it on
    "Auto-detect" unless you know it. *Translate to*: optional, to get the captions in another language.
    *Clean up background noise* (off by default): turn it on when music or loud noise covers the voice. It takes longer,
@@ -46,6 +46,19 @@ placeholder changes).
 7. **Translate or dub (optional).** With a finished transcription and your changes saved, "Translate the captions" and
    "Dub with a synthetic voice" create separate jobs. Translating works without an external account; dubbing needs a
    provider key saved by the Owner. See the next sections.
+
+## Audio: podcasts, voice notes and recordings
+
+You can also upload **audio with no video**: MP3, WAV, M4A, OGG and FLAC. It is transcribed just like a video and, in addition:
+
+- An **audio player** with the original file appears so you can listen while you fix the captions. If the original has already
+  expired, the player does not appear and everything else keeps working.
+- **There is no "Burn the captions into the video"**: audio has no picture. Download the `.srt` or the `.vtt`.
+- **Translate** works the same (local engine or OpenAI with your key): you get the translated text.
+- **Dub** delivers only the **voice track as an `.mp3`** in the chosen language (it is translated first, then dubbed). The output
+  menu is fixed to "Voice track only (.mp3)": there is no video to mix into.
+
+So the same audio can become translated text (translate) or come back as audio in another language (dub).
 
 ## External keys (Owner only)
 
