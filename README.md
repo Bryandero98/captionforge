@@ -213,7 +213,7 @@ to send a PR.
 
 ## Support this project
 
-CaptionForge is free by design and will stay that way. A tip unlocks nothing; it goes toward
+CaptionForge is free for personal, educational and non-commercial use under the BSL license, and will stay that way. A tip unlocks nothing; it goes toward
 eventually paying for a real host, so people who do not want to install anything have a
 "no-install-at-all" option too:
 

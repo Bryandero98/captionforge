@@ -213,7 +213,7 @@ reportes de errores: abre un issue con lo que quisieras, aunque sea a grandes ra
 
 ## Apoya este proyecto
 
-CaptionForge es gratuito por diseño y lo seguirá siendo. Una propina no desbloquea nada; va hacia
+CaptionForge es gratuito para uso personal, educativo y no comercial bajo la licencia BSL, y lo seguirá siendo. Una propina no desbloquea nada; va hacia
 pagar algún día un servidor de verdad, para que quien no quiera instalar nada también tenga esa
 opción:
 
