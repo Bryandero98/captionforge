@@ -102,8 +102,20 @@ Only one dub can run per transcription.
 ## Spend confirmation and limits
 
 Before sending text to an external provider, the page opens a dialog: "This operation uses your OpenAI account. Estimate:
-≈ N characters. Your provider does the billing and it cannot be undone." Focus starts on **Cancel** and Esc also cancels, so
+≈ N characters (≈ M tokens). Your provider does the billing and it cannot be undone." Focus starts on **Cancel** and Esc also cancels, so
 Enter cannot spend by accident. Local translation does not ask, because it costs nothing.
+
+For reference (the same table is in the page's guide and under "External keys"):
+
+| Length of speech | Characters sent to the AI | Approx. tokens |
+|---|---|---|
+| 15 s | 200 | 50 |
+| 30 s | 400 | 100 |
+| 45 s | 600 | 150 |
+| 60 s | 800 | 200 |
+
+This is an estimate: 1 token ≈ 4 characters, and the AI's reply uses about as many tokens again, so count roughly double. Your
+provider sets the price per token.
 
 Each job has a limit of **50,000 characters** and **1,000 captions**, defaults that whoever runs the server adjusts with
 `MAX_JOB_CHARACTERS` and `MAX_JOB_SEGMENTS`. If the text exceeds them, the server rejects it **before** asking the provider

@@ -18,3 +18,19 @@ export function formatCount(/** @type {number} */ value, /** @type {string} */ l
     return String(value);
   }
 }
+
+/** Caracteres por token que se usan para estimar (orientativo: varía según el idioma y el modelo). */
+export const CHARS_PER_TOKEN = 4;
+
+/** Tokens aproximados de un texto de `characters` caracteres; nunca negativo ni NaN. @param {number} characters */
+export function estimateTokens(characters) {
+  return Number.isFinite(characters) && characters > 0 ? Math.ceil(characters / CHARS_PER_TOKEN) : 0;
+}
+
+/** Referencia para quien usa su propia cuenta de IA: lo que suele enviarse según los segundos de habla (≈ 13,3 caracteres por segundo, en pasos de 200). */
+export const SUGGESTED_ESTIMATES = Object.freeze(
+  [15, 30, 45, 60].map((seconds) => {
+    const characters = Math.round((seconds * 40) / 3 / 200) * 200;
+    return Object.freeze({ seconds, characters, tokens: estimateTokens(characters) });
+  }),
+);

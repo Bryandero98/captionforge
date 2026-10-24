@@ -101,8 +101,20 @@ cobran. Solo puede haber un doblaje en curso por transcripción.
 ## Confirmación de gasto y topes
 
 Antes de enviar texto a un proveedor externo, la página abre un cuadro: «Esta operación usa tu cuenta de OpenAI. Estimación:
-≈ N caracteres. El cobro lo hace tu proveedor y no se puede deshacer». El foco empieza en **Cancelar** y Esc también cancela,
+≈ N caracteres (≈ M tokens). El cobro lo hace tu proveedor y no se puede deshacer». El foco empieza en **Cancelar** y Esc también cancela,
 así que Enter no gasta por descuido. La traducción local no pregunta, porque no cuesta.
+
+Como referencia de consumo (la misma tabla está en la guía de la página y en «Claves externas»):
+
+| Duración del habla | Caracteres enviados a la IA | Tokens aprox. |
+|---|---|---|
+| 15 s | 200 | 50 |
+| 30 s | 400 | 100 |
+| 45 s | 600 | 150 |
+| 60 s | 800 | 200 |
+
+Es una estimación: 1 token ≈ 4 caracteres, y la respuesta de la IA gasta otros tantos tokens, así que cuenta aproximadamente
+el doble. El precio por token lo fija tu proveedor.
 
 Cada trabajo tiene un tope de **50 000 caracteres** y **1 000 subtítulos**, valores por defecto que quien administra el servidor
 ajusta con `MAX_JOB_CHARACTERS` y `MAX_JOB_SEGMENTS`. Si el texto lo supera, el servidor lo rechaza **antes** de pedir nada al
