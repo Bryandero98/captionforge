@@ -147,11 +147,11 @@ export class ExternalKeysService {
     const cipher = this.requireCipher();
     const provider = this.provider(rawProvider);
     const raw = typeof body === "object" && body !== null ? (body as { key?: unknown }).key : undefined;
-    const key = normalizeExternalKey(provider, raw);
+    const baseUrl = this.parseBaseUrlField(provider, body);
+    const key = normalizeExternalKey(provider, raw, { custom: baseUrl !== undefined });
     // El mensaje no repite lo recibido: una clave mal pegada sigue siendo una clave.
     if (key === undefined) throw coded(BadRequestException, 400, "Bad Request", "invalid_key_format", "La clave no tiene el formato de ese proveedor.");
 
-    const baseUrl = this.parseBaseUrlField(provider, body);
     const model = this.parseModelField(provider, body);
     const context = { tenantId, provider, keyVersion: CURRENT_KEY_VERSION };
     const ciphertext = cipher.encrypt(key, context);

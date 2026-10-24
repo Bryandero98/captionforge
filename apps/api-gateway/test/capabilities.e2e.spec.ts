@@ -10,14 +10,14 @@ import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 const baseConfig = loadConfig();
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
-async function start(diarization: boolean, appSecret?: string): Promise<{ base: string; prisma: PrismaService }> {
+async function start(diarization: boolean, appSecret?: string, allowPrivateBaseUrls = false): Promise<{ base: string; prisma: PrismaService }> {
   await sharedTenant();
   const app = await createApp({
     ...baseConfig,
     port: 0,
     webRoot: undefined,
     features: { diarization },
-    byok: { ...baseConfig.byok, appSecret },
+    byok: { ...baseConfig.byok, appSecret, allowPrivateBaseUrls },
     reaper: { ...baseConfig.reaper, intervalMs: 0 },
     security: { ...baseConfig.security, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0 },
   });
@@ -45,7 +45,7 @@ describe("GET /v1/capabilities", () => {
       const { base } = await start(enabled);
       const response = await fetch(`${base}/v1/capabilities`);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [] } });
+      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false } });
     }
   });
 
@@ -55,8 +55,16 @@ describe("GET /v1/capabilities", () => {
     const response = await fetch(`${base}/v1/capabilities`);
     expect(response.status).toBe(200);
     const text = await response.text();
-    expect(JSON.parse(text)).toEqual({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"] } });
+    expect(JSON.parse(text)).toEqual({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false } });
     expect(text).not.toContain(secret);
+  });
+
+  it("avisa de que se aceptan servidores locales (ALLOW_PRIVATE_BASE_URLS) solo si la función está activa", async () => {
+    const secret = "capacidades-secreto-de-32-bytes-o-mas!!";
+    const on = await start(false, secret, true);
+    expect(((await (await fetch(`${on.base}/v1/capabilities`)).json()) as { byok: unknown }).byok).toEqual({ enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: true });
+    const off = await start(false, undefined, true); // sin APP_SECRET no hay BYOK, y lo local tampoco se anuncia
+    expect(((await (await fetch(`${off.base}/v1/capabilities`)).json()) as { byok: unknown }).byok).toEqual({ enabled: false, providers: [], allowPrivateBaseUrls: false });
   });
 });
 

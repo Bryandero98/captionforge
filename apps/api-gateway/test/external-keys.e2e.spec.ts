@@ -365,6 +365,16 @@ describe("modelo y servidores locales (ADR 0022)", () => {
     },
   );
 
+  it("con URL base propia la clave puede ser de otro servicio (Gemini, Groq...); sin ella se exige la forma de OpenAI", async () => {
+    const GEMINI_KEY = `AIzaSy-${randomBytes(15).toString("hex")}`;
+    const rejected = await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: GEMINI_KEY });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ code: "invalid_key_format" });
+    const accepted = await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: GEMINI_KEY, baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-flash" });
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ baseUrlHost: "generativelanguage.googleapis.com", model: "gemini-2.5-flash", last4: GEMINI_KEY.slice(-4) });
+  });
+
   it("ElevenLabs no admite modelo: la voz y el modelo son fijos", async () => {
     const response = await call(on, "PUT", `${PATH}/elevenlabs`, cookies.get("OWNER"), { key: ELEVEN, model: "eleven_v3" });
     expect(response.status).toBe(400);
