@@ -17,9 +17,10 @@ export interface TranslateResult {
    */
   jobId: string;
   /**
-   * Motor de traducción: argos corre en local (sin clave); openai usa la clave propia del espacio.
+   * Motor de traducción: argos corre en local (sin clave); el resto es un proveedor de IA de texto que usa la clave propia del espacio (ADR 0022).
    */
-  provider: "argos" | "openai";
+  provider:
+    "argos" | "openai" | "deepseek" | "gemini" | "anthropic" | "groq" | "openrouter" | "abacus";
   /**
    * Código ISO 639-1 (o 639-3 de tres letras, como los que acepta Whisper).
    */

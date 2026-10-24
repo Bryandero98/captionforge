@@ -78,6 +78,12 @@ class StylePreset(StrEnum):
 class TranslateProvider(StrEnum):
     argos = 'argos'
     openai = 'openai'
+    deepseek = 'deepseek'
+    gemini = 'gemini'
+    anthropic = 'anthropic'
+    groq = 'groq'
+    openrouter = 'openrouter'
+    abacus = 'abacus'
 
 
 class DubProvider(StrEnum):
