@@ -26,7 +26,7 @@ describe("docker-compose.yml: canal interno del worker", () => {
     expect(api).toMatch(/INTERNAL_PORT: .*3100/);
     expect(ports(api).join(" ")).not.toMatch(/3100|INTERNAL_PORT/);
     // Solo se publica el puerto público, y en el loopback.
-    expect(ports(api)).toEqual(['"127.0.0.1:3000:3000"']);
+    expect(ports(api)).toEqual(['"127.0.0.1:${CF_PORT:-3000}:3000"']);
   });
 
   it("ningún servicio publica el puerto interno", () => {
