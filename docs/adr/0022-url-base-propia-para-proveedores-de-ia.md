@@ -38,7 +38,7 @@ nada cambia.
   fijar la IP resuelta en la conexión sin romper TLS es una mejora pendiente.
 
 ## Consecuencias
-- Cualquier proveedor compatible con OpenAI funciona sin cambiar código. El modelo sigue fijo hasta que se apruebe un campo `model`.
+- Cualquier proveedor compatible con OpenAI funciona sin cambiar código. El modelo se elige con el campo opcional `model`; sin él se usa `gpt-4o-mini`.
 - Una URL elegida por una persona es una superficie nueva: las defensas 3 y 4 son obligatorias y tienen pruebas propias.
-- El interruptor `ALLOW_PRIVATE_BASE_URLS` (modelos locales) queda pendiente de aprobación y apagado por defecto.
+- `ALLOW_PRIVATE_BASE_URLS` (modelos locales) está aprobado y apagado por defecto: quien lo enciende acepta que el worker alcance su red privada.
 - La migración es aditiva: las claves existentes siguen funcionando sin `baseUrl`.
