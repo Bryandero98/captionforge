@@ -15,8 +15,8 @@ Plan: [plan.md](plan.md). Rojo → verde, una suite del API a la vez, commit por
 - [x] **Punto de parada** (backend): reportado; el Tech Lead aprobó `model` y `ALLOW_PRIVATE_BASE_URLS`.
 - [x] T6 (M) Worker (más `model`, la bandera y el campo `ai-config` del API): recibir `{ key, baseUrl? }`, guardia de DNS (rechazar direcciones no públicas), usar `baseUrl` en `ChatTranslator`.
 - [x] T7 (M) Panel «Claves externas»: campo opcional de URL base, 6 idiomas, accesible.
-- [ ] T8 (S) Integrar los atajos con nombre aparcados en `feat/byok-multi-provider` (DeepSeek, Gemini, Claude, Groq, OpenRouter, Abacus).
-- [ ] T9 (S) Documentación ES/EN y README (guías hechas; falta el README).
+- [x] T8 (S) Integrar los atajos con nombre aparcados en `feat/byok-multi-provider` (DeepSeek, Gemini, Claude, Groq, OpenRouter, Abacus).
+- [x] T9 (S) Documentación ES/EN y README (Multi-LLM + Ollama con ALLOW_PRIVATE_BASE_URLS).
 
 ## Fase 2: audio universal
 - [ ] T10 (M) Validación de tipos de audio en servidor (tipo declarado + `ffprobe`) y cliente; `mediaKind` en el trabajo.
