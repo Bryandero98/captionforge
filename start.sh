@@ -5,8 +5,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PORT="${CF_PORT:-3000}"
-URL="http://localhost:${PORT}"
 
 say() { printf '%s\n' "$*"; }
 fail() { printf '\nNo se pudo continuar: %s\n' "$*" >&2; exit 1; }
@@ -21,6 +19,12 @@ docker info >/dev/null 2>&1 || fail "Docker está instalado pero no responde. Ab
 # cambiar ningún valor. APP_SECRET nunca se regenera: cambiarlo deja ilegibles las claves externas guardadas.
 [ -f tools/ensure-env.sh ] || fail "No encuentro tools/ensure-env.sh en $(pwd). Ejecuta el script desde la carpeta de CaptionForge."
 bash tools/ensure-env.sh || fail "no se pudo crear o completar el .env."
+
+# Puerto en tu equipo: CF_PORT del entorno, si no el de .env, si no 3000. Se cambia en .env (línea CF_PORT=) si otro programa ya usa el 3000.
+[ -f tools/read-port.sh ] || fail "No encuentro tools/read-port.sh en $(pwd). Ejecuta el script desde la carpeta de CaptionForge."
+PORT="$(bash tools/read-port.sh)" || fail "CF_PORT no es un puerto válido (1 a 65535). Corrígelo en .env."
+export CF_PORT="$PORT"
+URL="http://localhost:${PORT}"
 
 # --- 3. Levantar todo ----------------------------------------------------------------------------
 say "Levantando PostgreSQL, Redis, S3, la API y el worker (la primera vez tarda unos minutos)..."

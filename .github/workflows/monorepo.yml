@@ -131,7 +131,7 @@ jobs:
           echo "$RUNNER_TEMP/ffbin" >> "$GITHUB_PATH"
 
       - name: Scripts de arranque - generan APP_SECRET y WORKER_INTERNAL_TOKEN sin pisar los existentes
-        run: node --test tools/start-env.test.mjs
+        run: node --test tools/start-env.test.mjs tools/port.test.mjs tools/docs.test.mjs
 
       - name: API Gateway - pruebas contra PostgreSQL, Redis y S3 reales
         run: npm test -w @captionforge/api-gateway

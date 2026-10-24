@@ -716,7 +716,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     expect((await text(page, "#lang-notice")).length).toBeGreaterThan(20);
     expect(await page.$eval("#lang-de", (button) => button.getAttribute("aria-pressed"))).toBe("true");
     await page.click("#guide > summary");
-    expect(await page.$$eval("#guide li", (items) => items.filter((item) => (item.textContent ?? "").trim().length > 20).length)).toBe(6);
+    expect(await page.$$eval("#guide li", (items) => items.filter((item) => (item.textContent ?? "").trim().length > 20).length)).toBe(7);
     // Cambiar a español quita el aviso y se recuerda.
     await page.click("#lang-es");
     expect(await text(page, "#lang-notice")).toBe("");
