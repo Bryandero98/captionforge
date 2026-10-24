@@ -107,6 +107,9 @@ Todo cuelga de `/v1/jobs`. El worker escribe el estado del trabajo en PostgreSQL
 | `POST /v1/jobs/:id/cancel` | Cancela: en cola se quita; en curso se avisa al worker |
 | `GET /v1/jobs/:id/segments` | Subtítulos con `index` y el `etag` vigente |
 | `PUT /v1/jobs/:id/segments` | Edita texto y/o tiempos por índice (`etag` opcional: `409` si cambiaron) |
+| `GET /v1/quality/profiles` | Normas de calidad de subtítulos (`netflix`, `netflix-es`, `bbc`, `accessible`, `shorts`) con sus límites y cuánto se verificó cada una |
+| `GET /v1/jobs/:id/quality` | Informe de calidad de los subtítulos contra una norma (`?profile=`): caracteres por segundo y por línea, duración, separación y solapes |
+| `POST /v1/jobs/:id/quality/fix` | Propone un arreglo solo de tiempos de final y saltos de línea (nunca el texto); se aplica con `PUT …/segments` y el mismo `etag` |
 | `POST /v1/jobs/:id/burn` | Quema los subtítulos actuales: `{ "style": "modern", "karaoke": false }`. `202` |
 | `GET /v1/jobs/:id/artifacts/:name` | `srt`, `segments`, `waveform` (transcripción) o `video` (quemado); admite `Range` |
 

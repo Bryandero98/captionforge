@@ -108,6 +108,9 @@ it. Every route under `/v1/jobs` requires `X-API-Key: <key>` (or `Authorization:
 | `POST /v1/jobs/:id/cancel` | Cancels: removed from the queue, or the worker is told to stop |
 | `GET /v1/jobs/:id/segments` | Captions with `index` and the current `etag` |
 | `PUT /v1/jobs/:id/segments` | Edits text and/or timing by index (`etag` optional: `409` if they changed) |
+| `GET /v1/quality/profiles` | Subtitle quality standards (`netflix`, `netflix-es`, `bbc`, `accessible`, `shorts`) with their limits and how well each was verified |
+| `GET /v1/jobs/:id/quality` | Quality report of the captions against a standard (`?profile=`): characters per second and per line, duration, gaps and overlaps |
+| `POST /v1/jobs/:id/quality/fix` | Proposes a fix of end times and line breaks only (never the text); apply it with `PUT …/segments` and the same `etag` |
 | `POST /v1/jobs/:id/burn` | Burns the current captions: `{ "style": "modern", "karaoke": false }`. `202` |
 | `GET /v1/jobs/:id/artifacts/:name` | `srt`, `segments`, `waveform` (transcription) or `video` (burn); supports `Range` |
 
