@@ -2,7 +2,7 @@
 // en un <dialog> modal y se espera un clic explícito. El foco empieza en «Cancelar» y Esc cancela: Enter no gasta por descuido.
 // Todo texto entra con textContent.
 
-import { formatCount } from "../domain/spend.js";
+import { estimateTokens, formatCount } from "../domain/spend.js";
 
 /**
  * @param {{ doc: Document, t: (key: string, params?: Record<string, string | number>) => string }} deps
@@ -28,7 +28,7 @@ export function createSpendConfirm({ doc, t: initialT }) {
     els.title.textContent = t("spend.title");
     els.yes.textContent = t("spend.confirm");
     els.no.textContent = t("spend.cancel");
-    els.body.textContent = pending === null ? "" : t("spend.body", { provider: t(`extkeys.provider.${pending.provider}`), characters: formatCount(pending.characters, doc.documentElement.lang || "es") });
+    els.body.textContent = pending === null ? "" : t("spend.body", { provider: t(`extkeys.provider.${pending.provider}`), characters: formatCount(pending.characters, doc.documentElement.lang || "es"), tokens: formatCount(estimateTokens(pending.characters), doc.documentElement.lang || "es") });
   }
 
   function open() {

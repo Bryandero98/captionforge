@@ -1015,3 +1015,25 @@ select:disabled {
 .invite-confirm::backdrop {
   background: rgb(0 0 0 / 0.5);
 }
+
+/* Tabla de consumo sugerido (guía y claves externas): cifras a la derecha para compararlas de un vistazo. */
+.estimates {
+  border-collapse: collapse;
+  margin-block: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.estimates caption {
+  text-align: left;
+  font-weight: 600;
+  padding-block-end: 0.25rem;
+}
+.estimates th,
+.estimates td {
+  padding: 0.25rem 0.75rem;
+  border-bottom: 1px solid var(--border, currentColor);
+  text-align: right;
+}
+.estimates th:first-child,
+.estimates td:first-child {
+  text-align: left;
+}
