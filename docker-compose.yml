@@ -250,7 +250,8 @@ services:
       # explícito se enciende cuando hay HF_TOKEN en el .env (que sí recibe el worker).
       DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-${HF_TOKEN:+true}}
     ports:
-      - "127.0.0.1:3000:3000"
+      # El puerto de tu equipo se elige con CF_PORT (.env); dentro del contenedor sigue siendo el 3000.
+      - "127.0.0.1:${CF_PORT:-3000}:3000"
     depends_on:
       migrate:
         condition: service_completed_successfully

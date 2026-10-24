@@ -6,8 +6,6 @@ setlocal
 cd /d "%~dp0"
 chcp 65001 >nul
 
-if "%CF_PORT%"=="" (set "PORT=3000") else (set "PORT=%CF_PORT%")
-set "URL=http://localhost:%PORT%"
 
 rem --- 1. Docker ---------------------------------------------------------------------------
 where docker >nul 2>&1
@@ -56,6 +54,17 @@ if errorlevel 1 (
   echo No se pudo continuar: no se pudo completar el .env con las claves que faltan.
   exit /b 1
 )
+
+rem Puerto en tu equipo: CF_PORT del entorno, si no el de .env, si no 3000. Se cambia en .env ^(linea CF_PORT=^) si otro programa ya usa el 3000.
+set "PORT="
+for /f "delims=" %%p in ('powershell -NoProfile -ExecutionPolicy Bypass -File "tools\read-port.ps1"') do set "PORT=%%p"
+if not defined PORT (
+  echo.
+  echo No se pudo continuar: CF_PORT no es un puerto valido ^(1 a 65535^). Corrigelo en .env.
+  exit /b 1
+)
+set "CF_PORT=%PORT%"
+set "URL=http://localhost:%PORT%"
 
 rem --- 3. Levantar todo ----------------------------------------------------------------------
 echo Levantando PostgreSQL, Redis, S3, la API y el worker ^(la primera vez tarda unos minutos^)...

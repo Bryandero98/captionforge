@@ -36,7 +36,17 @@ Lo único que hace falta es Docker (Docker Desktop en Windows y macOS).
 start.bat         # Windows (doble clic o desde una terminal)
 ```
 
-El script comprueba que `docker` y `docker compose` funcionan, crea `.env` desde `.env.example` con contraseñas aleatorias si no existe (un `.env` existente nunca se toca), ejecuta `docker compose --profile app up -d --build`, espera a la API y muestra la dirección: **http://localhost:3000**. La primera vez construye las imágenes (varios minutos) y la primera transcripción descarga el modelo de Whisper. Todo se publica solo en `127.0.0.1`. Se apaga con `docker compose --profile app down`. La identificación de hablantes y la GPU son opcionales y necesitan pasos extra (ver la [guía de uso](docs/guia-de-uso.md#activar-la-identificación-de-hablantes) y el compose).
+El script comprueba que `docker` y `docker compose` funcionan, crea `.env` desde `.env.example` con contraseñas aleatorias si no existe (un `.env` existente nunca se toca), ejecuta `docker compose --profile app up -d --build`, espera a la API y muestra la dirección: **http://localhost:3000** (o el puerto que fijes en `CF_PORT`, ver [Cambiar el puerto](#cambiar-el-puerto-recomendado-si-el-3000-está-ocupado)). La primera vez construye las imágenes (varios minutos) y la primera transcripción descarga el modelo de Whisper. Todo se publica solo en `127.0.0.1`. Se apaga con `docker compose --profile app down`. La identificación de hablantes y la GPU son opcionales y necesitan pasos extra (ver la [guía de uso](docs/guia-de-uso.md#activar-la-identificación-de-hablantes) y el compose).
+
+### Cambiar el puerto (recomendado si el 3000 está ocupado)
+
+CaptionForge se abre por defecto en el **puerto 3000** de tu equipo. Si otro programa ya lo usa (otra aplicación de desarrollo, por ejemplo), elige otro: te recomendamos hacerlo en lugar de detener el otro programa:
+
+1. Abre el archivo `.env` (lo crean `start.sh` / `start.bat` la primera vez) y cambia la línea `CF_PORT=3000` por un puerto libre, por ejemplo `CF_PORT=3100`. Usa un número de 1 a 65535, mejor por encima de 1024.
+2. Vuelve a ejecutar `./start.sh` (o `start.bat`). Leen el mismo valor, levantan todo en ese puerto y muestran la nueva dirección (`http://localhost:3100`). `docker compose` también lee `CF_PORT` desde `.env`.
+3. También puedes fijarlo solo para una ejecución: `CF_PORT=3100 ./start.sh` (macOS/Linux) o `set CF_PORT=3100` y luego `start.bat` (Windows).
+
+El puerto solo se publica en `127.0.0.1` (tu equipo); dentro del contenedor sigue siendo el 3000. Si `CF_PORT` no es un puerto válido, los scripts se detienen con un mensaje claro antes de levantar nada. Si usas el inicio de sesión con GitHub con otro puerto, acuerda actualizar la dirección de retorno (`PUBLIC_URL`) de la aplicación OAuth.
 
 ### Solución de problemas
 
@@ -92,6 +102,23 @@ curl -OJ http://127.0.0.1:3000/v1/jobs/<id>/artifacts/srt
 
 Cada llamada necesita tu clave de API: añade `-H "X-API-Key: <clave>"` (la `DEFAULT_API_KEY` de tu `.env`; también sirve `Authorization: Bearer <clave>`). Un trabajo pertenece al tenant dueño de la clave: otra clave recibe `404`, nunca `403`.
 
+## Idiomas compatibles
+
+Los dos motores funcionan en local, sin cuenta y sin costo por uso.
+
+**Transcripción (faster-whisper / Whisper): 100 idiomas.** La lista sale de la versión de faster-whisper fijada en este repositorio, así que el selector de idioma de la aplicación siempre coincide con ella. La calidad varía mucho: es mejor en idiomas muy hablados (inglés, español, francés, alemán, portugués, italiano, japonés...) y claramente peor en los de pocos recursos. Deja la detección automática o elige el idioma si el audio es corto o con ruido.
+
+afrikáans, albanés, alemán, amárico, árabe, armenio, asamés, azerbaiyano, baskir, bengalí, bielorruso, birmano, bosnio, bretón, búlgaro, canarés, cantonés, catalán, checo, chino, cingalés, coreano, criollo haitiano, croata, danés, eslovaco, esloveno, español, estonio, euskera, feroés, filipino, finés, francés, galés, gallego, georgiano, griego, guyaratí, hausa, hawaiano, hebreo, hindi, húngaro, indonesio, inglés, islandés, italiano, japonés, javanés, jemer, kazajo, lao, latín, letón, lingala, lituano, luxemburgués, macedonio, malayálam, malayo, malgache, maltés, maorí, maratí, mongol, neerlandés, nepalí, noruego, noruego nynorsk, occitano, pastún, persa, polaco, portugués, punyabí, rumano, ruso, sánscrito, serbio, shona, sindi, somalí, suajili, sueco, sundanés, tailandés, tamil, tártaro, tayiko, telugu, tibetano, turco, turcomano, ucraniano, urdu, uzbeko, vietnamita, yidis, yoruba.
+
+**Traducción (Argos Translate): 50 idiomas**, según el índice oficial de paquetes (consultado el 2026-10-24):
+
+albanés, alemán, árabe, azerbaiyano, bengalí, búlgaro, catalán, checo, chino, chino (tradicional), coreano, danés, eslovaco, esloveno, español, esperanto, estonio, euskera, filipino, finés, francés, gallego, griego, hebreo, hindi, húngaro, indonesio, inglés, irlandés, italiano, japonés, kirguís, letón, lituano, malayo, neerlandés, noruego bokmal, persa, polaco, portugués, portugués (Brasil), rumano, ruso, suajili, sueco, tailandés, turco, ucraniano, urdu, vietnamita.
+
+Lo que conviene saber de la traducción:
+- Todos los modelos de Argos van **desde o hacia el inglés**. Un par como español → alemán se traduce **pasando por el inglés** (dos pasos), por lo que suele ser menos preciso que un par que incluya el inglés.
+- El modelo de cada par se **descarga la primera vez que se usa** (hace falta internet una vez, unos cientos de MB por par) y después se reutiliza sin conexión.
+- La aplicación ofrece como destino todos los idiomas de transcripción, pero Argos solo cubre los 50 de arriba; con cualquier otro destino el trabajo termina con un error claro. Para otros idiomas o más calidad puedes usar un proveedor externo con tu propia clave (BYOK).
+
 ## API
 
 Todo cuelga de `/v1/jobs`. El worker escribe el estado del trabajo en PostgreSQL y el API lo lee. Todas las rutas de `/v1/jobs` piden `X-API-Key: <clave>` (o `Authorization: Bearer <clave>`); `/health` y
@@ -101,7 +128,7 @@ Todo cuelga de `/v1/jobs`. El worker escribe el estado del trabajo en PostgreSQL
 |---|---|
 | `POST /v1/jobs/transcribe` | Multipart. Sube el video a S3 mientras llega. `202` |
 | `GET /v1/capabilities` | Funciones opcionales de este servidor (`{ "diarization": { "enabled": true } }`); la web oculta o desactiva lo que falte |
-| `GET /v1/jobs` | Tus trabajos, del más reciente al más antiguo (`?limit=` 1-100, `?cursor=<último id>`); solo los del tenant de la clave |
+| `GET /v1/jobs` | Tus trabajos, del más reciente al más antiguo (`?limit=` 1-100, por defecto 20; `?cursor=<último id>`; nunca más de 100 por página); solo los del tenant de la clave |
 | `GET /v1/jobs/:id` | Estado, etapa, porcentaje, error y resultado |
 | `GET /v1/jobs/:id/events` | Progreso por SSE hasta un estado final |
 | `POST /v1/jobs/:id/cancel` | Cancela: en cola se quita; en curso se avisa al worker |

@@ -36,7 +36,17 @@ The only requirement is Docker (Docker Desktop on Windows and macOS).
 start.bat         # Windows (double-click or run it from a terminal)
 ```
 
-The script checks that `docker` and `docker compose` work, creates `.env` from `.env.example` with random passwords if it does not exist (an existing `.env` is never touched), runs `docker compose --profile app up -d --build`, waits for the API and prints the address: **http://localhost:3000**. The first run builds the images (several minutes) and the first transcription downloads the Whisper model. Everything is published on `127.0.0.1` only. Turn it off with `docker compose --profile app down`. Speaker identification and GPU are optional and need extra setup (see the [user guide](docs/user-guide.md#turning-on-speaker-identification) and the compose file).
+The script checks that `docker` and `docker compose` work, creates `.env` from `.env.example` with random passwords if it does not exist (an existing `.env` is never touched), runs `docker compose --profile app up -d --build`, waits for the API and prints the address: **http://localhost:3000** (or the port you set in `CF_PORT`, see [Change the port](#change-the-port-recommended-if-3000-is-taken)). The first run builds the images (several minutes) and the first transcription downloads the Whisper model. Everything is published on `127.0.0.1` only. Turn it off with `docker compose --profile app down`. Speaker identification and GPU are optional and need extra setup (see the [user guide](docs/user-guide.md#turning-on-speaker-identification) and the compose file).
+
+### Change the port (recommended if 3000 is taken)
+
+CaptionForge opens on **port 3000** of your computer by default. If another program already uses it (another development app, for instance), pick a different one - we suggest you do, instead of stopping the other program:
+
+1. Open the `.env` file (created by `start.sh` / `start.bat` the first time) and change the line `CF_PORT=3000` to a free port, for example `CF_PORT=3100`. Use a number from 1 to 65535, preferably above 1024.
+2. Run `./start.sh` (or `start.bat`) again. It reads the same value, starts everything on that port and prints the new address (`http://localhost:3100`). `docker compose` reads `CF_PORT` from `.env` too.
+3. You can also set it for a single run: `CF_PORT=3100 ./start.sh` (macOS/Linux) or `set CF_PORT=3100` and then `start.bat` (Windows).
+
+The port is only published on `127.0.0.1` (your computer); inside the container it stays at 3000. If `CF_PORT` is not a valid port the scripts stop with a clear message before starting anything. Remember to update the OAuth callback (`PUBLIC_URL`) if you use GitHub sign-in with another port.
 
 ### Troubleshooting
 
@@ -92,6 +102,23 @@ curl -OJ http://127.0.0.1:3000/v1/jobs/<id>/artifacts/srt
 
 Every call needs your API key: add `-H "X-API-Key: <key>"` (the `DEFAULT_API_KEY` in your `.env`; `Authorization: Bearer <key>` also works). A job belongs to the tenant that owns the key: another key gets `404` for it, never `403`.
 
+## Supported languages
+
+Both engines run locally, with no account and no cost per use.
+
+**Transcription (faster-whisper / Whisper): 100 languages.** The list comes from the faster-whisper version pinned in this repository, so the language selector in the app always matches it. Quality varies a lot: it is best in widely spoken languages (English, Spanish, French, German, Portuguese, Italian, Japanese...) and noticeably worse in low-resource ones. Leave the language on automatic detection or pick it for short or noisy audio.
+
+Afrikaans, Albanian, Amharic, Arabic, Armenian, Assamese, Azerbaijani, Bangla, Bashkir, Basque, Belarusian, Bosnian, Breton, Bulgarian, Burmese, Cantonese, Catalan, Chinese, Croatian, Czech, Danish, Dutch, English, Estonian, Faroese, Filipino, Finnish, French, Galician, Georgian, German, Greek, Gujarati, Haitian Creole, Hausa, Hawaiian, Hebrew, Hindi, Hungarian, Icelandic, Indonesian, Italian, Japanese, Javanese, Kannada, Kazakh, Khmer, Korean, Lao, Latin, Latvian, Lingala, Lithuanian, Luxembourgish, Macedonian, Malagasy, Malay, Malayalam, Maltese, Māori, Marathi, Mongolian, Nepali, Norwegian, Norwegian Nynorsk, Occitan, Pashto, Persian, Polish, Portuguese, Punjabi, Romanian, Russian, Sanskrit, Serbian, Shona, Sindhi, Sinhala, Slovak, Slovenian, Somali, Spanish, Sundanese, Swahili, Swedish, Tajik, Tamil, Tatar, Telugu, Thai, Tibetan, Turkish, Turkmen, Ukrainian, Urdu, Uzbek, Vietnamese, Welsh, Yiddish, Yoruba.
+
+**Translation (Argos Translate): 50 languages**, from the official package index (checked on 2026-10-24):
+
+Albanian, Arabic, Azerbaijani, Bangla, Basque, Bulgarian, Catalan, Chinese, Chinese (traditional), Czech, Danish, Dutch, English, Esperanto, Estonian, Filipino, Finnish, French, Galician, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Irish, Italian, Japanese, Korean, Kyrgyz, Latvian, Lithuanian, Malay, Norwegian Bokmål, Persian, Polish, Portuguese, Portuguese (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swahili, Swedish, Thai, Turkish, Ukrainian, Urdu, Vietnamese.
+
+Things to know about translation:
+- Every Argos model goes **to or from English**. A pair such as Spanish → German is translated **through English** (two steps), so it is usually less accurate than a pair that includes English.
+- The model of each pair is **downloaded the first time it is used** (internet needed once, a few hundred MB per pair) and then reused offline.
+- The app lists every transcription language as a translation target, but Argos only covers the 50 above; for any other target the job ends with a clear error. For other languages or higher quality you can use an external provider with your own key (BYOK).
+
 ## API
 
 Everything hangs off `/v1/jobs`. The worker writes the job state in PostgreSQL and the API reads
@@ -102,7 +129,7 @@ it. Every route under `/v1/jobs` requires `X-API-Key: <key>` (or `Authorization:
 |---|---|
 | `POST /v1/jobs/transcribe` | Multipart. Streams the video to S3 as it arrives. `202` |
 | `GET /v1/capabilities` | Optional features this server offers (`{ "diarization": { "enabled": true } }`); the web hides or disables what is missing |
-| `GET /v1/jobs` | Your jobs, newest first (`?limit=` 1-100, `?cursor=<last id>`); only those of the key's tenant |
+| `GET /v1/jobs` | Your jobs, newest first (`?limit=` 1-100, default 20; `?cursor=<last id>`; never more than 100 per page); only those of the key's tenant |
 | `GET /v1/jobs/:id` | State, stage, percentage, error and result |
 | `GET /v1/jobs/:id/events` | Progress over SSE until a final state |
 | `POST /v1/jobs/:id/cancel` | Cancels: removed from the queue, or the worker is told to stop |
