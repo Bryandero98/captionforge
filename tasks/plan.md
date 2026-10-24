@@ -1,114 +1,113 @@
-# Plan de implementación: Issue #11, IA avanzada y BYOK
+# Plan de implementación: Issue #13 (v1.1), control de calidad de subtítulos y subtítulos dinámicos ASS
 
-Rama: `feat/issue-11-ai-byok` (local; GitHub sin conexión al crearla). Estado: **plan para aprobación, sin código ni migraciones**.
-Tareas en [todo.md](todo.md). ADR previsto: 0020 (Propuesta hasta que el Tech Lead apruebe).
+Rama: `feat/issue-13-quality-and-styles` (local, desde `main` en la v1.0.0). Estado: **borrador para revisión técnica, sin código ni migraciones**.
+Tareas en [todo.md](todo.md). ADR previstos: 0021 (calidad) y 0022 (estilos dinámicos y licencias). El plan del #11 quedó en `tasks/archivo/issue-11/`.
 
 ## Resumen
 
-Dos módulos nuevos que se ejecutan como **trabajos hijos** de una transcripción terminada (igual que el quemado):
+Dos funciones que trabajan sobre una transcripción terminada y no cuestan nada por uso (todo local):
 
-- **Traducir** (`TRANSLATE`): lee `segments.json`, conserva los tiempos y escribe los segmentos traducidos. Proveedores: `argos` (local, ya existe en el código heredado, no necesita clave) y `openai` (BYOK).
-- **Doblar** (`DUB`, texto a voz): lee los segmentos (originales o traducidos), pide la voz al proveedor, ajusta la duración de cada frase y entrega un audio y, opcionalmente, el video con el audio mezclado. Proveedores: `openai`, `elevenlabs` (BYOK). No hay TTS local: el objetivo es no gastar VRAM.
+- **Control de calidad (QA):** mide cada subtítulo contra un perfil (Netflix, BBC, accesible, cortos verticales) y dice qué incumple y por cuánto. Un
+  «arreglar» opcional corrige solo tiempos y saltos de línea, nunca el texto.
+- **Subtítulos dinámicos (estilo TikTok/Shorts):** plantillas que resaltan la palabra que se dice, con pocas palabras por pantalla y formato 9:16, quemados
+  con el ffmpeg que ya usamos.
 
-**BYOK**: cada espacio guarda sus claves de proveedor cifradas. La clave **nunca** entra en Redis, en `Job.options`, en `Job.result`, en los registros ni en un mensaje de error. El worker la pide al API en el momento de usarla, por un canal interno.
-
-## Hechos del código que condicionan el diseño
+## Hechos del código que condicionan el diseño (verificados)
 
 | Hecho | Consecuencia |
 |---|---|
-| El worker habla directo con PostgreSQL con `cf_worker` y permisos por columna (ADR 0003) y **no tiene cliente del API** | Hay que añadirle uno (httpx + `API_INTERNAL_URL`); la tabla de claves **no** se concede a `cf_worker`: la base misma impide que el worker lea el cifrado |
-| `APP_SECRET` no existe; los secretos viven en `.env` y los genera `start.sh/bat` | Variable nueva, obligatoria solo para activar BYOK; sin ella la función se apaga (`capabilities.byok.enabled=false`), nunca cifra con un valor por defecto |
-| Contratos JSON Schema → modelos TS y Python con prueba de paridad (ADR 0001) | Los dos tipos de trabajo y los códigos de error nuevos van primero al contrato |
-| `ErrorCode` es un enum cerrado (`FFMPEG_*`, `INTERNAL`...) | Se añaden códigos `EXTERNAL_*`; la interfaz los traduce en 6 idiomas |
-| El quemado ya modela "hijo de una transcripción" (`parentJobId`, 409 si ya hay uno en curso, ETag de segmentos) | Se reutiliza el patrón para TRANSLATE y DUB |
-| La traducción ya existe dentro de la transcripción (`translateTo`, Argos) | No se toca; TRANSLATE es el mismo motor como paso aparte (se puede traducir sin repetir Whisper) |
-| Un solo hueco de ejecución para todo (semáforo 1) | Los trabajos que solo esperan a una API externa usan un hueco aparte para no bloquear Whisper |
-| Caddy publica todo el API menos `/metrics`; las métricas ya usan otro puerto interno (ADR 0018) | El canal del worker va en un **listener interno propio**, que Caddy ni conoce |
+| `transcribe.py` ya pide `word_timestamps=True` y cada segmento guarda `words` | No hace falta cambiar el modelo: hay que **exponer** los tiempos por palabra, no extraerlos de nuevo |
+| `burn.py` ya genera ASS con karaoke (`segments_to_ass`, `\k`) cuando algún segmento conserva `words`, y informa `usedKaraoke` | Las plantillas se montan sobre ese camino; el karaoke básico ya existe |
+| Traducir o editar el texto **descarta** `words` | Con texto editado no hay tiempos por palabra: se necesita una política (decisión 4) |
+| `segments.json` es un artefacto sin esquema en `packages/contracts`; `burn-job` solo tiene `style` y `karaoke` | Los contratos crecen de forma aditiva (campos opcionales, `schemaVersion` 1) |
+| El quemado es un trabajo hijo con `parentJobId`, 409 si ya hay uno y ETag de segmentos | Se reutiliza para plantillas y 9:16; no se crea un tipo de trabajo nuevo |
+| El ffmpeg viene de `imageio-ffmpeg` (con libass) y se invoca como **subproceso** con tiempos límite | Es lo que mantiene la licencia limpia (decisión 7) |
+| Las fuentes de la imagen son las que libass puede dibujar (fontconfig) | Las plantillas solo pueden nombrar fuentes que la imagen trae |
 
 ## Decisiones de arquitectura
 
-### 1. Esquema (Prisma)
+### 1. Perfiles de QA (CPS, CPL, solapes)
+Los perfiles son **datos**, no código: `packages/contracts/quality-profiles/*.v1.json`, validados por JSON Schema (misma regla del ADR 0001).
 
-`TenantExternalKey`: `id`, `tenantId` (FK Restrict), `provider` (`openai` | `elevenlabs`), `ciphertext` (texto `v1.<iv>.<tag>.<datos>` en base64url), `keyVersion` (int), `last4`, `createdBy` (FK SetNull, solo auditoría), `createdAt`, `rotatedAt`. Único `(tenantId, provider)`: una clave por proveedor y espacio.
-Permisos (migración construida con `migrate diff`, como la anterior): `cf_api` SELECT/INSERT/UPDATE/DELETE; `cf_worker` **ninguno**. Prueba en `db-privileges` que lo fija.
-`JobKind` gana `TRANSLATE` y `DUB`. `Job.options` guarda `{provider, ...}` sin secretos.
+| Regla | Qué mide | Gravedad |
+|---|---|---|
+| `cps` | caracteres por segundo (con espacios; sin etiquetas) | aviso por encima del límite, error por encima de límite + 3 |
+| `cpl` | caracteres por línea | error |
+| `lines` | líneas por subtítulo | error |
+| `duration_min` / `duration_max` | duración mínima y máxima | aviso |
+| `gap_min` | separación mínima entre subtítulos (ms; depende de los fotogramas por segundo del perfil) | aviso |
+| `overlap` | un subtítulo empieza antes de que acabe el anterior | error |
+| `balance` | diferencia de largo entre líneas (pirámide) | información |
 
-### 2. Cifrado
+Perfiles iniciales: `netflix` (CPL 42, 2 líneas, CPS 17, 5/6 s a 7 s), `bbc` (CPL 37, CPS ~ 160 palabras por minuto), `accessible` (CPS bajo, 2 líneas, duración mínima
+más larga) y `shorts` (CPL ~ 20, 1–2 líneas, pensado para 9:16). Los números exactos se confirman contra las guías públicas antes de fijarlos (tarea T1).
 
-- AES-256-GCM, IV aleatorio de 96 bits por cifrado, etiqueta de 128 bits.
-- La clave de cifrado se **deriva** de `APP_SECRET` con HKDF-SHA256 y contexto `captionforge/external-key/v1`; el secreto crudo no se usa como clave.
-- **AAD** = `tenantId|provider|keyVersion`: un cifrado copiado a otra fila (otro espacio u otro proveedor) no descifra.
-- `APP_SECRET` ≥ 32 bytes, validado al arrancar. Perderlo = perder las claves guardadas (la persona las vuelve a pegar); se documenta.
-- Rotación: `keyVersion` permite `APP_SECRET_PREVIOUS` para descifrar y re-cifrar (comando aparte). Pregunta abierta 6.
+El verificador es una **función pura** (`segments + perfil → incidencias`), en el API (TypeScript), sin base de datos ni red. Contrato de salida:
+`{ profile, summary: {errors, warnings, score}, issues: [{segment, rule, severity, measured, limit}] }`. Se expone como `GET /v1/jobs/:id/quality?profile=`
+(solo lectura, mismo permiso que ver segmentos). La interfaz **no reimplementa** las reglas: pide el informe y pinta las marcas por subtítulo, así no hay
+dos verificadores que se desvíen.
 
-### 3. API de gestión (sesión de navegador, solo Dueño)
+**Arreglar** es una *propuesta* (`POST …/quality/fix` devuelve segmentos nuevos sin guardarlos) que el usuario aplica con el flujo de edición existente (ETag).
+Solo toca tiempos (alargar el final hacia el hueco libre, separar solapes) y saltos de línea; **invariante: el texto, quitando saltos, es idéntico**. Se prueba con
+pruebas de propiedades (el texto no cambia, nunca crea un solape, es idempotente).
 
-- `PUT /v1/workspaces/current/external-keys/:provider` `{key}`: valida formato por proveedor, cifra y guarda. `GET` (lista: proveedor, `last4`, fechas; **nunca** la clave), `DELETE` (borrado real, no marca). `POST .../:provider/verify` opcional: una llamada barata al proveedor (OpenAI `GET /v1/models`, ElevenLabs `GET /v1/user`) con tiempo límite.
-- Roles: el Dueño gestiona; el Editor **usa** las claves lanzando trabajos; el Visor no lanza trabajos. Las claves de API (rol Editor estático) pueden lanzar trabajos pero **no** ver ni gestionar claves externas.
-- Respuestas con `Cache-Control: no-store`. Registro de auditoría de alta/baja/uso sin valores.
-- La clave pertenece al espacio, no a quien la pegó: si esa persona deja de ser Dueño, la clave sigue (a diferencia de las claves de API del #10). Pregunta abierta 5.
+### 2. Tiempos por palabra: extraer y exponer
+- No se extraen otra vez: ya salen de faster-whisper. Se formaliza `Segment` y `Word` (`start`, `end`, `text`, `probability`) en `packages/contracts` como campos
+  opcionales y se generan los tipos TS y Python.
+- `GET /v1/jobs/:id/segments` devuelve `words` cuando existen (hoy el worker los guarda; hay que comprobar qué filtra el API). Se valida el tamaño (tope de
+  segmentos del ADR 0020 ya aplica) y se comprime con gzip.
+- El karaoke exige palabras ordenadas, dentro del segmento y sin solape: un normalizador las repara o las descarta, y el quemado informa `usedKaraoke`.
 
-### 4. Canal seguro al worker
+### 3. Plantillas ASS
+- Una plantilla es un **JSON validado** (lista blanca): fuente (de las instaladas), tamaño relativo a la altura, colores `#RRGGBB`, contorno, sombra, alineación,
+  márgenes, palabras máximas por pantalla (1–4), modo de resalte (`sweep` con `\kf`, `pop` con evento por palabra y `\t` de escala, `color`), mayúsculas.
+- El texto **nunca** va crudo al ASS: se escapan `{`, `}` y `\` y se normalizan los saltos, para que nadie inyecte etiquetas de override desde el texto del subtítulo.
+- Plantillas de fábrica en el repositorio (3 a 5) más la posibilidad de elegirlas en el quemado: `burn-job` gana `template` y `canvas` opcionales; sin ellos, el
+  comportamiento actual no cambia (compatibilidad).
+- **Formato vertical 9:16** (1080×1920): por defecto, el video original centrado sobre un fondo desenfocado de sí mismo (no pierde contenido), con alternativa de
+  recorte central. Lo hace un solo grafo de filtros de ffmpeg junto con `ass=`. La interfaz avisa de que reencodear cuesta tiempo y fija topes de duración.
+- Un subtítulo con muchas palabras se parte en pantallas de N palabras repartiendo el tiempo según los tiempos reales, no por igual.
 
-- **Listener interno separado** (`INTERNAL_PORT`, modelo de `metrics-server.ts`): no se publica en el host ni pasa por Caddy. Mismo proceso del API, otro puerto.
-- `POST /internal/v1/jobs/:jobId/external-key` `{provider}`.
-- Autenticación: secreto de servicio **propio** `WORKER_INTERNAL_TOKEN` (≥ 32 bytes), comparación en tiempo constante. Pregunta abierta 1: el Tech Lead sugirió "la API_KEY del sistema"; `DEFAULT_API_KEY` es una clave de **espacio** con permisos de espacio, no un secreto de servicio, y reutilizarla daría a quien la filtre más de lo necesario.
-- **Atado al trabajo**: el espacio sale de la fila del trabajo, nunca del cuerpo; el trabajo debe estar `RUNNING`, ser `TRANSLATE`/`DUB`, y el `provider` pedido debe ser el que declara `Job.options.provider`. Con un token filtrado solo se obtienen claves de trabajos en marcha y solo del proveedor que ese trabajo usa.
-- `Cache-Control: no-store`, límite de peticiones, métrica y registro del evento (jobId, proveedor, resultado; jamás el valor).
-- Transporte: red interna de Docker (HTTP). El API local escucha en `127.0.0.1`. Riesgo residual documentado (quien esté dentro de la red de contenedores).
+### 4. Política cuando el texto se editó (sin tiempos por palabra)
+Opciones: (a) sin resalte, subtítulo completo (hoy); (b) alinear a nivel de palabra con las palabras originales (difflib) y conservar tiempos de las que
+coinciden; (c) repartir el tiempo del subtítulo proporcionalmente al largo de cada palabra. **Propuesta:** (b) con respaldo a (c) y una marca
+`approximate` que la interfaz muestra; nunca fingir precisión.
 
-### 5. Cero fugas en Redis
+### 5. Dónde corre cada cosa
+QA: API (instantáneo, sin hueco de ejecución del worker). Plantillas y 9:16: worker Python (reutiliza `burn.py`, un hueco de ejecución, tiempos límite
+de ffmpeg ya existentes). RAM: igual que el quemado actual; el filtro de desenfoque se limita a escalas pequeñas.
 
-- El payload de BullMQ lleva solo `provider` y opciones (voz, idioma, modelo). Los esquemas ya tienen `additionalProperties: false`; se añade una prueba que lo exige.
-- **Prueba canario**: se guarda una clave `sk-canario-…`, se lanza un trabajo completo y se busca la cadena en todas las claves `bull:*` de Redis, en las tablas `Job`/`TenantExternalKey` (solo debe aparecer el cifrado, y no en claro), en los registros del API y del worker y en `/work`. Cero coincidencias.
-- En el worker: la clave vive en memoria durante el trabajo; no va a disco, a variables de entorno de subprocesos ni a argumentos de `ffmpeg`; `repr=False` en la estructura; filtro que sustituye la clave en cualquier mensaje o traza antes de registrar o guardar.
-- Los errores del proveedor **no** se copian al usuario: OpenAI incluye fragmentos de la clave en "Incorrect API key provided". Se traducen por estado/código a mensajes propios.
+### 6. Interfaz (sin build, módulos ES)
+Panel «Calidad» (selector de perfil, resumen, marcas por subtítulo, botón «Proponer arreglo» con vista de diferencias) y, en «Quemar», selector de plantilla y de
+formato con vista previa de un fotograma. 6 idiomas, accesible (las marcas no dependen solo del color), pruebas web + e2e de navegador.
 
-### 6. Degradación elegante
+### 7. Licencia BSL y ffmpeg (GPL): cómo no contaminarla
+1. **Frontera de proceso:** CaptionForge solo ejecuta `ffmpeg` como programa aparte con argumentos (lo que ya hace). No se enlaza ninguna biblioteca de FFmpeg
+   (no PyAV, no `libav*` por FFI, no bindings que carguen `libass` en proceso). Se prueba en CI: lista de dependencias prohibidas y revisión del lockfile.
+2. **Agregación, no obra derivada:** el binario viaja en la imagen junto a nuestro código, comunicándose solo por línea de comandos y archivos. El código de CaptionForge sigue bajo BSL.
+3. **Obligaciones del binario:** el ffmpeg de `imageio-ffmpeg` es una compilación estática que puede incluir componentes GPL (libx264). Al distribuir la imagen se cumplen
+   las obligaciones de ese binario: aviso de licencia, versión fijada y **oferta de código fuente** (o enlace a la fuente exacta) en `THIRD_PARTY_NOTICES.md`.
+   Alternativa si se quiere reducir exposición: `ffmpeg` del sistema con codificador permisivo; se evalúa en el ADR 0022.
+4. **Fuentes:** solo con licencia que permita redistribuir (OFL/Apache); se listan con su licencia en los avisos.
+5. **Texto de usuario:** no se mezcla con código ASS sin escapar (ver 3), lo que también cierra la vía de ejecutar opciones de ffmpeg desde el contenido.
+Nota: es una decisión de ingeniería para reducir riesgo, no asesoría legal; el encuadre de GPL/BSL conviene validarlo con un abogado antes de comercializar.
 
-Códigos nuevos en `ErrorCode`: `EXTERNAL_KEY_MISSING`, `EXTERNAL_AUTH_FAILED` (clave inválida o revocada), `EXTERNAL_RATE_LIMITED`, `EXTERNAL_QUOTA_EXCEEDED` (saldo agotado), `EXTERNAL_TIMEOUT`, `EXTERNAL_UNAVAILABLE`.
-- 401/403/402 no se reintentan. 429 y 5xx: hasta 3 reintentos con espera exponencial y `Retry-After`, con tope de tiempo total.
-- Tiempos límite de conexión (10 s) y de lectura (60 s) por llamada y un tope total por trabajo.
-- Todo error pasa por `classify`; el worker marca el trabajo `FAILED` con mensaje en español y sigue vivo para el siguiente. Prueba: un servidor falso devuelve 429, 402, 500, cuelgue y JSON roto; el trabajo termina `FAILED` con el código esperado y un segundo trabajo se procesa después.
-- Si falta la clave al crear el trabajo, el API responde `409 external_key_missing` antes de encolar (falla rápido, sin gastar nada); el worker lo vuelve a comprobar.
-
-### 7. Control del gasto (el dinero es de la persona usuaria)
-
-Tope de caracteres y de segmentos por trabajo (configurable), estimación visible en la interfaz antes de lanzar ("≈ N caracteres") y confirmación explícita. Las cuotas existentes (`TENANT_MAX_QUEUED_JOBS`) siguen aplicando. Sin URL base personalizada del proveedor en v1 (SSRF y exfiltración de la clave a un servidor ajeno).
-
-### 8. Doblaje: salidas
-
-`dub.mp3` (pista de voz ajustada a los tiempos) y, si se pide, `dubbed.mp4` con `mix: replace | duck` (audio original bajado). Ajuste de cada frase con `atempo` acotado (0.85–1.25); si no cabe, se recorta el silencio y se avisa en el resultado (`overflowSegments`). Resultado validado por contrato.
-
-### 9. Interfaz
-
-- Ajustes del espacio → "Claves externas" (solo Dueño): campo `password` con `autocomplete="off"`, muestra `…last4`, Reemplazar / Borrar / Probar; el valor jamás se vuelve a pintar.
-- Resultados → "Traducir" (Local o proveedor; deshabilitado con explicación si falta la clave) y "Doblar" (proveedor, voz, mezcla), con progreso, errores `EXTERNAL_*` traducidos y descarga.
-- `capabilities` suma `byok` y la lista de proveedores. 6 idiomas, `<dialog>` para confirmar gasto, DOM clicks en e2e (lección del #10).
-
-## Orden y puntos de control
-
-Cimientos (cifrado, esquema, CRUD) → canal seguro → contratos → TRANSLATE con Argos (prueba la tubería sin dinero ni claves) → proveedores y degradación → DUB → interfaz → documentación. Los puntos de control están en [todo.md](todo.md).
-
-## Riesgos y mitigaciones (pre-mortem)
+## Riesgos y mitigaciones
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| Volcado de la base + `APP_SECRET` filtrados | Alto | HKDF + AAD, `APP_SECRET` fuera de la base y de los respaldos, documentado; `cf_worker` sin acceso a la tabla |
-| `WORKER_INTERNAL_TOKEN` filtrado | Medio | Atado a trabajos `RUNNING`, solo el proveedor del trabajo, listener no publicado, límite de peticiones |
-| Clave filtrada por un error del SDK/proveedor | Alto | No se reenvían mensajes del proveedor; filtro de la clave en toda salida; prueba canario |
-| Redis/log con la clave | Alto | Payload sin secretos por contrato + prueba canario sobre Redis, base, registros y `/work` |
-| Doblaje largo agota el saldo a mitad | Medio | Tope por trabajo, estimación y confirmación, `EXTERNAL_QUOTA_EXCEEDED` claro; reanudar queda para v1.1 |
-| TTS bloquea Whisper | Medio | Hueco de ejecución aparte para trabajos de red |
-| Perder `APP_SECRET` | Medio | Documentado; las claves se vuelven a pegar; rotación con `keyVersion` |
-| Proveedor cambia su API | Bajo | Adaptadores finos por proveedor con pruebas contra servidor falso |
+| Umbrales de perfil mal copiados de una guía | Medio | Fuente citada por perfil en el JSON; los números se verifican en T1; tests de tabla |
+| El arreglo cambia el sentido de un subtítulo | Alto | Invariante de texto con pruebas de propiedades; es propuesta, no se guarda sola |
+| Tiempos por palabra inexactos tras editar | Medio | Política 4 con marca `approximate` |
+| Quemar en 9:16 agota RAM o tiempo | Medio | Tope de duración, un hueco de ejecución, filtros acotados, tiempos límite existentes |
+| Inyección ASS o de filtros ffmpeg desde el texto o el nombre de plantilla | Alto | Lista blanca, escape del texto, rutas fijas, pruebas con cargas hostiles |
+| Fuente que falta y libass cae a otra | Bajo | Se prueba que cada plantilla resuelve su fuente en la imagen (CI) |
+| Alcance: dos funciones en un PR | Medio | Dos fases con punto de control; si QA se alarga, se divide en dos PR (decisión del Tech Lead) |
 
-## Preguntas abiertas (necesito respuesta antes de codificar)
-
-1. **Secreto del canal interno**: `WORKER_INTERNAL_TOKEN` dedicado (recomendado) o la `DEFAULT_API_KEY`.
-2. **Listener interno en otro puerto** (recomendado) o ruta `/internal` en el puerto público bloqueada en Caddy.
-3. **Proveedores de v1**: OpenAI (traducir y TTS), ElevenLabs (TTS), Argos local (traducir). ¿Alguno más?
-4. **Salida del doblaje**: audio + mezcla opcional en MP4 (recomendado) o solo audio.
-5. **Dueño de la clave**: la clave es del espacio y la gestiona solo el Dueño (recomendado). ¿O también el Editor?
-6. **Rotación de `APP_SECRET`**: incluir `APP_SECRET_PREVIOUS` y el comando de re-cifrado en este issue o dejarlo para después (recomendado: dejar el campo `keyVersion` y el comando para después).
-7. **Topes de gasto** por defecto: 50 000 caracteres y 1 000 segmentos por trabajo.
+## Decisiones pendientes para el Tech Lead
+1. ¿El verificador vive solo en el API (propuesta) o también como módulo compartido para validar en vivo en el navegador?
+2. Formato 9:16 por defecto: fondo desenfocado (propuesta) o recorte central.
+3. Fuentes a incluir (propuesta: 2 OFL de buena lectura en pantalla vertical, p. ej. una sans negrita y una redondeada).
+4. Política de texto editado: (b)+(c) como arriba.
+5. ¿Un PR único con commits por tarea (como el #11) o dos PR (QA y estilos)?
+6. ¿Perfil `shorts` entra en esta versión?
