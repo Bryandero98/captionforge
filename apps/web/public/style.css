@@ -549,6 +549,57 @@ select:disabled {
 .ai .field .panel__detail {
   margin: 4px 0 0;
 }
+.quality .field select {
+  width: 100%;
+}
+.quality__summary {
+  margin: 12px 0 0;
+  font-weight: 600;
+}
+.quality__issues,
+.quality__changes {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.quality__issue {
+  padding: 8px 10px;
+  border-left: 4px solid var(--border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.quality__issue--error {
+  border-left-color: var(--error-text);
+}
+.quality__issue--warning {
+  border-left-color: var(--accent);
+}
+.quality__issue--info {
+  border-left-color: var(--border-strong);
+}
+.quality__severity {
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+.quality__more,
+.quality__changes li {
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+.quality__proposal {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.quality__proposal-title {
+  margin: 0 0 6px;
+  font-size: 0.9375rem;
+}
 .burn__video {
   display: block;
   width: 100%;

@@ -231,6 +231,11 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       els.prefix.checked = false;
       editor.close();
       els.panel.hidden = true;
+      onChange();
+    },
+    /** Vuelve a pedir los subtítulos guardados (tras aplicar un arreglo de calidad, por ejemplo). */
+    reload() {
+      return load();
     },
     /** Repinta los textos que dependen del idioma. */
     refresh() {
