@@ -123,7 +123,12 @@ jobs:
       - name: AI Worker - ffmpeg con libmp3lame
         run: |
           FFMPEG="$(apps/ai-worker/.venv/bin/python -c 'from captionforge.ffmpeg_locator import find_ffmpeg; print(find_ffmpeg())')"
-          "$FFMPEG" -hide_banner -encoders 2>/dev/null | grep -q libmp3lame
+          ENCODERS="$("$FFMPEG" -hide_banner -encoders 2>/dev/null)"
+          case "$ENCODERS" in *libmp3lame*) ;; *) echo "El ffmpeg del localizador no trae libmp3lame"; exit 1 ;; esac
+          # Las pruebas del API generan una voz de prueba con «ffmpeg» del PATH: se publica el mismo binario ahí.
+          mkdir -p "$RUNNER_TEMP/ffbin"
+          ln -sf "$FFMPEG" "$RUNNER_TEMP/ffbin/ffmpeg"
+          echo "$RUNNER_TEMP/ffbin" >> "$GITHUB_PATH"
 
       - name: Scripts de arranque - generan APP_SECRET y WORKER_INTERNAL_TOKEN sin pisar los existentes
         run: node --test tools/start-env.test.mjs

@@ -47,6 +47,9 @@ describe("docker-compose.yml: canal interno del worker", () => {
   });
 
   it("Caddy no enruta nada al puerto interno", () => {
-    expect(readFileSync(resolve(import.meta.dirname, "../../../docker/caddy/Caddyfile"), "utf8")).not.toMatch(/3100|internal/i);
+    const caddyfile = readFileSync(resolve(import.meta.dirname, "../../../docker/caddy/Caddyfile"), "utf8");
+    const code = caddyfile.replace(/#.*$/gm, ""); // los comentarios pueden nombrar el puerto; las directivas no
+    expect(code).not.toMatch(/3100/);
+    expect(code).toMatch(/@internal path \/internal \/internal\/\*\s+handle @internal \{\s+respond 404/); // si alguien lo apuntara aquí, 404
   });
 });
