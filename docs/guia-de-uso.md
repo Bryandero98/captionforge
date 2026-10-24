@@ -71,6 +71,31 @@ Qué hay que saber:
 - Si el servidor no tiene activada la función (no hay `APP_SECRET`), no hay panel y «Doblar» queda bloqueado. Quien administra el
   servidor la activa según el [runbook de `APP_SECRET`](runbook-app-secret.md).
 
+### Otras IA compatibles con OpenAI: DeepSeek, Groq, OpenRouter, modelos locales
+
+La fila de OpenAI tiene dos campos opcionales, **URL base (API compatible)** y **Modelo**. Con ellos la traducción usa otro
+servicio que hable el mismo protocolo que OpenAI, con tu propia clave de ese servicio (ADR [0022](adr/0022-url-base-propia-para-proveedores-de-ia.md)).
+
+| Servicio | URL base | Modelo de ejemplo |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| Gemini (capa compatible) | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| Ollama en tu equipo* | `http://localhost:11434/v1` | `llama3.1:8b` |
+
+Revisa en la documentación de cada servicio la URL y los nombres de modelo vigentes; los de la tabla son ejemplos.
+Vacíos, se usa OpenAI con su modelo por defecto (`gpt-4o-mini`).
+
+- La **URL no se vuelve a mostrar**: queda cifrada y la lista solo enseña el servidor («Servidor: api.deepseek.com»). Al
+  reemplazar la clave hay que volver a escribirla; un reemplazo sin URL vuelve a OpenAI. El modelo sí se ve y se propone de nuevo.
+- Solo se aceptan servidores **públicos por https**. El worker resuelve el DNS antes de cada petición y, si el nombre apunta a una
+  red privada, cancela el trabajo **sin enviar la clave**.
+- \* Para usar un modelo local (Ollama, vLLM) quien administra el servidor pone `ALLOW_PRIVATE_BASE_URLS=true` en el `.env`
+  (por defecto está apagada). Entonces se aceptan direcciones locales y privadas, también por http. Los metadatos de nube
+  (`169.254.x.x`) siguen bloqueados siempre. Desde Docker, un Ollama en tu equipo se alcanza con `http://host.docker.internal:11434/v1`.
+- La confirmación de gasto y la estimación de «Traducir» muestran el servidor y el modelo que configuraste.
+
 ## Calidad de los subtítulos
 
 Debajo de los datos de la transcripción está el panel **Calidad de los subtítulos**. Elige una **norma** (Netflix en inglés o en español, BBC, Accesible o Cortos verticales) y pulsa **Revisar**: te dice qué subtítulos leen demasiado rápido, tienen líneas largas, duran poco o mucho, o están pegados o solapados con el anterior, y por cuánto. Cada aviso dice su gravedad con palabras (Error, Aviso, Sugerencia).

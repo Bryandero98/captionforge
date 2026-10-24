@@ -72,6 +72,31 @@ Good to know:
 - If the server does not have the feature on (no `APP_SECRET`), there is no panel and "Dub" is blocked. Whoever runs the
   server turns it on following the [`APP_SECRET` runbook](runbook-app-secret.md).
 
+### Other OpenAI-compatible AI services: DeepSeek, Groq, OpenRouter, local models
+
+The OpenAI row has two optional fields, **Base URL (compatible API)** and **Model**. With them, translation uses another service
+that speaks the same protocol as OpenAI, with your own key for that service (ADR [0022](adr/0022-url-base-propia-para-proveedores-de-ia.md)).
+
+| Service | Base URL | Example model |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| Gemini (compatible layer) | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| Ollama on your machine* | `http://localhost:11434/v1` | `llama3.1:8b` |
+
+Check each service's documentation for the current URL and model names; the table shows examples. Left empty, OpenAI is used
+with its default model (`gpt-4o-mini`).
+
+- The **URL is never shown again**: it is stored encrypted and the list only shows the server ("Server: api.deepseek.com"). When
+  you replace the key you must enter it again; a replacement without a URL goes back to OpenAI. The model is shown and offered again.
+- Only **public servers over https** are accepted. The worker resolves DNS before every request and, if the name points to a
+  private network, cancels the job **without sending the key**.
+- \* To use a local model (Ollama, vLLM) whoever runs the server sets `ALLOW_PRIVATE_BASE_URLS=true` in `.env` (off by default).
+  Local and private addresses are then accepted, also over http. Cloud metadata addresses (`169.254.x.x`) stay blocked always.
+  From Docker, an Ollama on your machine is reached at `http://host.docker.internal:11434/v1`.
+- The spend confirmation and the "Translate" estimate show the server and model you configured.
+
 ## Subtitle quality
 
 Below the transcription facts is the **Subtitle quality** panel. Pick a **standard** (Netflix in English or Spanish, BBC, Accessible or Vertical shorts) and press **Check**: it tells you which captions read too fast, have long lines, are too short or too long, or sit too close to (or overlap) the previous one, and by how much. Each notice states its severity in words (Error, Warning, Suggestion).

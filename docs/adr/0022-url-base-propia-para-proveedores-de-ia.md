@@ -26,6 +26,17 @@ nada cambia.
    worker la recibe junto a la clave por el canal interno (`{ key, baseUrl? }`).
 6. **Privilegios:** el Dueño es el único que la gestiona; `cf_worker` sigue sin permisos sobre la tabla.
 
+## Ampliaciones aprobadas por el Tech Lead
+- **Modelo opcional (`model`)**: texto plano en la fila (no es un secreto), con el formato `[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}`. Viaja al
+  worker junto a la clave por el canal interno. Sin él se usa `gpt-4o-mini`. Cualquier miembro del espacio ve el host y el modelo
+  (`GET /v1/workspaces/current/ai-config`), nunca la URL: la confirmación de gasto los muestra.
+- **`ALLOW_PRIVATE_BASE_URLS`** (apagada por defecto; la leen el API y el worker; un valor ambiguo hace fallar el arranque): acepta
+  URL base de la red local o privada, también por http (Ollama, vLLM). Siguen prohibidos siempre los metadatos de nube y el enlace
+  local (169.254.0.0/16, fe80::/10), las direcciones sin especificar, de multidifusión o reservadas, y la IPv4 mapeada en IPv6.
+- **Guardia del worker**: antes de CADA petición (reintentos incluidos) resuelve el DNS y aborta el trabajo sin enviar la clave si
+  alguna respuesta es no permitida. Residual conocido: queda una ventana de milisegundos entre esa comprobación y la conexión;
+  fijar la IP resuelta en la conexión sin romper TLS es una mejora pendiente.
+
 ## Consecuencias
 - Cualquier proveedor compatible con OpenAI funciona sin cambiar código. El modelo sigue fijo hasta que se apruebe un campo `model`.
 - Una URL elegida por una persona es una superficie nueva: las defensas 3 y 4 son obligatorias y tienen pruebas propias.
