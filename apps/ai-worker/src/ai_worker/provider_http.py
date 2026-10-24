@@ -44,7 +44,9 @@ _QUOTA_WORDS = ("quota", "insufficient", "billing", "credit", "balance")
 def external_failure(code: str, *, rejected: bool = False) -> JobFailure:
     """Fallo con mensaje propio. `from None` en quien lo lanza: la cadena de httpx llevaría la petición con la clave."""
     message_key = "EXTERNAL_REJECTED" if rejected else code
-    return JobFailure(code, _MESSAGES[message_key])
+    failure = JobFailure(code, _MESSAGES[message_key])
+    failure.rejected = rejected  # type: ignore[attr-defined]  # el proveedor entendió la petición y no la acepta (4xx): reintentar igual no sirve
+    return failure
 
 
 def parse_json(response: httpx.Response) -> Any:

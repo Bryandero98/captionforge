@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -76,10 +77,12 @@ class OpenAITranslator:
     """Traduce por lotes con la API de chat de OpenAI. El texto del video es DATO, no instrucciones: la respuesta solo se acepta si es
     un JSON con exactamente una cadena por entrada; cualquier otra cosa es un fallo controlado, nunca texto libre que llegue al usuario."""
 
-    def __init__(self, http: ProviderHttp, *, path: str = "/v1/chat/completions", model: str = OPENAI_TRANSLATE_MODEL) -> None:
+    def __init__(self, http: ProviderHttp, *, path: str = "/v1/chat/completions", model: str = OPENAI_TRANSLATE_MODEL, lenient: bool = False) -> None:
         self._http = http
         self._path = path
         self._model = model
+        #: Servidor compatible con OpenAI que no es OpenAI (ADR 0022): algunos no admiten `response_format`; se reintenta una vez sin él.
+        self._lenient = lenient
 
     async def translate(self, texts: list[str], source: str, target: str) -> list[str]:
         system = (
@@ -88,15 +91,20 @@ class OpenAITranslator:
             'Responde SOLO con un objeto JSON {"translations": [...]} con exactamente una traducción por texto, en el mismo orden.'
         )
         user = json.dumps({"source": source, "target": target, "texts": texts}, ensure_ascii=False)
-        response = await self._http.post_json(
-            self._path,
-            {
-                "model": self._model,
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            },
-        )
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        }
+        try:
+            response = await self._http.post_json(self._path, payload)
+        except JobFailure as failure:
+            if not (self._lenient and getattr(failure, "rejected", False)):
+                raise
+            # El servidor entendió la petición y no acepta `response_format`: se pide igual, solo con la instrucción de responder en JSON.
+            del payload["response_format"]
+            response = await self._http.post_json(self._path, payload)
         return _read_translations(parse_json(response), len(texts))
 
 
@@ -138,10 +146,14 @@ class ElevenLabsVoice:
         return _read_audio(response)
 
 
+_FENCE = re.compile(r"^\s*```[A-Za-z]*\s*\n(.*?)\n?```\s*$", re.DOTALL)
+
+
 def _read_translations(body: Any, expected: int) -> list[str]:
     try:
         content = body["choices"][0]["message"]["content"]
-        translations = json.loads(content)["translations"]
+        fenced = _FENCE.match(content)  # algunos modelos envuelven el JSON en un bloque de código
+        translations = json.loads(fenced.group(1) if fenced else content)["translations"]
     except (KeyError, IndexError, TypeError, ValueError):
         raise external_failure("EXTERNAL_UNAVAILABLE") from None
     if not isinstance(translations, list) or len(translations) != expected or not all(isinstance(item, str) for item in translations):
@@ -216,7 +228,7 @@ class Adapters:
             await assert_url_allowed(url, allow_private=self._allow_private, resolve=self._resolve)
 
         http = ProviderHttp(origin, headers, transport=self._transport, sleep=self._sleep, guard=guard)
-        return OpenAITranslator(http, path=path, model=model)
+        return OpenAITranslator(http, path=path, model=model, lenient=True)
 
     @contextlib.asynccontextmanager
     async def translator(self, provider: str, job_id: str) -> AsyncIterator[Translator]:

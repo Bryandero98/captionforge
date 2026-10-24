@@ -323,3 +323,58 @@ def test_la_bandera_del_worker_se_enciende_solo_con_un_valor_explicito(value: st
 def test_un_valor_ambiguo_hace_fallar_el_arranque(value: str) -> None:
     with pytest.raises(ConfigError, match="ALLOW_PRIVATE_BASE_URLS"):
         WorkerConfig.from_env({**BASE_ENV, "ALLOW_PRIVATE_BASE_URLS": value})
+
+
+# ---------------------------------------------------------------- servidores compatibles que no admiten response_format ni devuelven JSON puro
+def strict_json_mode(request: httpx.Request) -> httpx.Response:
+    """Un servidor compatible que rechaza `response_format` (400), como hacen algunos."""
+    if "response_format" in json.loads(request.content):
+        return httpx.Response(400, json={"error": {"message": "response_format no soportado", "type": "invalid_request_error"}})
+    return chat_reply(request)
+
+
+def test_con_servidor_propio_si_rechaza_response_format_se_reintenta_una_vez_sin_el() -> None:
+    adapters, seen = make(FakeKeys("https://llm.example.com/v1", "modelo-x"), resolver_for(["93.184.216.34"]), reply=strict_json_mode)
+    assert translate(adapters, ["hola"]) == ["[en] hola"]
+    assert len(seen) == 2
+    assert "response_format" in json.loads(seen[0].content)
+    assert "response_format" not in json.loads(seen[1].content)
+    assert json.loads(seen[1].content)["model"] == "modelo-x"
+
+
+def test_con_openai_a_secas_un_rechazo_no_se_reintenta_sin_response_format() -> None:
+    adapters, seen = make(FakeKeys(), resolver_for(["93.184.216.34"]), reply=strict_json_mode)
+    with pytest.raises(JobFailure):
+        translate(adapters, ["hola"])
+    assert len(seen) == 1
+
+
+def test_un_error_de_clave_no_se_reintenta_sin_response_format() -> None:
+    def unauthorized(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"code": "invalid_api_key"}})
+
+    adapters, seen = make(FakeKeys("https://llm.example.com/v1"), resolver_for(["93.184.216.34"]), reply=unauthorized)
+    with pytest.raises(JobFailure) as failure:
+        translate(adapters, ["hola"])
+    assert failure.value.code == "EXTERNAL_AUTH_FAILED"
+    assert len(seen) == 1
+
+
+def test_con_servidor_propio_acepta_el_json_envuelto_en_un_bloque_de_codigo() -> None:
+    fenced = "```json\n" + json.dumps({"translations": ["uno", "dos"]}) + "\n```"
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": fenced}}]})
+
+    adapters, _ = make(FakeKeys("https://llm.example.com/v1"), resolver_for(["93.184.216.34"]), reply=reply)
+    assert translate(adapters, ["one", "two"]) == ["uno", "dos"]
+
+
+def test_un_numero_distinto_de_traducciones_sigue_siendo_un_fallo_controlado() -> None:
+    def reply(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"translations": ["solo una"]})}}]})
+
+    adapters, _ = make(FakeKeys("https://llm.example.com/v1"), resolver_for(["93.184.216.34"]), reply=reply)
+    with pytest.raises(JobFailure) as failure:
+        translate(adapters, ["a", "b"])
+    assert failure.value.code == "EXTERNAL_UNAVAILABLE"
