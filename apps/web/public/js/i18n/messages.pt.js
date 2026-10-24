@@ -354,6 +354,8 @@ const pt = {
   "dub.dl.video": "Baixar o vídeo dublado (.mp4)",
   "dub.overflow": "{count} frases não cabem no seu tempo nem na aceleração máxima e terminam depois do previsto.",
   "dub.error.conflict": "Já há uma dublagem em andamento para estas legendas. Espere terminar ou cancele-a.",
+  "extkeys.replaceFor": "Substituir a chave {provider}",
+  "extkeys.deleteConfirmFor": "Certeza? Toque de novo para apagar a chave {provider}",
 };
 
 export default pt;

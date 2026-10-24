@@ -16,8 +16,8 @@ function setup({ nativeDialog = true } = {}) {
     "spend-confirm-yes": new FakeElement(),
     "spend-confirm-no": new FakeElement(),
   };
-  const doc = { documentElement: { lang: "es" }, getElementById: (id) => elements[id] ?? null };
-  return { dialog, elements, spend: createSpendConfirm({ doc, t }) };
+  const doc = { documentElement: { lang: "es" }, activeElement: null, getElementById: (id) => elements[id] ?? null };
+  return { dialog, elements, doc, spend: createSpendConfirm({ doc, t }) };
 }
 
 describe("confirmación del gasto", () => {
@@ -66,6 +66,28 @@ describe("confirmación del gasto", () => {
     void spend.ask({ provider: "openai", characters: 10 });
     assert.equal(elements["spend-confirm-no"].focused, true);
     assert.equal(elements["spend-confirm-yes"].focused, false);
+  });
+
+  it("al cerrar devuelve el foco al control que abrió el diálogo", async () => {
+    const { elements, spend, doc } = setup();
+    const opener = new FakeElement("translate-start");
+    doc.activeElement = opener;
+    const answer = spend.ask({ provider: "openai", characters: 10 });
+    opener.focused = false;
+    elements["spend-confirm-no"].fire("click");
+    await answer;
+    assert.equal(opener.focused, true);
+  });
+
+  it("no intenta enfocar un control que ya no está disponible", async () => {
+    const { elements, spend, doc } = setup();
+    const opener = new FakeElement("translate-start");
+    opener.disabled = true;
+    doc.activeElement = opener;
+    const answer = spend.ask({ provider: "openai", characters: 10 });
+    elements["spend-confirm-no"].fire("click");
+    await answer;
+    assert.equal(opener.focused, false);
   });
 
   it("una segunda petición mientras hay una abierta rechaza la primera: nunca se acumulan", async () => {

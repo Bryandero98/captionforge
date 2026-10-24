@@ -9,8 +9,6 @@ import { getCapabilities } from "../api/capabilities.js";
 import { ApiError } from "../api/errors.js";
 import { deleteExternalKey, listExternalKeys, saveExternalKey } from "../api/external-keys.js";
 
-const CONFIRM_RESET_MS = 4000;
-
 /**
  * @param {{
  *   doc: Document, baseUrl: string, access: import("../api/access.js").Access,
@@ -38,8 +36,12 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
   let problem = null;
   /** @type {string | null} */
   let confirming = null;
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let confirmTimer;
+  /** Proveedores con un guardado en vuelo: un segundo clic no envía otra vez. @type {Set<string>} */
+  const saving = new Set();
+  /** Verdadero mientras la lista se reconstruye: los blur por quitar nodos no cuentan como salir del botón. */
+  let rendering = false;
+  /** Botones de la lista en pantalla, por `acción:proveedor`, para devolverles el foco tras repintar. @type {Map<string, any>} */
+  const buttons = new Map();
   /** Campos en pantalla y lo escrito en ellos, para no perderlo cuando la lista se pinta de nuevo. @type {Map<string, any>} */
   const inputs = new Map();
   /** @type {Map<string, string>} */
@@ -66,6 +68,7 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     name.textContent = providerName(provider);
     const state = doc.createElement("span");
     state.className = "panel__detail keys__detail";
+    state.setAttribute("id", `extkeys-state-${provider}`);
     state.textContent = view === undefined ? t("extkeys.none") : t("extkeys.saved", { last4: view.last4 });
 
     const field = doc.createElement("div");
@@ -80,6 +83,10 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     input.setAttribute("autocomplete", "off");
     input.setAttribute("autocapitalize", "off");
     input.setAttribute("spellcheck", "false");
+    input.setAttribute("aria-describedby", `extkeys-state-${provider}`);
+    // Los navegadores suelen ignorar autocomplete="off" en contraseñas; estas marcas piden a los gestores que no ofrezcan guardar la clave.
+    input.setAttribute("data-lpignore", "true");
+    input.setAttribute("data-1p-ignore", "true");
     input.setAttribute("data-field", "key");
     input.setAttribute("data-provider", provider);
     input.value = drafts.get(provider) ?? "";
@@ -91,7 +98,8 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     save.className = "btn btn--secondary";
     save.setAttribute("data-action", "save");
     save.setAttribute("data-provider", provider);
-    save.setAttribute("aria-label", t("extkeys.saveFor", { provider: providerName(provider) }));
+    save.setAttribute("aria-label", t(view === undefined ? "extkeys.saveFor" : "extkeys.replaceFor", { provider: providerName(provider) }));
+    buttons.set(`save:${provider}`, save);
     save.textContent = view === undefined ? t("extkeys.save") : t("extkeys.replace");
     save.addEventListener("click", () => void saveKey(provider));
     item.append(name, state, field, save);
@@ -102,20 +110,41 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
       remove.className = "btn btn--ghost";
       remove.setAttribute("data-action", "delete");
       remove.setAttribute("data-provider", provider);
-      remove.setAttribute("aria-label", t("extkeys.deleteFor", { provider: providerName(provider) }));
+      remove.setAttribute("aria-label", t(confirming === provider ? "extkeys.deleteConfirmFor" : "extkeys.deleteFor", { provider: providerName(provider) }));
       remove.textContent = confirming === provider ? t("extkeys.deleteConfirm") : t("extkeys.delete");
       remove.addEventListener("click", () => void removeKey(provider));
+      // La confirmación no caduca sola (quien usa lector de pantalla o conmutador necesita tiempo): se cancela al salir del botón o con Esc.
+      remove.addEventListener("blur", () => cancelConfirm(provider));
+      remove.addEventListener("keydown", (/** @type {KeyboardEvent} */ event) => {
+        if (event.key === "Escape") cancelConfirm(provider);
+      });
+      buttons.set(`delete:${provider}`, remove);
       item.append(remove);
     }
     return item;
   }
 
-  function render() {
+  /** @param {string} [focusKey] `acción:proveedor` del botón que debe quedarse con el foco (la lista se reconstruye entera) */
+  function render(focusKey) {
     for (const [provider, input] of inputs) drafts.set(provider, input.value ?? "");
     inputs.clear();
-    els.list.replaceChildren(...providers.map(renderRow));
+    buttons.clear();
+    rendering = true;
+    try {
+      els.list.replaceChildren(...providers.map(renderRow));
+    } finally {
+      rendering = false;
+    }
     els.problem.textContent = problem ?? "";
     els.problem.hidden = problem === null;
+    if (focusKey !== undefined) buttons.get(focusKey)?.focus();
+  }
+
+  /** @param {string} provider */
+  function cancelConfirm(provider) {
+    if (rendering || confirming !== provider) return;
+    confirming = null;
+    render();
   }
 
   async function load() {
@@ -136,8 +165,10 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     const key = String(input?.value ?? "").trim();
     if (key === "") {
       problem = t("extkeys.empty");
-      return render();
+      return render(`save:${provider}`);
     }
+    if (saving.has(provider)) return;
+    saving.add(provider);
     try {
       await saveExternalKey({ ...base, provider, key });
     } catch (error) {
@@ -145,9 +176,12 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
       els.problem.textContent = problem; // el campo se queda como estaba: se corrige sin volver a pegar
       els.problem.hidden = false;
       return;
+    } finally {
+      saving.delete(provider);
     }
-    if (input) input.value = "";
+    // El campo que importa es el vigente: la lista pudo repintarse mientras se guardaba (p. ej. un cambio de idioma).
     drafts.delete(provider);
+    for (const field of [input, inputs.get(provider)]) if (field) field.value = "";
     announce(t("extkeys.savedAnnounce", { provider: providerName(provider) }));
     await load();
   }
@@ -156,22 +190,18 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
   async function removeKey(provider) {
     if (confirming !== provider) {
       confirming = provider;
-      clearTimeout(confirmTimer);
-      confirmTimer = setTimeout(() => {
-        confirming = null;
-        render();
-      }, CONFIRM_RESET_MS);
-      return render();
+      render(`delete:${provider}`);
+      announce(t("extkeys.deleteConfirm"));
+      return;
     }
     confirming = null;
-    clearTimeout(confirmTimer);
     try {
       await deleteExternalKey({ ...base, provider });
       announce(t("extkeys.deletedAnnounce", { provider: providerName(provider) }));
       await load();
     } catch (error) {
       problem = describe(error);
-      render();
+      render(`delete:${provider}`);
     }
   }
 
@@ -180,15 +210,24 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     els.panel.hidden = !open;
     els.toggle.setAttribute("aria-expanded", String(open));
     if (open && !loaded) void load();
+    if (!open) {
+      // Al cerrar el panel no queda en memoria nada de lo que se estaba escribiendo.
+      drafts.clear();
+      confirming = null;
+      render();
+    }
   });
 
   if (eligible) {
-    void capabilities({ baseUrl }).then((found) => {
-      if (!found.byok.enabled || found.byok.providers.length === 0) return;
-      providers = found.byok.providers;
-      els.toggle.hidden = false;
-      render();
-    });
+    void capabilities({ baseUrl }).then(
+      (found) => {
+        if (!found.byok.enabled || found.byok.providers.length === 0) return;
+        providers = found.byok.providers;
+        els.toggle.hidden = false;
+        render();
+      },
+      () => {}, // sin capacidades el panel simplemente no aparece
+    );
   }
 
   return {

@@ -367,6 +367,8 @@ export const messages = {
     "dub.dl.video": "Descargar video doblado (.mp4)",
     "dub.overflow": "{count} frases no caben en su tiempo ni acelerando al máximo y terminan después de lo previsto.",
     "dub.error.conflict": "Ya hay un doblaje en curso para estos subtítulos. Espera a que termine o cancélalo.",
+    "extkeys.replaceFor": "Reemplazar la clave de {provider}",
+    "extkeys.deleteConfirmFor": "¿Seguro? Pulsa otra vez para borrar la clave de {provider}",
   },
 
   en: {
@@ -723,5 +725,7 @@ export const messages = {
     "dub.dl.video": "Download dubbed video (.mp4)",
     "dub.overflow": "{count} phrases do not fit their time even at maximum speed-up and end later than planned.",
     "dub.error.conflict": "A dub is already in progress for these captions. Wait for it to finish or cancel it.",
+    "extkeys.replaceFor": "Replace the {provider} key",
+    "extkeys.deleteConfirmFor": "Sure? Press again to delete the {provider} key",
   },
 };

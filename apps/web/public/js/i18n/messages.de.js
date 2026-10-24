@@ -354,6 +354,8 @@ const de = {
   "dub.dl.video": "Synchronisiertes Video herunterladen (.mp4)",
   "dub.overflow": "{count} Sätze passen auch bei maximaler Beschleunigung nicht in ihre Zeit und enden später als geplant.",
   "dub.error.conflict": "Für diese Untertitel läuft bereits eine Synchronisation. Warte, bis sie fertig ist, oder brich sie ab.",
+  "extkeys.replaceFor": "Den {provider}-Schlüssel ersetzen",
+  "extkeys.deleteConfirmFor": "Sicher? Nochmal drücken, um den {provider}-Schlüssel zu löschen",
 };
 
 export default de;

@@ -354,6 +354,8 @@ const fr = {
   "dub.dl.video": "Télécharger la vidéo doublée (.mp4)",
   "dub.overflow": "{count} phrases ne tiennent pas dans leur temps même à l'accélération maximale et finissent plus tard que prévu.",
   "dub.error.conflict": "Un doublage est déjà en cours pour ces sous-titres. Attendez qu'il se termine ou annulez-le.",
+  "extkeys.replaceFor": "Remplacer la clé {provider}",
+  "extkeys.deleteConfirmFor": "Sûr ? Appuyez encore pour supprimer la clé {provider}",
 };
 
 export default fr;

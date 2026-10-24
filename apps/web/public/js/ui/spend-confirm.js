@@ -21,6 +21,8 @@ export function createSpendConfirm({ doc, t: initialT }) {
   let pending = null;
   /** @type {((accepted: boolean) => void) | null} */
   let resolve = null;
+  /** El control que tenía el foco al abrir: el foco vuelve a él al cerrar. @type {any} */
+  let opener = null;
 
   function render() {
     els.title.textContent = t("spend.title");
@@ -52,6 +54,8 @@ export function createSpendConfirm({ doc, t: initialT }) {
     resolve = null;
     pending = null;
     close();
+    if (opener !== null && !opener.disabled && typeof opener.focus === "function") opener.focus();
+    opener = null;
     done?.(accepted);
   }
 
@@ -68,12 +72,17 @@ export function createSpendConfirm({ doc, t: initialT }) {
      */
     ask(spend) {
       resolve?.(false);
+      if (opener === null) opener = doc.activeElement ?? null;
       pending = spend;
       render();
       open();
       return new Promise((done) => {
         resolve = done;
       });
+    },
+    /** Cierra la pregunta pendiente como rechazada (p. ej. al cambiar de transcripción). */
+    cancel() {
+      if (resolve !== null) settle(false);
     },
     /** @param {typeof initialT} next */
     refresh(next) {

@@ -31,8 +31,8 @@ function setup({ capabilities = ON, context = ctx(), canLaunch = true, spendAnsw
   for (const id of ["translate-form", "dub-form", "translate-panel", "dub-panel", "translate-dl-srt", "translate-dl-vtt", "dub-dl-audio", "dub-dl-video", "dub-overflow", "translate-cancel", "dub-cancel", "translate-reconnect", "dub-reconnect", "translate-open-parent", "dub-open-parent", "translate-hint", "dub-hint"]) elements[id].hidden = true;
   elements["translate-provider"].value = "argos";
   const doc = { documentElement: { lang: "es" }, activeElement: null, body: new FakeElement(), getElementById: (id) => elements[id] ?? null, createElement: () => new FakeElement() };
-  const state = { context, asked: [], followed: [], started: [], translateCalls: [], dubCalls: [], saved: [], cancelled: [], artifactCalls: [], feed, translated: [{ start: 0, end: 2, text: " Hello world" }, { start: 2, end: 4, text: "Second" }] };
-  const spend = { ask: async (spendRequest) => (state.asked.push(spendRequest), spendAnswer) };
+  const state = { context, asked: [], followed: [], started: [], translateCalls: [], dubCalls: [], saved: [], cancelled: [], spendCancelled: 0, artifactCalls: [], feed, translated: [{ start: 0, end: 2, text: " Hello world" }, { start: 2, end: 4, text: "Second" }] };
+  const spend = { ask: async (spendRequest) => (state.asked.push(spendRequest), spendAnswer), cancel: () => (state.spendCancelled += 1) };
   const follower = async ({ jobId, onJob }) => {
     state.followed.push(jobId);
     for (const view of state.feed) onJob(view);
@@ -149,6 +149,7 @@ describe("traducir: lanzar el trabajo", () => {
     assert.deepEqual(state.asked, [{ provider: "openai", characters: 12500 }]);
     assert.deepEqual(state.translateCalls, []);
     assert.equal(el("translate-panel").hidden, true);
+    assert.equal(el("translate-start").disabled, false, "tras cancelar el botón vuelve a estar disponible");
   });
 
   it("con OpenAI y confirmación lanza con ese proveedor", async () => {
@@ -299,6 +300,45 @@ describe("doblar: lanzar el trabajo", () => {
     await flush();
     assert.deepEqual(state.asked, [{ provider: "openai", characters: 12500 }]);
     assert.deepEqual(state.dubCalls, []);
+    assert.equal(el("dub-start").disabled, false, "tras cancelar el botón vuelve a estar disponible");
+  });
+
+  it("mientras se espera la confirmación el botón sigue activo (el foco no se pierde) pero un segundo envío no hace nada", async () => {
+    let answer;
+    const gate = new Promise((resolve) => (answer = resolve));
+    const { el, state } = await ready({ spendAnswer: gate });
+    el("dub-form").fire("submit");
+    await flush();
+    assert.equal(el("dub-start").disabled, false);
+    el("dub-form").fire("submit");
+    await flush();
+    assert.equal(state.asked.length, 1);
+    answer(false);
+    await flush();
+  });
+
+  it("la voz se puede vaciar mientras se escribe: no reaparece la de por defecto y se pide escribirla", async () => {
+    const { el } = await ready();
+    el("dub-voice").value = "";
+    el("dub-voice").fire("input");
+    assert.equal(el("dub-voice").value, "");
+    assert.equal(el("dub-start").disabled, true);
+    assert.match(el("dub-hint").textContent, /Escribe la voz/);
+  });
+
+  it("al cambiar de proveedor nunca se conserva la voz del otro", async () => {
+    const { el } = await ready();
+    el("dub-provider").value = "elevenlabs";
+    el("dub-provider").fire("change");
+    el("dub-voice").value = "EXAVITQu4vr4xnSDxMaL";
+    el("dub-voice").fire("input");
+    el("dub-provider").value = "openai";
+    el("dub-provider").fire("change");
+    assert.equal(el("dub-voice").value, "alloy");
+    el("dub-voice").value = "nova";
+    el("dub-provider").value = "elevenlabs";
+    el("dub-provider").fire("change");
+    assert.equal(el("dub-voice").value, "");
   });
 
   it("confirmado, manda proveedor, voz y mezcla, y sigue el trabajo", async () => {
@@ -381,6 +421,14 @@ describe("doblar: resultado", () => {
     el("dub-form").fire("submit");
     await flush();
     assert.equal(el("dub-overflow").hidden, true);
+  });
+});
+
+describe("cambiar de transcripción", () => {
+  it("detenerse cierra la confirmación de gasto que estuviera abierta", async () => {
+    const { ai, state } = await ready();
+    ai.stop();
+    assert.equal(state.spendCancelled, 1);
   });
 });
 

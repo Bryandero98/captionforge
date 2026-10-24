@@ -24,7 +24,7 @@ export async function getCapabilities({ baseUrl, signal, fetchImpl = (...args) =
     if (!response.ok || !(response.headers.get("content-type") ?? "").includes("application/json")) return NO_CAPABILITIES;
     const data = /** @type {{ diarization?: { enabled?: unknown } | null, byok?: { enabled?: unknown, providers?: unknown } | null } | null} */ (await response.json());
     const byokOn = data?.byok?.enabled === true && Array.isArray(data.byok.providers);
-    const providers = byokOn ? /** @type {unknown[]} */ (data?.byok?.providers).filter((name) => typeof name === "string" && EXTERNAL_PROVIDERS.includes(/** @type {any} */ (name))) : [];
+    const providers = byokOn ? [...new Set(/** @type {unknown[]} */ (data?.byok?.providers))].filter((name) => typeof name === "string" && EXTERNAL_PROVIDERS.includes(/** @type {any} */ (name))) : [];
     return { diarization: { enabled: data?.diarization?.enabled === true }, byok: { enabled: byokOn, providers: /** @type {string[]} */ (providers) } };
   } catch {
     return NO_CAPABILITIES;

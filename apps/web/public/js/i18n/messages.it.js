@@ -354,6 +354,8 @@ const it = {
   "dub.dl.video": "Scarica il video doppiato (.mp4)",
   "dub.overflow": "{count} frasi non stanno nel loro tempo nemmeno alla massima accelerazione e finiscono dopo il previsto.",
   "dub.error.conflict": "C'è già un doppiaggio in corso per questi sottotitoli. Aspetta che finisca o annullalo.",
+  "extkeys.replaceFor": "Sostituisci la chiave {provider}",
+  "extkeys.deleteConfirmFor": "Sicuro? Premi di nuovo per eliminare la chiave {provider}",
 };
 
 export default it;

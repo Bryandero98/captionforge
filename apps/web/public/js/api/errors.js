@@ -112,7 +112,7 @@ export function errorFromResponse(status, bodyText, retryAfterHeader) {
   const roleDenied = status === 403 && body !== null && typeof body === "object" && /** @type {{ code?: unknown }} */ (body).code === "role_forbidden";
   const bodyCode = body !== null && typeof body === "object" ? /** @type {{ code?: unknown }} */ (body).code : undefined;
   const conflictCode = status === 409 && typeof bodyCode === "string" && CONFLICT_CODES.has(bodyCode) ? /** @type {ErrorCode} */ (bodyCode) : null;
-  const externalCode = typeof bodyCode === "string" && BODY_CODE_STATUSES[bodyCode]?.includes(status) ? /** @type {ErrorCode} */ (bodyCode) : null;
+  const externalCode = typeof bodyCode === "string" && Object.hasOwn(BODY_CODE_STATUSES, bodyCode) && BODY_CODE_STATUSES[bodyCode]?.includes(status) ? /** @type {ErrorCode} */ (bodyCode) : null;
   const code = roleDenied ? "role_forbidden" : (conflictCode ?? externalCode ?? CODE_BY_STATUS[status] ?? (status >= 500 ? "server" : "unexpected"));
   return new ApiError({ status, code, detail: detailOf(body), retryAfter: parseRetryAfter(retryAfterHeader) });
 }

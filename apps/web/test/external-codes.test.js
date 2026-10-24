@@ -28,6 +28,13 @@ describe("errorFromResponse: códigos estables de claves externas, traducir y do
     assert.equal(errorFromResponse(413, body("inventado"), null).code, "too_large");
   });
 
+  it("un code que es una propiedad del prototipo no rompe nada ni se toma por válido", () => {
+    for (const code of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      assert.equal(errorFromResponse(409, body(code), null).code, "conflict", code);
+      assert.equal(errorFromResponse(400, body(code), null).code, "invalid_request", code);
+    }
+  });
+
   it("el código del cuerpo no pisa a un estado que no le corresponde (un 500 sigue siendo del servidor)", () => {
     assert.equal(errorFromResponse(500, body("same_language"), null).code, "server");
   });
@@ -45,6 +52,11 @@ describe("getCapabilities: claves propias (BYOK)", () => {
       const found = await getCapabilities({ baseUrl: "", fetchImpl: async () => json(payload) });
       assert.deepEqual(found.byok, { enabled: false, providers: [] }, JSON.stringify(payload));
     }
+  });
+
+  it("no repite proveedores", async () => {
+    const found = await getCapabilities({ baseUrl: "", fetchImpl: async () => json({ byok: { enabled: true, providers: ["openai", "openai", "elevenlabs"] } }) });
+    assert.deepEqual(found.byok.providers, ["openai", "elevenlabs"]);
   });
 
   it("solo conserva proveedores conocidos y de tipo texto", async () => {

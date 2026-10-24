@@ -39,7 +39,7 @@ function translatedSegments(data) {
  *   context: () => { job: import("../api/sse.js").JobView, hasWords?: boolean, dirty: boolean, characters: number, language: string | null } | null,
  *   canLaunch: boolean,
  *   capabilities: () => Promise<import("../api/capabilities.js").Capabilities>,
- *   spend: { ask: (spend: { provider: string, characters: number }) => Promise<boolean> },
+ *   spend: { ask: (spend: { provider: string, characters: number }) => Promise<boolean>, cancel?: () => void },
  *   onStarted: (job: import("../api/sse.js").JobView, parentName: string, kind: "TRANSLATE" | "DUB") => void,
  *   onOpenParent: (parentId: string) => void,
  *   follower?: typeof followJob, cancel?: typeof cancelJob,
@@ -78,6 +78,8 @@ export function createAi({
   let dubProblem = null;
   let startingTranslate = false;
   let startingDub = false;
+  /** La voz de OpenAI se propone una sola vez: si la persona la borra para escribir otra, no reaparece. */
+  let voiceSeeded = false;
   let epoch = 0;
 
   const translatePanel = createAiPanel({ doc, prefix: "translate", baseUrl, t: () => t, announce, onOpenParent, follower, cancel, onChange: () => onTranslateChange() });
@@ -115,7 +117,10 @@ export function createAi({
     const languageLabel = translation === undefined ? "" : (languageNames(lang()).find(({ code }) => code === translation.language)?.label ?? translation.language);
     fill(dub.source, [{ value: "", label: t("dub.source.original") }, ...(translation === undefined ? [] : [{ value: translation.id, label: t("dub.source.translation", { language: languageLabel }) }])]);
     // La voz por defecto de OpenAI se propone sola; la de ElevenLabs es un ID de la cuenta de la persona y no tiene valor razonable.
-    if (dub.voice.value === "" && dub.provider.value === "openai") dub.voice.value = OPENAI_DEFAULT_VOICE;
+    if (!voiceSeeded && dub.provider.value === "openai") {
+      voiceSeeded = true;
+      if (dub.voice.value === "") dub.voice.value = OPENAI_DEFAULT_VOICE;
+    }
   }
 
   function refreshForm() {
@@ -207,20 +212,24 @@ export function createAi({
     const mine = epoch;
     const provider = tr.provider.value;
     const parentName = String(ctx.job.originalFilename ?? ctx.job.id);
+    // Mientras se espera la confirmación el botón sigue activo (si no, el foco se perdería al cerrar el diálogo): `startingTranslate` ya frena un segundo envío.
     startingTranslate = true;
     translateProblem = null;
-    refreshTranslateState(ctx);
     /** @type {import("../api/sse.js").JobView | null} */
     let job = null;
     try {
       if (provider === EXTERNAL_TRANSLATE && !(await spend.ask({ provider, characters: ctx.characters }))) return;
       if (mine !== epoch) return;
+      refreshTranslateState(ctx);
       job = await startTranslate({ baseUrl, jobId: ctx.job.id, provider: /** @type {"argos" | "openai"} */ (provider), targetLanguage: tr.target.value });
     } catch (error) {
       if (mine !== epoch) return;
       fail(error, "translate");
     } finally {
-      if (mine === epoch) startingTranslate = false;
+      if (mine === epoch) {
+        startingTranslate = false;
+        if (job === null) refreshForm(); // rechazado, cancelado o fallido: el botón vuelve a estar disponible
+      }
     }
     if (job !== null) {
       try {
@@ -246,19 +255,22 @@ export function createAi({
     const parentName = String(ctx.job.originalFilename ?? ctx.job.id);
     startingDub = true;
     dubProblem = null;
-    refreshDubState(ctx);
     /** @type {import("../api/sse.js").JobView | null} */
     let job = null;
     try {
       if (!(await spend.ask({ provider, characters: ctx.characters }))) return;
       if (mine !== epoch) return;
+      refreshDubState(ctx);
       const translationId = dub.source.value === "" ? undefined : dub.source.value;
       job = await startDub({ baseUrl, jobId: ctx.job.id, provider, voice, mix: /** @type {"none" | "replace" | "duck"} */ (dub.mix.value), ...(translationId === undefined ? {} : { translationId }) });
     } catch (error) {
       if (mine !== epoch) return;
       fail(error, "dub");
     } finally {
-      if (mine === epoch) startingDub = false;
+      if (mine === epoch) {
+        startingDub = false;
+        if (job === null) refreshForm();
+      }
     }
     if (job !== null) {
       try {
@@ -320,11 +332,15 @@ export function createAi({
   });
   for (const select of [tr.provider, tr.target]) select.addEventListener("change", () => refreshForm());
   dub.provider.addEventListener("change", () => {
-    // Al cambiar de proveedor la voz de uno no sirve para el otro: se propone la de OpenAI o se deja vacía para pegar el ID de ElevenLabs.
-    if (dub.voice.value === OPENAI_DEFAULT_VOICE || dub.voice.value.trim() === "") dub.voice.value = dub.provider.value === "openai" ? OPENAI_DEFAULT_VOICE : "";
+    // La voz de un proveedor no sirve para el otro: se propone la de OpenAI o se deja vacía para pegar el ID de ElevenLabs.
+    dub.voice.value = dub.provider.value === "openai" ? OPENAI_DEFAULT_VOICE : "";
     refreshForm();
   });
-  dub.voice.addEventListener("input", () => refreshForm());
+  dub.voice.addEventListener("input", () => {
+    // Solo se repinta el estado: reconstruir los <select> en cada tecla no aporta nada.
+    const ctx = context();
+    if (ctx !== null && canLaunch) refreshDubState(ctx);
+  });
   tr.srt.addEventListener("click", (/** @type {Event} */ event) => {
     event.preventDefault();
     downloadTranslation("srt");
@@ -374,6 +390,7 @@ export function createAi({
       startingDub = false;
       translateProblem = null;
       dubProblem = null;
+      spend.cancel?.(); // un diálogo abierto de otra transcripción no debe quedar esperando
       translatePanel.stop();
       dubPanel.stop();
     },

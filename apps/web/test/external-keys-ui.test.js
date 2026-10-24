@@ -33,7 +33,7 @@ const find = (root, action, provider) => walk(root).find((node) => node.getAttri
 /** Todo lo que la persona puede leer en la página, atributos incluidos. */
 const everything = (root) => walk(root).flatMap((node) => [node.textContent, node.value, ...Object.values(node.attributes)]).join("\n");
 
-function setup({ access = owner, capabilities = on, stored = [view("openai", "abcd")], routes = {}, timers } = {}) {
+function setup({ access = owner, capabilities = on, stored = [view("openai", "abcd")], routes = {} } = {}) {
   const elements = Object.fromEntries(["account-extkeys-toggle", "extkeys-panel", "extkeys-list", "extkeys-problem"].map((id) => [id, new FakeElement(id)]));
   elements["extkeys-panel"].hidden = true;
   elements["account-extkeys-toggle"].hidden = true;
@@ -59,7 +59,7 @@ function setup({ access = owner, capabilities = on, stored = [view("openai", "ab
     throw new TypeError(`ruta no prevista: ${key}`);
   };
   const announced = [];
-  const ui = createExternalKeys({ doc, baseUrl: "", access, t, announce: (text) => announced.push(text), fetchImpl, capabilities: async () => capabilities, ...(timers ? { timers } : {}) });
+  const ui = createExternalKeys({ doc, baseUrl: "", access, t, announce: (text) => announced.push(text), fetchImpl, capabilities: async () => capabilities });
   return { elements, ui, calls, announced, toggle: elements["account-extkeys-toggle"], panel: elements["extkeys-panel"], list: elements["extkeys-list"], problem: elements["extkeys-problem"] };
 }
 
@@ -226,5 +226,61 @@ describe("borrar", () => {
     await flush();
     assert.equal(problem.hidden, false);
     assert.ok(find(list, "delete", "openai"));
+  });
+});
+
+describe("accesibilidad y robustez", () => {
+  it("al pulsar «Borrar» el foco se queda en ese botón aunque la fila se vuelva a pintar", async () => {
+    const { list } = await open();
+    find(list, "delete", "openai").fire("click");
+    await flush();
+    assert.equal(find(list, "delete", "openai").focused, true);
+  });
+
+  it("el nombre accesible de cada botón contiene su texto visible y el paso de confirmación se anuncia", async () => {
+    const { list, announced } = await open();
+    assert.match(find(list, "save", "openai").getAttribute("aria-label"), /Reemplazar/);
+    assert.match(find(list, "save", "elevenlabs").getAttribute("aria-label"), /Guardar/);
+    find(list, "delete", "openai").fire("click");
+    await flush();
+    assert.match(find(list, "delete", "openai").getAttribute("aria-label"), /Seguro/);
+    assert.ok(announced.some((text) => /Seguro/.test(text)));
+  });
+
+  it("la confirmación de borrado no caduca sola: se cancela al salir del botón", async () => {
+    const { list } = await open();
+    find(list, "delete", "openai").fire("click");
+    await flush();
+    assert.match(find(list, "delete", "openai").textContent, /Seguro/);
+    find(list, "delete", "openai").fire("blur");
+    await flush();
+    assert.equal(find(list, "delete", "openai").textContent, "Borrar");
+  });
+
+  it("el campo se describe con su estado («Guardada: …1234»)", async () => {
+    const { list } = await open();
+    const input = walk(list).find((node) => node.getAttribute("data-field") === "key" && node.getAttribute("data-provider") === "openai");
+    const described = walk(list).find((node) => node.getAttribute("id") === input.getAttribute("aria-describedby"));
+    assert.match(described.textContent, /…abcd/);
+  });
+
+  it("si la lista se repinta con el guardado en vuelo, la clave no reaparece en ningún campo; y un doble clic envía una sola vez", async () => {
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    const puts = [];
+    const { list, ui } = await open({
+      routes: { "PUT /v1/workspaces/current/external-keys/elevenlabs": async (init) => (puts.push(init.body), await gate, json(view("elevenlabs", "zzzz"))) },
+    });
+    const input = walk(list).find((node) => node.getAttribute("data-field") === "key" && node.getAttribute("data-provider") === "elevenlabs");
+    input.value = SECRET;
+    find(list, "save", "elevenlabs").fire("click");
+    find(list, "save", "elevenlabs").fire("click");
+    await flush();
+    ui.refresh(t); // p. ej. un cambio de idioma mientras se guarda
+    release();
+    await flush();
+    await flush();
+    assert.equal(puts.length, 1);
+    assert.equal(everything(list).includes(SECRET), false);
   });
 });
