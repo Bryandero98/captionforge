@@ -210,12 +210,17 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
     expect(dump).not.toContain(FIRST);
     expect(dump).not.toContain(SECOND);
 
-    // URL base y modelo propios (ADR 0022): solo la fila de OpenAI los tiene, y se ve el servidor (nunca la URL completa).
-    expect(await page.$$eval('#extkeys-list input[data-field="baseUrl"], #extkeys-list input[data-field="model"]', (inputs) => inputs.map((input) => input.getAttribute("data-provider")))).toEqual(["openai", "openai"]);
+    // Menú de servicios + URL base y modelo propios (ADR 0022): solo la fila de OpenAI los tiene, y se ve el servidor (nunca la URL completa).
+    const value = (selector: string) => page.$eval(selector, (input) => (input as unknown as { value: string }).value);
+    expect(await page.$$eval('#extkeys-list input[data-field="baseUrl"], #extkeys-list input[data-field="model"], #extkeys-list select[data-field="preset"]', (inputs) => inputs.map((input) => input.getAttribute("data-provider")))).toEqual(["openai", "openai", "openai"]);
     expect(await text(page, "#extkeys-help-openai")).toMatch(/DeepSeek.*Groq/s);
+    expect(await page.$$eval('[data-field="preset"] option', (options) => options.map((option) => option.getAttribute("value")))).toEqual(["openai", "deepseek", "gemini", "anthropic", "groq", "openrouter", "abacus", "custom"]); // Ollama no: el servidor de la prueba no admite direcciones locales
+    await page.select('[data-field="preset"][data-provider="openai"]', "deepseek");
+    expect(await value('[data-field="baseUrl"][data-provider="openai"]')).toBe("https://api.deepseek.com/v1");
+    expect(await value('[data-field="model"][data-provider="openai"]')).toBe("deepseek-chat");
+    expect(await page.$$eval("#extkeys-models-openai option", (options) => options.map((option) => option.getAttribute("value")))).toEqual(["deepseek-chat", "deepseek-reasoner"]);
+    expect(await page.$eval('[data-field="model"][data-provider="openai"]', (input) => input.getAttribute("list"))).toBe("extkeys-models-openai");
     await page.type('[data-field="key"][data-provider="openai"]', SECOND);
-    await page.type('[data-field="baseUrl"][data-provider="openai"]', "https://api.deepseek.com/v1");
-    await page.type('[data-field="model"][data-provider="openai"]', "deepseek-chat");
     await press(page, '[data-action="save"][data-provider="openai"]');
     await listMatches(page, "api\\.deepseek\\.com");
     const custom = await owner.query<{ baseUrlHost: string | null; baseUrlCiphertext: string | null; model: string | null }>(`SELECT "baseUrlHost", "baseUrlCiphertext", model FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId]);
@@ -225,21 +230,26 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
     const state = await text(page, "#extkeys-state-openai");
     expect(state).toContain("deepseek-chat");
     expect(state).not.toContain("/v1");
-    expect(await page.$eval('[data-field="baseUrl"][data-provider="openai"]', (input) => (input as unknown as { value: string }).value)).toBe("");
-    expect(await page.$eval('[data-field="model"][data-provider="openai"]', (input) => (input as unknown as { value: string }).value)).toBe("deepseek-chat");
-    expect(await text(page, "#extkeys-help-openai")).toContain("api.deepseek.com");
+    // Con un servidor conocido guardado, el menú vuelve a mostrarlo con su URL y su modelo: se reemplaza la clave sin retocar nada.
+    expect(await value('[data-field="preset"][data-provider="openai"]')).toBe("deepseek");
+    expect(await value('[data-field="baseUrl"][data-provider="openai"]')).toBe("https://api.deepseek.com/v1");
+    expect(await value('[data-field="model"][data-provider="openai"]')).toBe("deepseek-chat");
     // Una URL base inválida se rechaza con texto propio y no cambia lo guardado.
+    await page.$eval('[data-field="baseUrl"][data-provider="openai"]', (input) => ((input as unknown as { value: string }).value = ""));
     await page.type('[data-field="key"][data-provider="openai"]', SECOND);
     await page.type('[data-field="baseUrl"][data-provider="openai"]', "http://127.0.0.1:11434/v1");
+    expect(await value('[data-field="preset"][data-provider="openai"]')).toBe("custom"); // una URL a mano que no es de un servicio conocido pasa a «otro»
     await press(page, '[data-action="save"][data-provider="openai"]');
     await page.waitForFunction(() => ((globalThis as unknown as { document: { getElementById(id: string): { textContent: string } } }).document.getElementById("extkeys-problem").textContent ?? "").includes("URL base"), { timeout: 15_000 });
     expect(await text(page, "#extkeys-problem")).not.toContain("127.0.0.1");
     expect((await owner.query(`SELECT "baseUrlHost" FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId])).rows[0]!.baseUrlHost).toBe("api.deepseek.com");
-    // Reemplazar la clave sin volver a escribir la URL la borra: un reemplazo es completo.
-    await page.$eval('[data-field="baseUrl"][data-provider="openai"]', (input) => ((input as unknown as { value: string }).value = ""));
+    // Volver a «OpenAI» en el menú vacía la URL y el modelo sugerido: un reemplazo es completo.
+    await page.select('[data-field="preset"][data-provider="openai"]', "openai");
+    expect(await value('[data-field="baseUrl"][data-provider="openai"]')).toBe("");
+    expect(await value('[data-field="model"][data-provider="openai"]')).toBe("");
     await press(page, '[data-action="save"][data-provider="openai"]');
     await page.waitForFunction(() => !((globalThis as unknown as { document: { getElementById(id: string): { textContent: string } } }).document.getElementById("extkeys-state-openai").textContent ?? "").includes("api.deepseek.com"), { timeout: 15_000 });
-    expect((await owner.query(`SELECT "baseUrlHost", "baseUrlCiphertext" FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId])).rows[0]).toEqual({ baseUrlHost: null, baseUrlCiphertext: null });
+    expect((await owner.query(`SELECT "baseUrlHost", "baseUrlCiphertext", model FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId])).rows[0]).toEqual({ baseUrlHost: null, baseUrlCiphertext: null, model: null });
 
     // Borrar pide una segunda pulsación.
     await press(page, '[data-action="delete"][data-provider="openai"]');

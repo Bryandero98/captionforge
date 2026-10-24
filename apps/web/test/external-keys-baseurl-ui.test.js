@@ -12,7 +12,7 @@ const t = createTranslator("es");
 const SECRET = "sk-proj-SECRETO-DE-PRUEBA-9876";
 const TEAM_ID = "33333333-3333-4333-8333-333333333333";
 const owner = { mode: "session", providers: [], me: { tenant: { id: TEAM_ID, name: "Equipo" }, role: "OWNER", user: { id: "u1", name: "Ana", email: null, provider: "github" } } };
-const on = { diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"] } };
+const on = { diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false } };
 
 afterEach(() => setSessionMode(false));
 
@@ -31,7 +31,7 @@ const field = (root, name, provider) => walk(root).find((node) => node.getAttrib
 const button = (root, action, provider) => walk(root).find((node) => node.getAttribute("data-action") === action && node.getAttribute("data-provider") === provider);
 const everything = (root) => walk(root).flatMap((node) => [node.textContent, node.value, ...Object.values(node.attributes)]).join("\n");
 
-async function open({ stored = [view("openai", "abcd")], routes = {}, lang = "es" } = {}) {
+async function open({ stored = [view("openai", "abcd")], routes = {}, lang = "es", allowPrivate = false } = {}) {
   setSessionMode(true);
   const elements = Object.fromEntries(["account-extkeys-toggle", "extkeys-panel", "extkeys-list", "extkeys-problem"].map((id) => [id, new FakeElement(id)]));
   elements["extkeys-panel"].hidden = true;
@@ -55,7 +55,7 @@ async function open({ stored = [view("openai", "abcd")], routes = {}, lang = "es
   };
   const announced = [];
   const translate = createTranslator(lang);
-  const ui = createExternalKeys({ doc, baseUrl: "", access: owner, t: translate, announce: (text) => announced.push(text), fetchImpl, capabilities: async () => on });
+  const ui = createExternalKeys({ doc, baseUrl: "", access: owner, t: translate, announce: (text) => announced.push(text), fetchImpl, capabilities: async () => ({ ...on, byok: { ...on.byok, allowPrivateBaseUrls: allowPrivate } }) });
   await flush();
   elements["account-extkeys-toggle"].fire("click");
   await flush();
@@ -116,7 +116,7 @@ describe("guardar con URL base y modelo", () => {
     const put = calls.find((call) => call.key.startsWith("PUT"));
     assert.deepEqual(put.body, { key: SECRET, baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" });
     assert.equal(field(list, "key", "openai").value, "");
-    assert.equal(field(list, "baseUrl", "openai").value, "");
+    assert.equal(field(list, "baseUrl", "openai").value, "https://api.deepseek.com/v1"); // la URL de un servicio conocido se deduce de su servidor guardado
     assert.equal(field(list, "model", "openai").value, "deepseek-chat"); // no es secreto: se ve lo guardado
     assert.equal(everything(list).includes(SECRET), false);
   });
@@ -146,12 +146,13 @@ describe("guardar con URL base y modelo", () => {
     assert.equal(state.includes("https://"), false);
   });
 
-  it("al reemplazar la clave, el modelo viene relleno y la URL se pide de nuevo (el API no la devuelve)", async () => {
-    const { list } = await open({ stored: [view("openai", "abcd", { baseUrlHost: "api.deepseek.com", model: "deepseek-chat" })] });
-    assert.equal(field(list, "model", "openai").value, "deepseek-chat");
+  it("al reemplazar la clave de un servidor desconocido, el modelo viene relleno y la URL se pide de nuevo (el API no la devuelve)", async () => {
+    const { list } = await open({ stored: [view("openai", "abcd", { baseUrlHost: "llm.mi-empresa.com", model: "mi-modelo" })] });
+    assert.equal(field(list, "model", "openai").value, "mi-modelo");
     assert.equal(field(list, "baseUrl", "openai").value, "");
+    assert.equal(field(list, "preset", "openai").value, "custom");
     const help = walk(list).find((node) => node.getAttribute("id") === "extkeys-help-openai").textContent;
-    assert.match(help, /api\.deepseek\.com/);
+    assert.match(help, /llm\.mi-empresa\.com/);
     assert.match(help, /vuelve a escribir/i);
   });
 
@@ -201,5 +202,130 @@ describe("api/external-keys.js", () => {
     const { sent, fetchImpl } = capture();
     await saveExternalKey({ baseUrl: "", provider: "openai", key: SECRET, endpoint: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", fetchImpl });
     assert.deepEqual(sent[0].body, { key: SECRET, baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" });
+  });
+});
+
+const choose = (list, id) => {
+  const select = field(list, "preset", "openai");
+  select.value = id;
+  select.fire("change");
+};
+const optionIds = (select) => select.children.map((node) => node.getAttribute("value"));
+const suggested = (list) => {
+  const model = field(list, "model", "openai");
+  const datalist = walk(list).find((node) => node.getAttribute("id") === model.getAttribute("list"));
+  return datalist ? datalist.children.map((node) => node.getAttribute("value")) : null;
+};
+
+describe("menú de servicios (DeepSeek, Gemini, Claude, Groq, OpenRouter...)", () => {
+  it("OpenAI tiene un selector etiquetado con los servicios; ElevenLabs no", async () => {
+    const { list } = await open();
+    const select = field(list, "preset", "openai");
+    assert.ok(select);
+    assert.equal(field(list, "preset", "elevenlabs"), undefined);
+    assert.ok(walk(list).some((node) => node.getAttribute("for") === select.getAttribute("id")), "falta la etiqueta enlazada");
+    assert.deepEqual(optionIds(select), ["openai", "deepseek", "gemini", "anthropic", "groq", "openrouter", "abacus", "custom"]);
+    const names = select.children.map((node) => node.textContent);
+    for (const brand of ["DeepSeek", "Gemini", "Claude", "Groq", "OpenRouter"]) assert.ok(names.some((name) => name.includes(brand)), brand);
+    assert.match(select.getAttribute("aria-describedby"), /extkeys-help-openai/);
+  });
+
+  it("Ollama (local) solo aparece si el servidor admite direcciones locales", async () => {
+    assert.equal(optionIds(field((await open()).list, "preset", "openai")).includes("ollama"), false);
+    const { list } = await open({ allowPrivate: true });
+    const ids = optionIds(field(list, "preset", "openai"));
+    assert.ok(ids.includes("ollama"));
+    assert.equal(ids.at(-1), "custom");
+  });
+
+  it("sin nada guardado empieza en OpenAI, sin URL ni modelo", async () => {
+    const { list } = await open({ stored: [] });
+    assert.equal(field(list, "preset", "openai").value, "openai");
+    assert.equal(field(list, "baseUrl", "openai").value, "");
+    assert.equal(field(list, "model", "openai").value, "");
+  });
+
+  it("elegir DeepSeek rellena la URL base, propone el primer modelo y lista los demás como sugerencias", async () => {
+    const { list } = await open({ stored: [] });
+    choose(list, "deepseek");
+    assert.equal(field(list, "baseUrl", "openai").value, "https://api.deepseek.com/v1");
+    assert.equal(field(list, "model", "openai").value, "deepseek-chat");
+    assert.deepEqual(suggested(list), ["deepseek-chat", "deepseek-reasoner"]);
+  });
+
+  it("cambiar de servicio actualiza URL, modelo sugerido y lista; un modelo escrito a mano se respeta", async () => {
+    const { list } = await open({ stored: [] });
+    choose(list, "groq");
+    assert.equal(field(list, "baseUrl", "openai").value, "https://api.groq.com/openai/v1");
+    choose(list, "gemini");
+    assert.equal(field(list, "baseUrl", "openai").value, "https://generativelanguage.googleapis.com/v1beta/openai");
+    assert.match(field(list, "model", "openai").value, /^gemini-/); // el de Groq era una sugerencia: se cambia
+    assert.ok(suggested(list).every((name) => name.startsWith("gemini-")));
+    field(list, "model", "openai").value = "mi-modelo-afinado";
+    field(list, "model", "openai").fire("input");
+    choose(list, "anthropic");
+    assert.equal(field(list, "baseUrl", "openai").value, "https://api.anthropic.com/v1");
+    assert.equal(field(list, "model", "openai").value, "mi-modelo-afinado");
+  });
+
+  it("volver a OpenAI vacía la URL; «otro» deja la URL y el modelo como estaban", async () => {
+    const { list } = await open({ stored: [] });
+    choose(list, "deepseek");
+    choose(list, "custom");
+    assert.equal(field(list, "baseUrl", "openai").value, "https://api.deepseek.com/v1");
+    assert.equal(field(list, "model", "openai").value, "deepseek-chat");
+    assert.deepEqual(suggested(list), []);
+    choose(list, "openai");
+    assert.equal(field(list, "baseUrl", "openai").value, "");
+  });
+
+  it("escribir a mano la URL de un servicio conocido selecciona ese servicio; una desconocida, «otro»", async () => {
+    const { list } = await open({ stored: [] });
+    const url = field(list, "baseUrl", "openai");
+    url.value = "https://api.groq.com/openai/v1";
+    url.fire("input");
+    assert.equal(field(list, "preset", "openai").value, "groq");
+    assert.ok(suggested(list).some((name) => name.startsWith("llama")));
+    url.value = "https://otro.example.com/v1";
+    url.fire("input");
+    assert.equal(field(list, "preset", "openai").value, "custom");
+    url.value = "";
+    url.fire("input");
+    assert.equal(field(list, "preset", "openai").value, "openai");
+  });
+
+  it("guardar con un servicio elegido envía la clave, la URL y el modelo del menú", async () => {
+    const { list, calls } = await open({ stored: [] });
+    choose(list, "openrouter");
+    field(list, "key", "openai").value = SECRET;
+    button(list, "save", "openai").fire("click");
+    await flush();
+    const body = calls.find((call) => call.key.startsWith("PUT")).body;
+    assert.deepEqual(body, { key: SECRET, baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" });
+  });
+
+  it("una clave con servidor conocido guardado vuelve con ese servicio, su URL y su modelo para reemplazarla sin retocar nada", async () => {
+    const { list } = await open({ stored: [view("openai", "abcd", { baseUrlHost: "api.deepseek.com", model: "deepseek-reasoner" })] });
+    assert.equal(field(list, "preset", "openai").value, "deepseek");
+    assert.equal(field(list, "baseUrl", "openai").value, "https://api.deepseek.com/v1");
+    assert.equal(field(list, "model", "openai").value, "deepseek-reasoner");
+  });
+
+  it("lo elegido sobrevive a repintar la lista (cambio de idioma) y el menú sigue traducido", async () => {
+    const { list, ui, elements } = await open({ stored: [], lang: "es" });
+    choose(list, "gemini");
+    ui.refresh(createTranslator("en"));
+    const again = elements["extkeys-list"];
+    assert.equal(field(again, "preset", "openai").value, "gemini");
+    assert.equal(field(again, "baseUrl", "openai").value, "https://generativelanguage.googleapis.com/v1beta/openai");
+    const custom = field(again, "preset", "openai").children.find((node) => node.getAttribute("value") === "custom");
+    assert.match(custom.textContent, /other|custom/i);
+  });
+
+  it("el menú no mete la clave en ningún texto", async () => {
+    const { list } = await open({ stored: [] });
+    field(list, "key", "openai").value = SECRET;
+    choose(list, "groq");
+    assert.equal(everything(list).replace(SECRET, "").includes(SECRET), false);
   });
 });

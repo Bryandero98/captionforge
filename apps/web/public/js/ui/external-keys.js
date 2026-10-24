@@ -8,6 +8,7 @@
 import { getCapabilities } from "../api/capabilities.js";
 import { ApiError } from "../api/errors.js";
 import { deleteExternalKey, listExternalKeys, saveExternalKey } from "../api/external-keys.js";
+import { AI_PRESETS, findPreset, presetForHost, presetForUrl, visiblePresets } from "../domain/ai-presets.js";
 
 /**
  * @param {{
@@ -29,6 +30,8 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
   const eligible = access.mode === "session" && access.me?.role === "OWNER";
   /** @type {readonly string[]} */
   let providers = [];
+  /** El servidor admite direcciones locales (Ollama): solo entonces el menú las ofrece. */
+  let allowPrivate = false;
   /** @type {Map<string, import("../api/external-keys.js").ExternalKeyView>} */
   let stored = new Map();
   let loaded = false;
@@ -50,6 +53,12 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
   const extraInputs = new Map();
   /** Campos opcionales que la persona modificó (aunque los haya dejado vacíos a propósito). @type {Set<string>} */
   const touched = new Set();
+  /** Servicio que muestra el menú de cada proveedor y la lista de modelos sugeridos que le corresponde. @type {Map<string, string>} */
+  const shown = new Map();
+  /** @type {Map<string, any>} */
+  const datalists = new Map();
+  /** Lo que valía cada campo opcional al pintarlo si nadie lo tocaba; es con lo que se compara, no con lo guardado después. @type {Map<string, string>} */
+  const baseline = new Map();
   const base = { baseUrl, fetchImpl };
 
   els.toggle.hidden = true;
@@ -60,6 +69,106 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
   function describe(error) {
     const code = error instanceof ApiError ? error.code : "network";
     return t(`error.${code}`, { seconds: error instanceof ApiError ? (error.retryAfter ?? 10) : 10 });
+  }
+
+  /**
+   * Lo que cada campo opcional vale si la persona no lo toca: el servicio y la URL del servidor guardado (si es uno conocido) y su modelo.
+   * La URL real no vuelve del servidor, pero la de un servicio conocido se deduce de su host.
+   * @param {string} provider
+   */
+  function defaults(provider) {
+    const view = stored.get(provider);
+    const preset = presetForHost(view?.baseUrlHost);
+    return { preset, baseUrl: findPreset(preset)?.baseUrl ?? "", model: view?.model ?? "" };
+  }
+
+  /** @param {string} id */
+  const presetLabel = (id) => {
+    const preset = findPreset(id);
+    if (!preset) return id;
+    if (preset.name === undefined) return t(`extkeys.preset.${id}`);
+    return preset.local ? `${preset.name} (${t("extkeys.preset.local")})` : preset.name;
+  };
+
+  /** Rehace las sugerencias de modelo según el servicio que muestra el menú. @param {string} provider */
+  function fillModels(provider) {
+    const list = datalists.get(provider);
+    if (!list) return;
+    list.replaceChildren(
+      ...(findPreset(shown.get(provider))?.models ?? []).map((model) => {
+        const option = doc.createElement("option");
+        option.setAttribute("value", model);
+        return option;
+      }),
+    );
+  }
+
+  /** Menú de servicios: al elegir uno se rellenan la URL base y el modelo. @param {string} provider @param {string} helpId */
+  function presetField(provider, helpId) {
+    const wrapper = doc.createElement("div");
+    wrapper.className = "field extkeys__field";
+    const id = `extkeys-preset-${provider}`;
+    const label = doc.createElement("label");
+    label.setAttribute("for", id);
+    label.textContent = t("extkeys.preset.label");
+    const select = doc.createElement("select");
+    select.setAttribute("id", id);
+    select.setAttribute("aria-describedby", helpId);
+    select.setAttribute("data-field", "preset");
+    select.setAttribute("data-provider", provider);
+    const visible = visiblePresets({ allowPrivate });
+    select.append(
+      ...visible.map((preset) => {
+        const option = doc.createElement("option");
+        option.setAttribute("value", preset.id);
+        option.textContent = presetLabel(preset.id);
+        return option;
+      }),
+    );
+    baseline.set(`preset:${provider}`, defaults(provider).preset);
+    const wanted = drafts.get(`preset:${provider}`) ?? defaults(provider).preset;
+    select.value = visible.some((preset) => preset.id === wanted) ? wanted : "custom";
+    shown.set(provider, select.value);
+    extraInputs.set(`preset:${provider}`, select);
+    select.addEventListener("change", () => choosePreset(provider));
+    wrapper.append(label, select);
+    return wrapper;
+  }
+
+  /** @param {string} provider */
+  function choosePreset(provider) {
+    const select = extraInputs.get(`preset:${provider}`);
+    const url = extraInputs.get(`baseUrl:${provider}`);
+    const model = extraInputs.get(`model:${provider}`);
+    const next = findPreset(select?.value);
+    if (!select || !url || !model || !next) return;
+    touched.add(`preset:${provider}`);
+    if (next.id !== "custom") {
+      // «Otro» deja lo escrito como estaba; los demás fijan la URL de su servicio (OpenAI la vacía).
+      url.value = next.baseUrl;
+      touched.add(`baseUrl:${provider}`);
+      // Un modelo vacío o que era solo la sugerencia de algún servicio se cambia; uno escrito a mano se respeta.
+      const current = String(model.value ?? "").trim();
+      if (current === "" || AI_PRESETS.some((preset) => preset.models.includes(current))) {
+        model.value = next.id === "openai" ? "" : (next.models[0] ?? "");
+        touched.add(`model:${provider}`);
+      }
+    }
+    shown.set(provider, next.id);
+    fillModels(provider);
+  }
+
+  /** La URL escrita a mano reconoce el servicio. @param {string} provider */
+  function detectPreset(provider) {
+    const select = extraInputs.get(`preset:${provider}`);
+    const url = extraInputs.get(`baseUrl:${provider}`);
+    if (!select || !url) return;
+    const found = presetForUrl(String(url.value ?? ""));
+    const id = visiblePresets({ allowPrivate }).some((preset) => preset.id === found) ? found : "custom";
+    select.value = id;
+    shown.set(provider, id);
+    touched.add(`preset:${provider}`);
+    fillModels(provider);
   }
 
   /**
@@ -86,7 +195,8 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     input.setAttribute("data-field", name);
     input.setAttribute("data-provider", provider);
     // El modelo guardado se propone de nuevo (no es secreto); la URL no vuelve del servidor, así que se escribe otra vez.
-    input.value = drafts.get(`${name}:${provider}`) ?? (name === "model" ? (stored.get(provider)?.model ?? "") : "");
+    baseline.set(`${name}:${provider}`, defaults(provider)[name]);
+    input.value = drafts.get(`${name}:${provider}`) ?? defaults(provider)[name];
     extraInputs.set(`${name}:${provider}`, input);
     input.addEventListener("input", () => touched.add(`${name}:${provider}`));
     wrapper.append(label, input);
@@ -133,13 +243,23 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     /** @type {any[]} */
     const extras = [];
     if (customizable) {
-      extras.push(optionalField(provider, "baseUrl", "extkeys.baseUrl.label", "extkeys.baseUrl.placeholder", helpId, { inputmode: "url" }));
-      extras.push(optionalField(provider, "model", "extkeys.model.label", "extkeys.model.placeholder", helpId, {}));
+      extras.push(presetField(provider, helpId));
+      const urlField = optionalField(provider, "baseUrl", "extkeys.baseUrl.label", "extkeys.baseUrl.placeholder", helpId, { inputmode: "url" });
+      extraInputs.get(`baseUrl:${provider}`).addEventListener("input", () => detectPreset(provider));
+      extras.push(urlField);
+      const modelField = optionalField(provider, "model", "extkeys.model.label", "extkeys.model.placeholder", helpId, {});
+      const suggestions = doc.createElement("datalist");
+      suggestions.setAttribute("id", `extkeys-models-${provider}`);
+      datalists.set(provider, suggestions);
+      fillModels(provider);
+      extraInputs.get(`model:${provider}`).setAttribute("list", `extkeys-models-${provider}`);
+      modelField.append(suggestions);
+      extras.push(modelField);
       const help = doc.createElement("p");
       help.className = "panel__detail extkeys__help";
       help.setAttribute("id", helpId);
       // La ayuda explica para qué sirve; si ya hay un servidor guardado, recuerda que al reemplazar la clave hay que volver a escribir la URL.
-      help.textContent = [t("extkeys.openai.help"), ...(view?.baseUrlHost ? [t("extkeys.keepUrl", { host: view.baseUrlHost })] : [])].join(" ");
+      help.textContent = [t("extkeys.openai.help"), ...(view?.baseUrlHost && defaults(provider).preset === "custom" ? [t("extkeys.keepUrl", { host: view.baseUrlHost })] : [])].join(" ");
       extras.push(help);
     }
 
@@ -177,14 +297,18 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
   /** @param {string} [focusKey] `acción:proveedor` del botón que debe quedarse con el foco (la lista se reconstruye entera) */
   function render(focusKey) {
     for (const [provider, input] of inputs) drafts.set(provider, input.value ?? "");
-    // Lo escrito en los campos opcionales se conserva al repintar. Un campo vacío que nadie tocó no cuenta como borrador: así el modelo
-    // guardado puede proponerse en cuanto llega la lista.
+    // Lo escrito en los campos opcionales se conserva al repintar. Lo que nadie tocó y coincide con lo guardado no cuenta como borrador:
+    // así el servicio, la URL y el modelo guardados se proponen en cuanto llega la lista.
     for (const [name, input] of extraInputs) {
-      if ((input.value ?? "") !== "" || touched.has(name)) drafts.set(name, input.value ?? "");
+      const value = input.value ?? "";
+      if (touched.has(name) || (value !== "" && value !== baseline.get(name))) drafts.set(name, value);
       else drafts.delete(name);
     }
     inputs.clear();
     extraInputs.clear();
+    shown.clear();
+    datalists.clear();
+    baseline.clear();
     buttons.clear();
     rendering = true;
     try {
@@ -240,12 +364,15 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
     drafts.delete(provider);
     drafts.delete(`baseUrl:${provider}`);
     drafts.delete(`model:${provider}`);
+    drafts.delete(`preset:${provider}`);
     for (const field of [input, inputs.get(provider), extraInputs.get(`baseUrl:${provider}`)]) if (field) field.value = "";
     // Los campos opcionales se sueltan: al repintar, la URL queda vacía y el modelo vuelve a ser el guardado (no el texto tecleado).
     extraInputs.delete(`baseUrl:${provider}`);
     extraInputs.delete(`model:${provider}`);
+    extraInputs.delete(`preset:${provider}`);
     touched.delete(`baseUrl:${provider}`);
     touched.delete(`model:${provider}`);
+    touched.delete(`preset:${provider}`);
     announce(t("extkeys.savedAnnounce", { provider: providerName(provider) }));
     await load();
   }
@@ -288,6 +415,7 @@ export function createExternalKeys({ doc, baseUrl, access, t: initialT, announce
       (found) => {
         if (!found.byok.enabled || found.byok.providers.length === 0) return;
         providers = found.byok.providers;
+        allowPrivate = found.byok.allowPrivateBaseUrls === true;
         els.toggle.hidden = false;
         render();
       },

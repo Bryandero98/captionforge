@@ -44,13 +44,13 @@ describe("getCapabilities: claves propias (BYOK)", () => {
   it("lee si están activadas y qué proveedores admite", async () => {
     const fetchImpl = async () => json({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"] } });
     const found = await getCapabilities({ baseUrl: "", fetchImpl });
-    assert.deepEqual(found.byok, { enabled: true, providers: ["openai", "elevenlabs"] });
+    assert.deepEqual(found.byok, { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false });
   });
 
   it("un servidor sin `byok` (o con forma rara) la deja apagada", async () => {
     for (const payload of [{ diarization: { enabled: true } }, { byok: null }, { byok: { enabled: "true", providers: ["openai"] } }, { byok: { enabled: true, providers: "openai" } }]) {
       const found = await getCapabilities({ baseUrl: "", fetchImpl: async () => json(payload) });
-      assert.deepEqual(found.byok, { enabled: false, providers: [] }, JSON.stringify(payload));
+      assert.deepEqual(found.byok, { enabled: false, providers: [], allowPrivateBaseUrls: false }, JSON.stringify(payload));
     }
   });
 
@@ -65,7 +65,7 @@ describe("getCapabilities: claves propias (BYOK)", () => {
   });
 
   it("sin respuesta, BYOK apagada", () => {
-    assert.deepEqual(NO_CAPABILITIES.byok, { enabled: false, providers: [] });
+    assert.deepEqual(NO_CAPABILITIES.byok, { enabled: false, providers: [], allowPrivateBaseUrls: false });
   });
 });
 

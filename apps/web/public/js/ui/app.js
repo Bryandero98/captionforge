@@ -156,7 +156,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     context: () => results.context,
     canLaunch,
     // Las claves externas se guardan con una sesión de Dueño: sin sesión (modo local) nadie puede ponerlas, aunque el servidor tenga APP_SECRET.
-    capabilities: () => found.then((all) => (byokAvailable ? all : { ...all, byok: { enabled: false, providers: [] } })),
+    capabilities: () => found.then((all) => (byokAvailable ? all : { ...all, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false } })),
     spend,
     follower,
     onStarted: (job, parentName, kind) => history.add({ id: job.id, name: parentName, kind, at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),

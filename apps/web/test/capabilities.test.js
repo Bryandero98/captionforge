@@ -28,6 +28,17 @@ describe("getCapabilities", () => {
     for (const fetchImpl of cases) assert.deepEqual(await getCapabilities({ baseUrl: "", fetchImpl }), NO_CAPABILITIES);
   });
 
+  it("lee si el servidor admite direcciones locales (ALLOW_PRIVATE_BASE_URLS) solo con BYOK activo", async () => {
+    const byok = (extra) => async () => json({ byok: { enabled: true, providers: ["openai"], ...extra } });
+    assert.equal((await getCapabilities({ baseUrl: "", fetchImpl: byok({ allowPrivateBaseUrls: true }) })).byok.allowPrivateBaseUrls, true);
+    for (const extra of [{ allowPrivateBaseUrls: false }, { allowPrivateBaseUrls: "true" }, {}]) {
+      assert.equal((await getCapabilities({ baseUrl: "", fetchImpl: byok(extra) })).byok.allowPrivateBaseUrls, false);
+    }
+    const off = async () => json({ byok: { enabled: false, providers: [], allowPrivateBaseUrls: true } });
+    assert.equal((await getCapabilities({ baseUrl: "", fetchImpl: off })).byok.allowPrivateBaseUrls, false);
+    assert.equal(NO_CAPABILITIES.byok.allowPrivateBaseUrls, false);
+  });
+
   it("un servidor viejo sin /v1/capabilities no rompe nada", async () => {
     assert.equal((await getCapabilities({ baseUrl: "", fetchImpl: async () => json({ message: "Cannot GET" }, { status: 404 }) })).diarization.enabled, false);
   });
