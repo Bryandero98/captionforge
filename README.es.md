@@ -3,7 +3,7 @@
 [English](README.md) | **Español**
 
 [![CI del monorepo](https://github.com/Bryandero98/captionforge/actions/workflows/monorepo.yml/badge.svg)](https://github.com/Bryandero98/captionforge/actions/workflows/monorepo.yml)
-[![Licencia: MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
+[![Licencia: BSL 1.1](https://img.shields.io/badge/licencia-BSL%201.1-blue.svg)](LICENSE)
 
 Subtítulos automáticos para video, gratuitos - transcripción, traducción y subtítulos quemados -
 sin marca de agua ni límite mensual, y hoy sin cuenta. CaptionForge empezó como una herramienta
@@ -162,7 +162,7 @@ comprobar»:
   (OIDC) en PyPI, sin token de larga vida en el workflow.
 
 El cuadro completo, con lo que **todavía no** está cubierto, está en
-[docs/architecture_and_security.md](docs/architecture_and_security.md).
+[docs/architecture_and_security.md](docs/architecture_and_security.md). Los cambios por versión están en el [CHANGELOG](CHANGELOG.md); la operación del secreto de las claves externas, en el [runbook de `APP_SECRET`](docs/runbook-app-secret.md) ([ADR 0020](docs/adr/0020-ia-avanzada-y-claves-externas-byok.md)).
 
 ## Comandos
 
@@ -221,6 +221,10 @@ opción:
 - **USDT (TRC20):** `TEG4Kk2qXYMQ4mHNd7dPhSPRyT14CGr2or` - verifica que la red sea **TRC20** antes de
   enviar; una transferencia por otra red no se puede recuperar.
 
+## Contribuciones
+
+CaptionForge utiliza un modelo Business Source. El uso comercial o en producción requiere licencia. Los Pull Requests para sugerir mejoras o corregir errores son bienvenidos; al enviar un PR, el contribuyente cede los derechos comerciales sobre dicho código al autor original.
+
 ## Licencia
 
-[MIT](LICENSE)
+[Business Source License 1.1](LICENSE) (Licenciante: Bryan Andrés Delgado Rodríguez). Pasa a Apache 2.0 el 2030-10-23.
