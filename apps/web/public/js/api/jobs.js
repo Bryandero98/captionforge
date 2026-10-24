@@ -161,4 +161,74 @@ export async function startDub({ baseUrl, jobId, provider, voice, mix, translati
   return asJobView(await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/dub`, method: "POST", body, signal, fetchImpl }));
 }
 
+// ---------- Calidad de subtítulos (ADR 0021) ----------
+// El verificador vive solo en el API: aquí solo se pide el informe y se valida su forma. Ninguna regla se calcula en el navegador.
+
+/** @typedef {{ id: string, label: string, verification: string, reference: string }} QualityProfile */
+/** @typedef {{ segments: number, errors: number, warnings: number, infos: number, score: number }} QualitySummary */
+/** @typedef {{ segment: number, rule: string, severity: "error" | "warning" | "info", measured: number, limit: number, line?: number }} QualityIssue */
+/** @typedef {{ profile: string, etag: string, summary: QualitySummary, issues: QualityIssue[] }} QualityReport */
+/** @typedef {{ segment: number, kind: "line_break" | "timing", before: { start: number, end: number, text: string }, after: { start: number, end: number, text: string } }} QualityChange */
+/** @typedef {{ profile: string, etag: string, edits: { index: number, text?: string, start?: number, end?: number }[], changes: QualityChange[], unfixable: QualityIssue[], before: QualitySummary, after: QualitySummary }} QualityFix */
+
+const PROFILE_ID = /^[a-z][a-z0-9-]{1,30}$/;
+const badResponse = (/** @type {string} */ detail) => new ApiError({ code: "bad_response", detail });
+
+/** @param {string} profile */
+function assertProfileId(profile) {
+  if (!PROFILE_ID.test(profile)) throw new TypeError(`Perfil de calidad inválido: ${profile}`);
+}
+
+/** @param {unknown} value */
+function isSummary(value) {
+  const summary = /** @type {Record<string, unknown>} */ (value);
+  return isRecord(value) && ["segments", "errors", "warnings", "infos", "score"].every((key) => Number.isFinite(summary[key]));
+}
+
+/** @param {unknown} value */
+function isIssue(value) {
+  const issue = /** @type {Record<string, unknown>} */ (value);
+  return isRecord(value) && Number.isInteger(issue.segment) && typeof issue.rule === "string" && ["error", "warning", "info"].includes(/** @type {string} */ (issue.severity)) && Number.isFinite(issue.measured) && Number.isFinite(issue.limit);
+}
+
+/** @param {{ baseUrl: string, signal?: AbortSignal, fetchImpl?: typeof fetch }} options @returns {Promise<QualityProfile[]>} */
+export async function getQualityProfiles({ baseUrl, signal, fetchImpl }) {
+  const data = /** @type {Record<string, unknown>} */ (await requestJson({ url: `${root(baseUrl)}/v1/quality/profiles`, signal, fetchImpl }));
+  const valid = (/** @type {unknown} */ item) => {
+    const profile = /** @type {Record<string, unknown>} */ (item);
+    return isRecord(item) && typeof profile.id === "string" && typeof profile.label === "string";
+  };
+  if (!isRecord(data) || !Array.isArray(data.profiles) || !data.profiles.every(valid)) throw badResponse("Perfiles con una forma inesperada.");
+  return /** @type {QualityProfile[]} */ (data.profiles);
+}
+
+/** Informe de calidad de una transcripción terminada. @param {{ baseUrl: string, jobId: string, profile: string, signal?: AbortSignal, fetchImpl?: typeof fetch }} options @returns {Promise<QualityReport>} */
+export async function getQuality({ baseUrl, jobId, profile, signal, fetchImpl }) {
+  assertJobId(jobId);
+  assertProfileId(profile);
+  const data = /** @type {Record<string, unknown>} */ (await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/quality?profile=${profile}`, signal, fetchImpl }));
+  if (!isRecord(data) || typeof data.etag !== "string" || !isSummary(data.summary) || !Array.isArray(data.issues) || !data.issues.every(isIssue)) {
+    throw badResponse("Informe de calidad con una forma inesperada.");
+  }
+  return /** @type {QualityReport} */ (data);
+}
+
+/**
+ * Pide la propuesta de arreglo (solo tiempos y saltos de línea). No guarda nada: las `edits` se aplican con `putSegments` y el mismo `etag`.
+ * @param {{ baseUrl: string, jobId: string, profile: string, signal?: AbortSignal, fetchImpl?: typeof fetch }} options @returns {Promise<QualityFix>}
+ */
+export async function proposeQualityFix({ baseUrl, jobId, profile, signal, fetchImpl }) {
+  assertJobId(jobId);
+  assertProfileId(profile);
+  const data = /** @type {Record<string, unknown>} */ (await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/quality/fix`, method: "POST", body: { profile }, signal, fetchImpl }));
+  const validEdit = (/** @type {unknown} */ edit) => isRecord(edit) && Number.isInteger(/** @type {Record<string, unknown>} */ (edit).index);
+  if (
+    !isRecord(data) || typeof data.etag !== "string" || !Array.isArray(data.edits) || !data.edits.every(validEdit) ||
+    !Array.isArray(data.changes) || !Array.isArray(data.unfixable) || !data.unfixable.every(isIssue) || !isSummary(data.before) || !isSummary(data.after)
+  ) {
+    throw badResponse("Propuesta de arreglo con una forma inesperada.");
+  }
+  return /** @type {QualityFix} */ (data);
+}
+
 export { isTerminalStatus };

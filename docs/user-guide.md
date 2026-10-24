@@ -72,6 +72,15 @@ Good to know:
 - If the server does not have the feature on (no `APP_SECRET`), there is no panel and "Dub" is blocked. Whoever runs the
   server turns it on following the [`APP_SECRET` runbook](runbook-app-secret.md).
 
+## Subtitle quality
+
+Below the transcription facts is the **Subtitle quality** panel. Pick a **standard** (Netflix in English or Spanish, BBC, Accessible or Vertical shorts) and press **Check**: it tells you which captions read too fast, have long lines, are too short or too long, or sit too close to (or overlap) the previous one, and by how much. Each notice states its severity in words (Error, Warning, Suggestion).
+
+- Each standard says how far it was checked against its official guide. It is a measurement, not a certification.
+- **Suggest a fix** (Editor or Owner) shows what would change before touching anything: only each caption's end time and the line breaks; **the text is never modified**. **Apply the fix** saves it and checks again; **Discard** changes nothing.
+- What cannot be solved without changing the text (for example, a sentence too long to read in time) stays as pending for you to decide.
+- If you have unsaved changes in the editor, save or discard them first.
+
 ## Translate the captions
 
 1. With the transcription finished and **no unsaved changes** (if there are, the button is disabled and the page says why),

@@ -302,6 +302,36 @@
           <p class="panel__detail" id="burn-hint" role="status" hidden></p>
           <button type="submit" class="btn btn--secondary" id="burn-start" aria-describedby="burn-hint" data-i18n="burn.start">Crear video con subtítulos</button>
         </form>
+        <section class="burn quality" id="quality-panel" hidden aria-labelledby="quality-title">
+          <h3 class="burn__title" id="quality-title" data-i18n="quality.title">Calidad de los subtítulos</h3>
+          <p class="panel__detail" data-i18n="quality.hint">Mide los subtítulos contra una norma de lectura. No cambia nada hasta que apliques un arreglo.</p>
+          <div class="options">
+            <div class="field field--wide">
+              <label for="quality-profile" data-i18n="quality.profile">Norma</label>
+              <select id="quality-profile" aria-describedby="quality-profile-note"></select>
+              <p class="panel__detail" id="quality-profile-note"></p>
+            </div>
+          </div>
+          <p class="panel__detail" id="quality-hint" role="status" hidden></p>
+          <div class="panel__actions">
+            <button type="button" class="btn btn--secondary" id="quality-check" data-i18n="quality.check">Revisar</button>
+            <button type="button" class="btn btn--primary" id="quality-fix" hidden data-i18n="quality.fix">Proponer arreglo</button>
+          </div>
+          <p class="panel__detail" id="quality-status" role="status"></p>
+          <p class="quality__summary" id="quality-summary" role="status"></p>
+          <ul class="quality__issues" id="quality-issues"></ul>
+          <div class="quality__proposal" id="quality-proposal" hidden>
+            <h4 class="quality__proposal-title" data-i18n="quality.proposal.title">Arreglo propuesto</h4>
+            <p class="panel__detail" data-i18n="quality.proposal.note">El texto no se toca: solo cambian el final de cada subtítulo y los saltos de línea.</p>
+            <p id="quality-proposal-summary" role="status"></p>
+            <ul class="quality__changes" id="quality-proposal-changes"></ul>
+            <p class="panel__detail" id="quality-proposal-unfixable" hidden></p>
+            <div class="panel__actions">
+              <button type="button" class="btn btn--primary" id="quality-apply" data-i18n="quality.apply">Aplicar el arreglo</button>
+              <button type="button" class="btn btn--ghost" id="quality-discard" data-i18n="quality.discard">Descartar</button>
+            </div>
+          </div>
+        </section>
         <form class="burn ai" id="translate-form" hidden>
           <h3 class="burn__title" data-i18n="translate.title">Traducir los subtítulos</h3>
           <div class="options">

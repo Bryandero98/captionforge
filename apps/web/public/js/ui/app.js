@@ -3,7 +3,7 @@
 
 import { getCapabilities } from "../api/capabilities.js";
 import { ApiError } from "../api/errors.js";
-import { getJob } from "../api/jobs.js";
+import { getJob, getQuality, getQualityProfiles, proposeQualityFix, putSegments } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { precheckFile, uploadVideo } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
@@ -13,6 +13,7 @@ import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
 import { createAi } from "./ai.js";
 import { createBurn } from "./burn.js";
+import { createQuality } from "./quality.js";
 import { createHistory } from "./history.js";
 import { detailText, statusText } from "./job-text.js";
 import { languageNames as languageNamesFor } from "./language-names.js";
@@ -123,12 +124,15 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let burn = null;
   /** @type {ReturnType<typeof createAi> | null} */
   let ai = null;
+  /** @type {ReturnType<typeof createQuality> | null} */
+  let quality = null;
   // Qué ofrece el servidor: lo usan la casilla de hablantes y los formularios de traducir y doblar.
   const found = capabilities({ baseUrl: config.baseUrl });
   const spend = createSpendConfirm({ doc, t: translate });
   const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), onChange: () => {
     burn?.refreshForm();
     ai?.refreshForm();
+    quality?.refreshForm();
   } });
   const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
   burn = createBurn({
@@ -157,6 +161,21 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     follower,
     onStarted: (job, parentName, kind) => history.add({ id: job.id, name: parentName, kind, at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
     onOpenParent: (parentId) => void openJob(parentId),
+  });
+
+  // Calidad de los subtítulos (ADR 0021): el informe y el arreglo los calcula el API; aquí solo se piden y se pintan.
+  quality = createQuality({
+    doc,
+    t: translate,
+    lang: () => lang,
+    announce: (text) => announce(text),
+    context: () => results.context,
+    canEdit: canLaunch,
+    fetchProfiles: () => getQualityProfiles({ baseUrl: config.baseUrl }),
+    fetchReport: ({ jobId, profile }) => getQuality({ baseUrl: config.baseUrl, jobId, profile }),
+    fetchFix: ({ jobId, profile }) => proposeQualityFix({ baseUrl: config.baseUrl, jobId, profile }),
+    applyEdits: ({ jobId, edits, etag }) => putSegments({ baseUrl: config.baseUrl, jobId, edits, etag }),
+    onApplied: () => results.reload(),
   });
 
   // ---------- estado ----------
@@ -650,6 +669,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     burn?.refresh();
     spend.refresh(translate);
     ai?.refresh();
+    quality?.refresh(translate);
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }

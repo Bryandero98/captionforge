@@ -71,6 +71,15 @@ Qué hay que saber:
 - Si el servidor no tiene activada la función (no hay `APP_SECRET`), no hay panel y «Doblar» queda bloqueado. Quien administra el
   servidor la activa según el [runbook de `APP_SECRET`](runbook-app-secret.md).
 
+## Calidad de los subtítulos
+
+Debajo de los datos de la transcripción está el panel **Calidad de los subtítulos**. Elige una **norma** (Netflix en inglés o en español, BBC, Accesible o Cortos verticales) y pulsa **Revisar**: te dice qué subtítulos leen demasiado rápido, tienen líneas largas, duran poco o mucho, o están pegados o solapados con el anterior, y por cuánto. Cada aviso dice su gravedad con palabras (Error, Aviso, Sugerencia).
+
+- Cada norma indica cuánto se verificó contra su guía oficial. Es una medida, no una certificación.
+- **Proponer arreglo** (Editor o Dueño) muestra qué cambiaría antes de tocar nada: solo el final de cada subtítulo y los saltos de línea; **el texto nunca se modifica**. Con **Aplicar el arreglo** se guarda y se vuelve a revisar; **Descartar** no cambia nada.
+- Lo que no se puede resolver sin cambiar el texto (por ejemplo, una frase demasiado larga para leerla a tiempo) queda como pendiente para que lo decidas tú.
+- Si tienes cambios sin guardar en el editor, primero guárdalos o descártalos.
+
 ## Traducir los subtítulos
 
 1. Con la transcripción terminada y **sin cambios sin guardar** (si los hay, el botón se desactiva y la página lo explica),
