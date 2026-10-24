@@ -10,7 +10,7 @@ const rules = (segments: Segment[], profile = netflix) => checkQuality(segments,
 
 describe("perfiles", () => {
   it("incluye netflix, bbc, accessible y shorts, con identificadores únicos", () => {
-    expect([...QUALITY_PROFILE_IDS].sort()).toEqual(["accessible", "bbc", "netflix", "shorts"]);
+    expect([...QUALITY_PROFILE_IDS].sort()).toEqual(["accessible", "bbc", "netflix", "netflix-es", "shorts"]);
     expect(new Set(PROFILES.map((profile) => profile.id)).size).toBe(PROFILES.length);
   });
 
@@ -26,9 +26,28 @@ describe("perfiles", () => {
     ["fotogramas por segundo negativos", { fps: -24 }],
     ["duración mínima mayor que la máxima", { minDuration: 9, maxDuration: 2 }],
     ["margen duro de CPS negativo", { cpsErrorMargin: -1 }],
+    ["verificación desconocida", { verification: "dudoso" }],
     ["identificador con mayúsculas o espacios", { id: "Mi Perfil" }],
   ])("rechaza un perfil con %s", (_name, change) => {
     expect(() => validateProfile({ ...netflix, ...change })).toThrow();
+  });
+
+  it("las cifras verificadas de Netflix coinciden con la guía publicada", () => {
+    expect(netflix).toMatchObject({ maxCharsPerLine: 42, maxLines: 2, maxCps: 20, maxDuration: 7, minGapFrames: 2, verification: "verified" });
+    expect(netflix.minDuration).toBeCloseTo(5 / 6, 6);
+    expect(getProfile("netflix-es")).toMatchObject({ maxCps: 17, verification: "verified" });
+  });
+
+  it("el perfil accesible sigue a DCMP: 40 fotogramas mínimo y 6 s máximo", () => {
+    const accessible = getProfile("accessible");
+    expect(accessible.minDuration).toBeCloseTo(40 / 30, 6);
+    expect(accessible.maxDuration).toBe(6);
+    expect(accessible.verification).toBe("partial");
+  });
+
+  it("lo que no se pudo verificar se declara (BBC sin fuente primaria, shorts criterio propio)", () => {
+    expect(getProfile("bbc").verification).toBe("unverified");
+    expect(getProfile("shorts").verification).toBe("own-criteria");
   });
 
   it("un perfil desconocido falla con un error claro", () => {
@@ -82,8 +101,8 @@ describe("regla cpl y lines", () => {
 
   it("el perfil shorts es más estricto con la longitud de línea", () => {
     const shorts = getProfile("shorts");
-    expect(rules([seg(0, 3, "a".repeat(30))], shorts)).toContain("0:cpl:error");
-    expect(rules([seg(0, 3, "a".repeat(30))], netflix)).not.toContain("0:cpl:error");
+    expect(rules([seg(0, 3, "a".repeat(36))], shorts)).toContain("0:cpl:error");
+    expect(rules([seg(0, 3, "a".repeat(36))], netflix)).not.toContain("0:cpl:error");
   });
 });
 

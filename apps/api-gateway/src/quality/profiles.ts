@@ -1,7 +1,7 @@
 // Perfiles de calidad de subtítulos (ADR 0021). Son datos: el verificador no tiene ningún número escrito dentro.
 //
-// Los valores salen de guías públicas y están pensados como punto de partida razonable, no como certificación:
-// cada perfil cita su fuente en `reference` y los umbrales se contrastan con ella en la tarea T1 antes de publicarse.
+// Cada perfil cita su fuente en `reference` y declara en `verification` cuánto de él se leyó en la fuente oficial y cuánto es criterio propio.
+// No es una certificación: es una medida contra las cifras publicadas por cada guía.
 
 export interface QualityProfile {
   /** Identificador estable que se usa en la API (`?profile=`). */
@@ -10,6 +10,8 @@ export interface QualityProfile {
   label: string;
   /** De dónde salen los umbrales. */
   reference: string;
+  /** Qué tan contrastados están con la fuente: `verified` (leídos en la fuente), `partial` (una parte es criterio propio), `unverified` (sin acceso a la fuente primaria) o `own-criteria`. */
+  verification: "verified" | "partial" | "unverified" | "own-criteria";
   /** Fotogramas por segundo con los que se traduce `minGapFrames` a milisegundos. */
   fps: number;
   maxLines: number;
@@ -28,8 +30,10 @@ export interface QualityProfile {
 export const PROFILES: readonly QualityProfile[] = [
   {
     id: "netflix",
-    label: "Netflix",
-    reference: "Netflix Timed Text Style Guide (reglas generales): 42 caracteres por línea, 2 líneas, 20 cps adultos, 5/6 s a 7 s, 2 fotogramas de hueco.",
+    label: "Netflix (inglés)",
+    verification: "verified",
+    reference:
+      "Netflix Timed Text Style Guide (partnerhelp.netflixstudios.com, artículos 217350977, 215758617 y 360051554394): 42 caracteres por línea, 2 líneas, hasta 20 cps en adultos (inglés), 5/6 s a 7 s de duración y 2 fotogramas como mínimo entre subtítulos.",
     fps: 24,
     maxLines: 2,
     maxCharsPerLine: 42,
@@ -40,9 +44,26 @@ export const PROFILES: readonly QualityProfile[] = [
     minGapFrames: 2,
   },
   {
+    id: "netflix-es",
+    label: "Netflix (español)",
+    verification: "verified",
+    reference:
+      "Netflix Spanish Timed Text Style Guide (artículo 216014517, §15): hasta 17 cps en adultos; el resto de los límites (42 caracteres, 2 líneas, 5/6 s a 7 s, 2 fotogramas) son los generales de Netflix.",
+    fps: 24,
+    maxLines: 2,
+    maxCharsPerLine: 42,
+    maxCps: 17,
+    cpsErrorMargin: 3,
+    minDuration: 5 / 6,
+    maxDuration: 7,
+    minGapFrames: 2,
+  },
+  {
     id: "bbc",
     label: "BBC",
-    reference: "BBC Subtitle Guidelines: 37 caracteres por línea, 2 líneas, 160-180 palabras por minuto (aprox. 16-18 cps), 7 s como máximo.",
+    verification: "unverified",
+    reference:
+      "BBC Subtitle Guidelines (bbc.co.uk/accessibility/forproducts/guides/subtitles). NO verificado contra la fuente primaria (no fue accesible): 37 caracteres por línea y 160-180 palabras por minuto salen de copias secundarias; 18 cps es 180 wpm con 6 caracteres por palabra. Revisar con la guía abierta.",
     fps: 25,
     maxLines: 2,
     maxCharsPerLine: 37,
@@ -54,29 +75,33 @@ export const PROFILES: readonly QualityProfile[] = [
   },
   {
     id: "accessible",
-    label: "Accesible",
-    reference: "DCMP Captioning Key y WCAG 2.2 (1.2.2): lectura cómoda para personas sordas o con baja visión, unos 140 palabras por minuto (aprox. 14 cps).",
-    fps: 25,
+    label: "Accesible (sordos y baja visión)",
+    verification: "partial",
+    reference:
+      "DCMP Captioning Key (dcmp.org/captioningkey): preferible no más de 2 líneas, velocidad de 130/140/160 wpm según el nivel (aquí 140 wpm ≈ 14 cps con 6 caracteres por palabra), mínimo 40 fotogramas (≈1,33 s a 30 fps) y máximo 6 s. La guía no fija caracteres por línea ni separación: 32 y 3 fotogramas son criterio propio de CaptionForge.",
+    fps: 30,
     maxLines: 2,
     maxCharsPerLine: 32,
     maxCps: 14,
     cpsErrorMargin: 3,
-    minDuration: 1.5,
+    minDuration: 40 / 30,
     maxDuration: 6,
     minGapFrames: 3,
   },
   {
     id: "shorts",
     label: "Cortos verticales (Shorts, TikTok, Reels)",
-    reference: "Práctica de plataformas verticales 9:16: líneas cortas dentro de la zona segura, ritmo rápido y cambios de pantalla frecuentes (criterio de CaptionForge).",
+    verification: "own-criteria",
+    reference:
+      "Criterio propio de CaptionForge: no se encontraron cifras oficiales de las plataformas. Líneas de hasta 32 caracteres para dejar margen en 9:16, 2 líneas, 17 cps (techo del español adulto de Netflix), 1 s a 6 s y 2 fotogramas a 30 fps.",
     fps: 30,
     maxLines: 2,
-    maxCharsPerLine: 20,
-    maxCps: 22,
+    maxCharsPerLine: 32,
+    maxCps: 17,
     cpsErrorMargin: 4,
-    minDuration: 0.5,
-    maxDuration: 4,
-    minGapFrames: 1,
+    minDuration: 1,
+    maxDuration: 6,
+    minGapFrames: 2,
   },
 ];
 
@@ -94,6 +119,7 @@ export function validateProfile(profile: QualityProfile): QualityProfile {
   if (!ID_PATTERN.test(profile.id)) problems.push("id");
   if (typeof profile.label !== "string" || profile.label.trim() === "") problems.push("label");
   if (typeof profile.reference !== "string" || profile.reference.trim() === "") problems.push("reference");
+  if (!["verified", "partial", "unverified", "own-criteria"].includes(profile.verification)) problems.push("verification");
   if (!positive(profile.fps) || profile.fps > 120) problems.push("fps");
   if (!positiveInteger(profile.maxLines)) problems.push("maxLines");
   if (!positiveInteger(profile.maxCharsPerLine)) problems.push("maxCharsPerLine");

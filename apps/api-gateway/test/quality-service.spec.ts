@@ -33,7 +33,7 @@ describe("QualityService", () => {
   it("un perfil desconocido es un 400 que lista los disponibles y no lee los subtítulos", async () => {
     const { service, getSegments } = build();
     await expect(service.report("t", "j", "inventado")).rejects.toThrow(BadRequestException);
-    await expect(service.report("t", "j", "inventado")).rejects.toThrow(/netflix.*bbc.*accessible.*shorts|accessible.*bbc.*netflix.*shorts/s);
+    await expect(service.report("t", "j", "inventado")).rejects.toThrow(/netflix.*bbc.*accessible.*shorts|accessible.*bbc.*netflix.*shorts|accessible.*bbc.*netflix.*netflix-es.*shorts/s);
     expect(getSegments).not.toHaveBeenCalled();
   });
 
@@ -45,7 +45,7 @@ describe("QualityService", () => {
   it("lista los perfiles con sus umbrales para que la interfaz los muestre", () => {
     const { service } = build();
     const listed = service.profiles();
-    expect(listed.map((profile) => profile.id).sort()).toEqual(["accessible", "bbc", "netflix", "shorts"]);
+    expect(listed.map((profile) => profile.id).sort()).toEqual(["accessible", "bbc", "netflix", "netflix-es", "shorts"]);
     expect(listed[0]).toHaveProperty("maxCharsPerLine");
     expect(listed[0]).toHaveProperty("reference");
   });

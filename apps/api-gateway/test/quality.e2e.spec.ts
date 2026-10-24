@@ -92,11 +92,11 @@ afterAll(async () => {
 });
 
 describe("GET /v1/quality/profiles", () => {
-  it("lista los cuatro perfiles con sus umbrales", async () => {
+  it("lista los cinco perfiles con sus umbrales", async () => {
     const response = await get("/v1/quality/profiles");
     expect(response.status).toBe(200);
     const body = (await response.json()) as { profiles: { id: string; maxCharsPerLine: number }[] };
-    expect(body.profiles.map((profile) => profile.id).sort()).toEqual(["accessible", "bbc", "netflix", "shorts"]);
+    expect(body.profiles.map((profile) => profile.id).sort()).toEqual(["accessible", "bbc", "netflix", "netflix-es", "shorts"]);
     expect(body.profiles.find((profile) => profile.id === "netflix")?.maxCharsPerLine).toBe(42);
   });
 });
