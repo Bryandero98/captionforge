@@ -49,7 +49,8 @@ export interface AppConfig {
    * Claves externas propias (BYOK, ADR 0020). Sin `appSecret` la función queda apagada: nunca se cifra con un valor por defecto.
    * Es un secreto: no se registra ni se devuelve en ninguna respuesta.
    */
-  byok: { appSecret: string | undefined };
+  /** `allowPrivateBaseUrls`: ALLOW_PRIVATE_BASE_URLS (ADR 0022), acepta URL base locales o privadas (Ollama, vLLM). Apagada por defecto. */
+  byok: { appSecret: string | undefined; allowPrivateBaseUrls: boolean };
   /** Topes de gasto por trabajo de traducir/doblar (ADR 0020 §7): el dinero es de la persona usuaria. El worker aplica los mismos. */
   ai: { maxJobCharacters: number; maxJobSegments: number };
   /**
@@ -182,6 +183,14 @@ function parseProvider(env: NodeJS.ProcessEnv, id: ProviderId): ProviderConfig |
 }
 
 /** LOG_FORMAT (`text` por defecto, `json` en el contenedor), LOG_REQUESTS (una línea por petición; por defecto solo con json) y servidor de métricas. */
+/** Bandera de seguridad: solo `true`/`1` la encienden y `false`/`0`/vacío la apagan; cualquier otra cosa es un error (no se adivina). */
+function parseBooleanFlag(env: NodeJS.ProcessEnv, name: string): boolean {
+  const value = (env[name] ?? "").trim().toLowerCase();
+  if (value === "" || value === "false" || value === "0") return false;
+  if (value === "true" || value === "1") return true;
+  throw new Error(`${name} debe ser true o false (recibido "${env[name]}")`);
+}
+
 function parseObservability(env: NodeJS.ProcessEnv, integer: (name: string, fallback: number, options?: { allowZero?: boolean; max?: number }) => number): AppConfig["observability"] {
   const format = (env.LOG_FORMAT ?? "text").trim().toLowerCase();
   if (format !== "text" && format !== "json") throw new Error(`LOG_FORMAT debe ser text o json (recibido "${env.LOG_FORMAT}")`);
@@ -297,7 +306,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       providers: { github: parseProvider(env, "github"), google: parseProvider(env, "google") },
     },
     features: { diarization: parseDiarization(env) },
-    byok: { appSecret },
+    byok: { appSecret, allowPrivateBaseUrls: parseBooleanFlag(env, "ALLOW_PRIVATE_BASE_URLS") },
     ai: { maxJobCharacters: integer("MAX_JOB_CHARACTERS", 50_000), maxJobSegments: integer("MAX_JOB_SEGMENTS", 1_000) },
     internal: parseInternal(env, integer, appSecret),
     observability: parseObservability(env, integer),

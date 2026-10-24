@@ -5,7 +5,7 @@ import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { CURRENT_KEY_VERSION, ExternalKeyCipher, type ExternalProvider, isExternalProvider, keyHint } from "./external-key-crypto.js";
 import { parseBaseUrl } from "./base-url.js";
-import { normalizeExternalKey } from "./external-key-format.js";
+import { normalizeExternalKey, normalizeModelName } from "./external-key-format.js";
 
 /** Lo único que sale de aquí hacia la interfaz: jamás la clave ni su cifrado. */
 export interface ExternalKeyView {
@@ -15,6 +15,13 @@ export interface ExternalKeyView {
   rotatedAt: string | null;
   /** Solo el host de la URL base propia (ADR 0022); nunca la URL completa. Nulo = el host fijo del proveedor. */
   baseUrlHost: string | null;
+  /** Modelo pedido al proveedor (texto plano, no es secreto). Nulo = el modelo por defecto. */
+  model: string | null;
+}
+
+/** Lo que cualquier miembro del espacio puede ver de la configuración de IA: nada secreto. */
+export interface AiConfigView {
+  openai: { model: string | null; baseUrlHost: string | null } | null;
 }
 
 /** No hay clave guardada para ese espacio y proveedor (la entrega al worker lo traduce a 404). */
@@ -37,11 +44,13 @@ const coded = (Exception: typeof BadRequestException | typeof NotFoundException,
 export class ExternalKeysService {
   private readonly logger = new Logger(ExternalKeysService.name);
   private readonly cipher: ExternalKeyCipher | undefined;
+  private readonly allowPrivateBaseUrls: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
     @Inject(APP_CONFIG) config: AppConfig,
   ) {
+    this.allowPrivateBaseUrls = config.byok.allowPrivateBaseUrls;
     this.cipher = config.byok.appSecret === undefined ? undefined : new ExternalKeyCipher(config.byok.appSecret);
     if (this.cipher === undefined) this.logger.warn("APP_SECRET no está definido: las claves externas propias están desactivadas.");
   }
@@ -55,18 +64,21 @@ export class ExternalKeysService {
    * Descifra la clave de un espacio para ENTREGARLA al worker por el canal interno. Es el único sitio donde la clave sale de la base en
    * claro: quien llama (internal-server) ya comprobó el token y que el trabajo está en curso y es de ese espacio y proveedor.
    */
-  async reveal(tenantId: string, provider: ExternalProvider): Promise<{ key: string; baseUrl?: string }> {
+  async reveal(tenantId: string, provider: ExternalProvider): Promise<{ key: string; baseUrl?: string; model?: string }> {
     const cipher = this.requireCipher();
     const row = await this.prisma.tenantExternalKey.findUnique({
       where: { tenantId_provider: { tenantId, provider } },
-      select: { ciphertext: true, keyVersion: true, baseUrlCiphertext: true },
+      select: { ciphertext: true, keyVersion: true, baseUrlCiphertext: true, model: true },
     });
     if (row === null) throw new ExternalKeyNotFoundError();
     const context = { tenantId, provider, keyVersion: row.keyVersion };
     const key = cipher.decrypt(row.ciphertext, context);
     // La URL base (ADR 0022) se descifra con su propósito: un cifrado de la clave, o de otra fila, no sirve como URL.
-    if (row.baseUrlCiphertext === null) return { key };
-    return { key, baseUrl: cipher.decrypt(row.baseUrlCiphertext, { ...context, purpose: "base-url" }) };
+    return {
+      key,
+      ...(row.baseUrlCiphertext === null ? {} : { baseUrl: cipher.decrypt(row.baseUrlCiphertext, { ...context, purpose: "base-url" }) }),
+      ...(row.model === null ? {} : { model: row.model }),
+    };
   }
 
   /** ¿Tiene el espacio una clave guardada para ese proveedor? (no la descifra). Falla rápido al crear un trabajo, antes de encolarlo. */
@@ -88,11 +100,32 @@ export class ExternalKeysService {
   private parseBaseUrlField(provider: ExternalProvider, body: unknown): ReturnType<typeof parseBaseUrl> {
     const raw = typeof body === "object" && body !== null ? (body as { baseUrl?: unknown }).baseUrl : undefined;
     if (raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "")) return undefined;
-    const parsed = provider === "openai" ? parseBaseUrl(raw) : undefined;
+    const parsed = provider === "openai" ? parseBaseUrl(raw, { allowPrivate: this.allowPrivateBaseUrls }) : undefined;
     if (parsed === undefined) {
       throw coded(BadRequestException, 400, "Bad Request", "invalid_base_url", "La URL base no es válida: debe ser una dirección https de un servidor público y solo se admite con OpenAI.");
     }
     return parsed;
+  }
+
+  /** `model` es opcional (ADR 0022); ausente, null o vacío significa «el modelo por defecto». Solo con OpenAI (compatible). */
+  private parseModelField(provider: ExternalProvider, body: unknown): string | undefined {
+    const raw = typeof body === "object" && body !== null ? (body as { model?: unknown }).model : undefined;
+    if (raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "")) return undefined;
+    const model = provider === "openai" ? normalizeModelName(raw) : undefined;
+    if (model === undefined) {
+      throw coded(BadRequestException, 400, "Bad Request", "invalid_model", "El modelo no es válido: letras, números y . _ : / @ + - (hasta 100) y solo se admite con OpenAI.");
+    }
+    return model;
+  }
+
+  /** Lo que ve cualquier miembro: el host y el modelo de OpenAI, nunca la URL ni la clave. Con la función apagada, 404. */
+  async aiConfig(tenantId: string): Promise<AiConfigView> {
+    this.requireCipher();
+    const row = await this.prisma.tenantExternalKey.findUnique({
+      where: { tenantId_provider: { tenantId, provider: "openai" } },
+      select: { model: true, baseUrlHost: true },
+    });
+    return { openai: row === null ? null : { model: row.model, baseUrlHost: row.baseUrlHost } };
   }
 
   private provider(raw: string): ExternalProvider {
@@ -105,7 +138,7 @@ export class ExternalKeysService {
     const rows = await this.prisma.tenantExternalKey.findMany({
       where: { tenantId },
       orderBy: { provider: "asc" },
-      select: { provider: true, last4: true, createdAt: true, rotatedAt: true, baseUrlHost: true }, // sin `ciphertext`: ni siquiera sale de la base
+      select: { provider: true, last4: true, createdAt: true, rotatedAt: true, baseUrlHost: true, model: true }, // sin `ciphertext`: ni siquiera sale de la base
     });
     return { keys: rows.map(toView) };
   }
@@ -119,6 +152,7 @@ export class ExternalKeysService {
     if (key === undefined) throw coded(BadRequestException, 400, "Bad Request", "invalid_key_format", "La clave no tiene el formato de ese proveedor.");
 
     const baseUrl = this.parseBaseUrlField(provider, body);
+    const model = this.parseModelField(provider, body);
     const context = { tenantId, provider, keyVersion: CURRENT_KEY_VERSION };
     const ciphertext = cipher.encrypt(key, context);
     // Un reemplazo es completo: sin baseUrl en el cuerpo, la URL guardada se borra (no se hereda sin que la persona la vea).
@@ -128,13 +162,13 @@ export class ExternalKeysService {
     const now = new Date();
     const row = await this.prisma.tenantExternalKey.upsert({
       where: { tenantId_provider: { tenantId, provider } },
-      create: { id: randomUUID(), tenantId, provider, ciphertext, keyVersion: CURRENT_KEY_VERSION, last4, baseUrlCiphertext, baseUrlHost, createdBy: userId },
+      create: { id: randomUUID(), tenantId, provider, ciphertext, keyVersion: CURRENT_KEY_VERSION, last4, baseUrlCiphertext, baseUrlHost, model: model ?? null, createdBy: userId },
       // createdBy no se toca: es quien la guardó primero. Quién la reemplazó queda en el registro.
-      update: { ciphertext, keyVersion: CURRENT_KEY_VERSION, last4, baseUrlCiphertext, baseUrlHost, rotatedAt: now },
-      select: { provider: true, last4: true, createdAt: true, rotatedAt: true, baseUrlHost: true },
+      update: { ciphertext, keyVersion: CURRENT_KEY_VERSION, last4, baseUrlCiphertext, baseUrlHost, model: model ?? null, rotatedAt: now },
+      select: { provider: true, last4: true, createdAt: true, rotatedAt: true, baseUrlHost: true, model: true },
     });
     // Quién la guardó o la reemplazó; de la URL solo se dice si la hay, nunca cuál.
-    this.logger.log(`Clave externa ${provider} guardada: espacio ${tenantId}, por ${userId}${baseUrl === undefined ? "" : ", con URL base propia"}`);
+    this.logger.log(`Clave externa ${provider} guardada: espacio ${tenantId}, por ${userId}${baseUrl === undefined ? "" : ", con URL base propia"}${model === undefined ? "" : ", con modelo propio"}`);
     return toView(row);
   }
 
@@ -147,10 +181,11 @@ export class ExternalKeysService {
   }
 }
 
-const toView = (row: { provider: ExternalProvider; last4: string; createdAt: Date; rotatedAt: Date | null; baseUrlHost: string | null }): ExternalKeyView => ({
+const toView = (row: { provider: ExternalProvider; last4: string; createdAt: Date; rotatedAt: Date | null; baseUrlHost: string | null; model: string | null }): ExternalKeyView => ({
   provider: row.provider,
   last4: row.last4,
   baseUrlHost: row.baseUrlHost,
+  model: row.model,
   createdAt: row.createdAt.toISOString(),
   rotatedAt: row.rotatedAt === null ? null : row.rotatedAt.toISOString(),
 });

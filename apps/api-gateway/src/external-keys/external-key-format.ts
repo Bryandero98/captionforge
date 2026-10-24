@@ -12,6 +12,16 @@ const PROVIDER_FORMAT: Record<ExternalProvider, RegExp> = {
   elevenlabs: /^[A-Za-z0-9_-]{20,}$/,
 };
 
+/** Nombre de modelo: letras, números y . _ : / @ + - (p. ej. `llama3.1:8b`, `meta-llama/Llama-3.3-70B-Instruct`); empieza por letra o número. */
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$/;
+
+/** Devuelve el nombre de modelo limpio o `undefined` si no es válido. Quien llama NO debe repetir el valor recibido. */
+export function normalizeModelName(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || raw.length > 200) return undefined;
+  const model = raw.trim();
+  return MODEL_NAME.test(model) && !model.includes("..") ? model : undefined;
+}
+
 /**
  * Devuelve la clave limpia (sin espacios ni saltos de línea en los extremos, el error típico al pegar) o `undefined` si no tiene el
  * formato del proveedor. Quien llama NO debe repetir el valor recibido en ningún mensaje.

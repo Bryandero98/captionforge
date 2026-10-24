@@ -112,7 +112,7 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
         ...baseConfig,
         reaper: { ...baseConfig.reaper, intervalMs: 0 },
         auth: { ...baseConfig.auth, localMode: false, publicUrl: sessionBase, providers: { github: provider.config } },
-        byok: { appSecret: APP_SECRET },
+        byok: { ...baseConfig.byok, appSecret: APP_SECRET },
         security: { ...baseConfig.security, webApiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0 },
       },
       { logger: ["error"] },
@@ -126,7 +126,7 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
       {
         ...baseConfig,
         reaper: { ...baseConfig.reaper, intervalMs: 0 },
-        byok: { appSecret: APP_SECRET }, // aunque el servidor tenga APP_SECRET, el modo local no ofrece BYOK en la interfaz
+        byok: { ...baseConfig.byok, appSecret: APP_SECRET }, // aunque el servidor tenga APP_SECRET, el modo local no ofrece BYOK en la interfaz
         security: { ...baseConfig.security, webApiKey: tenant.apiKey, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0 },
       },
       { logger: ["error"] },

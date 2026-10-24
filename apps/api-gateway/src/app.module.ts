@@ -15,6 +15,7 @@ import { PrismaService } from "./prisma/prisma.service.js";
 import { QualityController } from "./quality/quality.controller.js";
 import { QualityService } from "./quality/quality.service.js";
 import { QueueService } from "./queue/queue.service.js";
+import { AiConfigController } from "./external-keys/ai-config.controller.js";
 import { ExternalKeysController } from "./external-keys/external-keys.controller.js";
 import { ExternalKeysService } from "./external-keys/external-keys.service.js";
 import { WorkspacesController } from "./workspaces/workspaces.controller.js";
@@ -32,7 +33,7 @@ export class AppModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, JobsController, QualityController],
+      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, AiConfigController, JobsController, QualityController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         PrismaService,

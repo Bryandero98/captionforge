@@ -2,7 +2,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { isPublicAddress, parseBaseUrl } from "../src/external-keys/base-url.js";
+import { classifyAddress, isPublicAddress, parseBaseUrl } from "../src/external-keys/base-url.js";
 
 describe("parseBaseUrl: lo que se acepta", () => {
   it("una URL https pública se normaliza: host en minúsculas y sin barra final", () => {
@@ -122,5 +122,70 @@ describe("isPublicAddress", () => {
         expect(parseBaseUrl(`https://[${v6}]/v1`)).toBeUndefined();
       }),
     );
+  });
+});
+
+describe("parseBaseUrl con ALLOW_PRIVATE_BASE_URLS (Ollama, vLLM)", () => {
+  const allow = { allowPrivate: true };
+
+  it("sin la bandera sigue rechazando todo lo local (valor por defecto)", () => {
+    expect(parseBaseUrl("http://localhost:11434/v1")).toBeUndefined();
+    expect(parseBaseUrl("http://localhost:11434/v1", { allowPrivate: false })).toBeUndefined();
+  });
+
+  it("con la bandera acepta servidores locales y privados, también por http", () => {
+    expect(parseBaseUrl("http://localhost:11434/v1", allow)).toEqual({ url: "http://localhost:11434/v1", host: "localhost:11434" });
+    expect(parseBaseUrl("http://127.0.0.1:8000/v1/", allow)).toEqual({ url: "http://127.0.0.1:8000/v1", host: "127.0.0.1:8000" });
+    expect(parseBaseUrl("http://192.168.1.50:8000/v1", allow)?.host).toBe("192.168.1.50:8000");
+    expect(parseBaseUrl("http://10.0.0.7/v1", allow)?.host).toBe("10.0.0.7");
+    expect(parseBaseUrl("https://nas.local/v1", allow)?.host).toBe("nas.local");
+    expect(parseBaseUrl("http://host.docker.internal:11434/v1", allow)?.host).toBe("host.docker.internal:11434");
+    expect(parseBaseUrl("http://ollama:11434/v1", allow)?.host).toBe("ollama:11434");
+    expect(parseBaseUrl("http://[::1]:11434/v1", allow)?.host).toBe("[::1]:11434");
+  });
+
+  it("http sin cifrar solo vale para hosts locales o privados: un nombre público sigue exigiendo https", () => {
+    expect(parseBaseUrl("http://api.deepseek.com/v1", allow)).toBeUndefined();
+    expect(parseBaseUrl("http://8.8.8.8/v1", allow)).toBeUndefined();
+    expect(parseBaseUrl("https://api.deepseek.com/v1", allow)?.host).toBe("api.deepseek.com");
+  });
+
+  it("aunque la bandera esté activa, los metadatos de nube y las direcciones reservadas se rechazan siempre", () => {
+    for (const value of [
+      "http://169.254.169.254/latest/meta-data",
+      "http://169.254.0.1/v1",
+      "http://0.0.0.0:11434/v1",
+      "http://[fe80::1]/v1",
+      "http://[::]/v1",
+      "http://224.0.0.1/v1",
+      "http://255.255.255.255/v1",
+      "http://[::ffff:127.0.0.1]/v1",
+    ]) {
+      expect(parseBaseUrl(value, allow), value).toBeUndefined();
+    }
+  });
+
+  it("la bandera no relaja el resto: credenciales, consulta, fragmento, rutas con .. y otros esquemas", () => {
+    for (const value of [
+      "http://user:pass@localhost:11434/v1",
+      "http://localhost:11434/v1?x=1",
+      "http://localhost:11434/v1#x",
+      "http://localhost:11434/v1/../admin",
+      "ftp://localhost/v1",
+      "file:///etc/passwd",
+    ]) {
+      expect(parseBaseUrl(value, allow), value).toBeUndefined();
+    }
+  });
+});
+
+describe("classifyAddress", () => {
+  it("distingue pública, privada (permitible con la bandera) y prohibida (nunca)", () => {
+    expect(classifyAddress("8.8.8.8")).toBe("public");
+    expect(classifyAddress("2606:4700:4700::1111")).toBe("public");
+    for (const address of ["127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "100.64.0.1", "::1", "fd12:3456::1"]) expect(classifyAddress(address), address).toBe("private");
+    for (const address of ["0.0.0.0", "169.254.169.254", "224.0.0.1", "255.255.255.255", "::", "fe80::1", "ff02::1", "::ffff:127.0.0.1", "192.0.2.1", "not-an-ip"]) {
+      expect(classifyAddress(address), address).toBe("forbidden");
+    }
   });
 });

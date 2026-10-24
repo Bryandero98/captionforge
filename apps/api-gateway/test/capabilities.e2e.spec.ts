@@ -17,7 +17,7 @@ async function start(diarization: boolean, appSecret?: string): Promise<{ base: 
     port: 0,
     webRoot: undefined,
     features: { diarization },
-    byok: { appSecret },
+    byok: { ...baseConfig.byok, appSecret },
     reaper: { ...baseConfig.reaper, intervalMs: 0 },
     security: { ...baseConfig.security, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0 },
   });

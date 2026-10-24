@@ -141,7 +141,7 @@ export function startInternalServer(app: NestFastifyApplication, options: Intern
     const declared = typeof job.options === "object" && job.options !== null && !Array.isArray(job.options) ? (job.options as { provider?: unknown }).provider : undefined;
     if (declared !== provider) throw new HttpError(403, "provider_mismatch", "El trabajo no declara ese proveedor.");
 
-    let revealed: { key: string; baseUrl?: string };
+    let revealed: { key: string; baseUrl?: string; model?: string };
     try {
       revealed = await keys.reveal(job.tenantId, provider);
     } catch (error) {
@@ -149,7 +149,7 @@ export function startInternalServer(app: NestFastifyApplication, options: Intern
       throw error;
     }
     logger.log(`Clave ${provider} entregada al worker: trabajo ${jobId}, espacio ${job.tenantId}`); // jamás el valor
-    send(response, 200, revealed); // { key } o { key, baseUrl } (ADR 0022)
+    send(response, 200, revealed); // { key }, con baseUrl y model si el espacio los guardó (ADR 0022)
   };
 
   const server = http.createServer((request, response) => {

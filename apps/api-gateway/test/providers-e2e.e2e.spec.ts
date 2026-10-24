@@ -231,7 +231,7 @@ beforeAll(async () => {
       ...baseConfig,
       reaper: { ...baseConfig.reaper, intervalMs: 0 },
       auth: { ...baseConfig.auth, localMode: false },
-      byok: { appSecret: APP_SECRET },
+      byok: { ...baseConfig.byok, appSecret: APP_SECRET },
       security: { ...baseConfig.security, webApiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, maxEventStreams: 0, maxEventStreamsPerClient: 0 },
     },
     { logger: new CapturingLogger() },

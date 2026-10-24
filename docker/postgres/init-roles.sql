@@ -151,6 +151,9 @@ BEGIN
     IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'TenantExternalKey' AND column_name = 'baseUrlCiphertext') THEN
       GRANT UPDATE ("baseUrlCiphertext", "baseUrlHost") ON "TenantExternalKey" TO cf_api;
     END IF;
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'TenantExternalKey' AND column_name = 'model') THEN
+      GRANT UPDATE ("model") ON "TenantExternalKey" TO cf_api;
+    END IF;
   END IF;
 END
 $$;

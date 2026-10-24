@@ -86,6 +86,23 @@ describe("loadConfig: interfaz web", () => {
     expect(loadConfig({ ...base, WEB_ROOT: value }).webRoot).toBeUndefined();
   });
 
+  describe("ALLOW_PRIVATE_BASE_URLS (URL base propia, ADR 0022)", () => {
+    it("apagada por defecto: sin valor, vacía o false", () => {
+      expect(loadConfig(base).byok.allowPrivateBaseUrls).toBe(false);
+      expect(loadConfig({ ...base, ALLOW_PRIVATE_BASE_URLS: "" }).byok.allowPrivateBaseUrls).toBe(false);
+      expect(loadConfig({ ...base, ALLOW_PRIVATE_BASE_URLS: "false" }).byok.allowPrivateBaseUrls).toBe(false);
+      expect(loadConfig({ ...base, ALLOW_PRIVATE_BASE_URLS: "0" }).byok.allowPrivateBaseUrls).toBe(false);
+    });
+
+    it.each(["true", "TRUE", " true ", "1"])("se enciende solo con un valor explícito: %j", (value) => {
+      expect(loadConfig({ ...base, ALLOW_PRIVATE_BASE_URLS: value }).byok.allowPrivateBaseUrls).toBe(true);
+    });
+
+    it.each(["yes", "si", "on", "ture", "2", "verdadero"])("un valor ambiguo hace fallar el arranque en vez de encender o apagar una defensa a ciegas: %j", (value) => {
+      expect(() => loadConfig({ ...base, ALLOW_PRIVATE_BASE_URLS: value })).toThrow(/ALLOW_PRIVATE_BASE_URLS/);
+    });
+  });
+
   describe("APP_SECRET (claves externas propias, ADR 0020)", () => {
     const HEX = "9f2c6a41d07b83e5a1c4f6d2b9087e53c1a4d6f8b20e7395a1c4d6f8e0b2a497"; // randomBytes(32).toString("hex")
     const BASE64URL = "k3Jx9mQ2vL8nR5tY7uZ1aB4cD6eF0gH2iJ4kL6mN8oP"; // 43 caracteres, como randomBytes(32).toString("base64url")

@@ -211,6 +211,8 @@ model TenantExternalKey {
   baseUrlCiphertext String?
   /// Solo el host de esa URL, para mostrarlo en la interfaz.
   baseUrlHost       String?
+  /// Modelo que se pide al proveedor (texto plano); nulo = el modelo por defecto del proveedor.
+  model             String?
   /// Quién la pegó (solo auditoría): la clave es del espacio y no se revoca si esa persona deja de ser Dueño.
   createdBy         String?          @db.Uuid
   createdAt         DateTime         @default(now())

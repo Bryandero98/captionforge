@@ -43,7 +43,7 @@ async function start(appSecret: string | undefined, rateLimitPerMinute = 10_000)
   const config = {
     ...baseConfig,
     reaper: { ...baseConfig.reaper, intervalMs: 0 },
-    byok: { appSecret },
+    byok: { ...baseConfig.byok, appSecret },
     security: { ...baseConfig.security, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0 },
   };
   const app = await createApp(config, { logger: ["error"] });
@@ -144,6 +144,21 @@ describe("URL base propia (ADR 0022)", () => {
       const response = await ask(internal, jobId, { provider: "openai" });
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ key: KEY_A, baseUrl: url });
+    } finally {
+      await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenant.id]);
+    }
+  });
+
+  it("entrega también el modelo guardado, con o sin URL base", async () => {
+    const tenant = await createTestTenant("interno-modelo");
+    try {
+      await owner.query(
+        `INSERT INTO "TenantExternalKey" (id, "tenantId", provider, ciphertext, "keyVersion", last4, model) VALUES ($1, $2, 'openai', $3, 1, $4, 'deepseek-chat')`,
+        [randomUUID(), tenant.id, cipher.encrypt(KEY_A, { tenantId: tenant.id, provider: "openai", keyVersion: 1 }), KEY_A.slice(-4)],
+      );
+      const jobId = await insertJob(tenant.id, "TRANSLATE", "RUNNING", { provider: "openai" });
+      const response = await ask(internal, jobId, { provider: "openai" });
+      expect(await response.json()).toEqual({ key: KEY_A, model: "deepseek-chat" });
     } finally {
       await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenant.id]);
     }
