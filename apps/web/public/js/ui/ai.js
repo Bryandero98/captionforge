@@ -12,6 +12,7 @@ import { ApiError } from "../api/errors.js";
 import { cancelJob, startDub as defaultStartDub, startTranslate as defaultStartTranslate } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { NO_CAPABILITIES } from "../api/capabilities.js";
+import { DUB_MIXES_FOR } from "../domain/media.js";
 import { formatCount } from "../domain/spend.js";
 import { segmentsToSrtWithSpeakers } from "../domain/speakers.js";
 import { segmentsToVtt } from "../domain/subtitles.js";
@@ -19,7 +20,6 @@ import { createAiPanel } from "./ai-panel.js";
 import { languageNames } from "./language-names.js";
 import { downloadName } from "./results.js";
 
-const DUB_MIXES = /** @type {const} */ (["none", "replace", "duck"]);
 const DEFAULT_MIX = "replace";
 const OPENAI_DEFAULT_VOICE = "alloy";
 const EXTERNAL_TRANSLATE = "openai";
@@ -85,6 +85,8 @@ export function createAi({
   let startingDub = false;
   /** La voz de OpenAI se propone una sola vez: si la persona la borra para escribir otra, no reaparece. */
   let voiceSeeded = false;
+  /** La salida del doblaje está fija en «solo la pista de voz» porque el archivo abierto es un audio. */
+  let mixLocked = false;
   let epoch = 0;
 
   const translatePanel = createAiPanel({ doc, prefix: "translate", baseUrl, t: () => t, announce, onOpenParent, follower, cancel, onChange: () => onTranslateChange() });
@@ -117,7 +119,13 @@ export function createAi({
 
   function fillDub(/** @type {NonNullable<ReturnType<typeof context>>} */ ctx) {
     fill(dub.provider, dubProviders().map((value) => ({ value, label: providerName(value) })));
-    fill(dub.mix, DUB_MIXES.map((value) => ({ value, label: t(`dub.mix.${value}`) })), DEFAULT_MIX);
+    // Un audio no tiene imagen donde mezclar: solo la pista de voz, y el menú queda desactivado. Al volver a un video se recupera lo habitual.
+    const mixes = DUB_MIXES_FOR(ctx.job);
+    const locked = mixes.length === 1;
+    if (mixLocked && !locked) dub.mix.value = DEFAULT_MIX;
+    fill(dub.mix, mixes.map((value) => ({ value, label: t(`dub.mix.${value}`) })), DEFAULT_MIX);
+    dub.mix.disabled = locked;
+    mixLocked = locked;
     const translation = translations.get(ctx.job.id);
     const languageLabel = translation === undefined ? "" : (languageNames(lang()).find(({ code }) => code === translation.language)?.label ?? translation.language);
     fill(dub.source, [{ value: "", label: t("dub.source.original") }, ...(translation === undefined ? [] : [{ value: translation.id, label: t("dub.source.translation", { language: languageLabel }) }])]);

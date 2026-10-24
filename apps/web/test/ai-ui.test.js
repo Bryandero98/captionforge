@@ -291,6 +291,33 @@ describe("doblar: opciones y bloqueos", () => {
     assert.match(el("dub-voice-hint").textContent, /ElevenLabs/);
   });
 
+  it("con un audio solo existe la pista de voz y la mezcla queda desactivada", async () => {
+    const { el } = await ready({ context: ctx({ job: { id: PARENT, originalFilename: "podcast.mp3", mediaKind: "audio" } }) });
+    assert.deepEqual(options(el("dub-mix")), ["none"]);
+    assert.equal(el("dub-mix").value, "none");
+    assert.equal(el("dub-mix").disabled, true);
+  });
+
+  it("con un audio el doblaje se pide siempre sin mezcla", async () => {
+    const { el, state } = await ready({ context: ctx({ job: { id: PARENT, originalFilename: "podcast.mp3", mediaKind: "audio" } }), feed: [jobView("DUB", "QUEUED")] });
+    el("dub-form").fire("submit");
+    await flush();
+    assert.deepEqual(state.dubCalls, [{ baseUrl: "", jobId: PARENT, provider: "openai", voice: "alloy", mix: "none" }]);
+  });
+
+  it("al pasar de un audio a un video las tres salidas vuelven (y a la inversa)", async () => {
+    const { el, state, ai } = await ready();
+    assert.deepEqual(options(el("dub-mix")), ["none", "replace", "duck"]);
+    state.context = ctx({ job: { id: PARENT, originalFilename: "podcast.mp3", mediaKind: "audio" } });
+    ai.refreshForm();
+    assert.deepEqual(options(el("dub-mix")), ["none"]);
+    state.context = ctx({ job: { id: PARENT, originalFilename: "clase.mp4", mediaKind: "video" } });
+    ai.refreshForm();
+    assert.deepEqual(options(el("dub-mix")), ["none", "replace", "duck"]);
+    assert.equal(el("dub-mix").disabled, false);
+    assert.equal(el("dub-mix").value, "replace");
+  });
+
   it("las tres salidas están disponibles y por defecto se mezcla en el video", async () => {
     const { el } = await ready();
     assert.deepEqual(options(el("dub-mix")), ["none", "replace", "duck"]);

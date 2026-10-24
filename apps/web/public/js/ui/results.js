@@ -10,6 +10,7 @@ import { diarizationStatus, segmentsToSrtWithSpeakers } from "../domain/speakers
 import { characterCount } from "../domain/spend.js";
 import { segmentsToVtt } from "../domain/subtitles.js";
 import { createSegmentEditor } from "./segment-editor.js";
+import { createSourceAudio } from "./source-audio.js";
 
 /**
  * Nombre de archivo para una descarga hecha en el cliente: el del video sin extensión y sin caracteres de ruta.
@@ -73,6 +74,8 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
   let controller = null;
 
   const editor = createSegmentEditor({ doc, win, baseUrl, t, onChange: () => updateDownloads() });
+  // Con un audio, el panel trae un <audio> estándar con el original (con un video no hay nada que mostrar aquí).
+  const sourceAudio = createSourceAudio({ doc, baseUrl, t });
 
   /** Nombre del idioma en el idioma de la interfaz; si Intl no lo conoce, el código tal cual. */
   function languageName(/** @type {string} */ code) {
@@ -211,6 +214,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       els.prefix.checked = false;
       editor.close();
       els.panel.hidden = false;
+      sourceAudio.show(next);
       try {
         els.srt.href = artifactUrl(baseUrl, next.id, "srt");
       } catch {
@@ -230,6 +234,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       failure = null;
       els.prefix.checked = false;
       editor.close();
+      sourceAudio.hide();
       els.panel.hidden = true;
       onChange();
     },
@@ -242,6 +247,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       if (job === null) return;
       renderStatic();
       editor.refresh();
+      sourceAudio.refresh(job);
     },
     /** Hay cambios sin guardar en el editor. */
     get dirty() {

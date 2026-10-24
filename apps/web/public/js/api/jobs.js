@@ -6,7 +6,7 @@ import { ApiError, errorFromResponse } from "./errors.js";
 import { isTerminalStatus } from "./sse.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ARTIFACTS = new Set(["srt", "segments", "waveform", "video", "audio"]);
+const ARTIFACTS = new Set(["srt", "segments", "waveform", "video", "audio", "source"]);
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /** @typedef {import("./sse.js").JobView} JobView */
@@ -24,7 +24,7 @@ function assertJobId(jobId) {
  * las descargas van por api/download.js (fetch + Blob).
  * @param {string} baseUrl
  * @param {string} jobId
- * @param {"srt" | "segments" | "waveform" | "video" | "audio"} name
+ * @param {"srt" | "segments" | "waveform" | "video" | "audio" | "source"} name
  */
 export function artifactUrl(baseUrl, jobId, name) {
   assertJobId(jobId);

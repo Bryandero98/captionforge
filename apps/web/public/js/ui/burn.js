@@ -7,6 +7,7 @@ import { ApiError } from "../api/errors.js";
 import { cancelJob, startBurn } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { trackingViewOf } from "../domain/job-state.js";
+import { canBurn } from "../domain/media.js";
 import { detailText, statusText } from "./job-text.js";
 import { downloadName } from "./results.js";
 import { createTracker } from "./tracker.js";
@@ -144,8 +145,9 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   /** El formulario solo aparece con una transcripción abierta, y solo se puede enviar con los cambios guardados. */
   function refreshForm() {
     const ctx = context();
-    els.form.hidden = ctx === null;
-    if (ctx === null) return;
+    // Un audio no tiene imagen donde quemar subtítulos: el formulario no existe (el servidor también lo rechaza).
+    els.form.hidden = ctx === null || !canBurn(ctx.job);
+    if (ctx === null || !canBurn(ctx.job)) return;
     els.karaoke.disabled = !ctx.hasWords;
     if (!ctx.hasWords) els.karaoke.checked = false;
     const blocked = ctx.dirty ? t("burn.hint.dirty") : burning() ? t("burn.hint.busy") : startProblem;

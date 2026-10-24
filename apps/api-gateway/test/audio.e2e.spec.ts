@@ -197,3 +197,32 @@ describe("doblar un audio", () => {
     created.push(((await response.json()) as { id: string }).id);
   });
 });
+
+describe("escuchar el audio original (artefacto source)", () => {
+  it("un audio terminado se sirve tal cual lo subió, con su tipo y con Range", async () => {
+    const parent = await completedTranscription("podcast.mp3", "audio/mpeg");
+    const response = await fetch(`${base}/v1/jobs/${parent}/artifacts/source`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("audio/mpeg");
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(response.headers.get("content-disposition")).toContain("podcast.mp3");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(2048).fill(7));
+    const partial = await fetch(`${base}/v1/jobs/${parent}/artifacts/source`, { headers: { range: "bytes=0-9" } });
+    expect(partial.status).toBe(206);
+    expect((await partial.arrayBuffer()).byteLength).toBe(10);
+  });
+
+  it("404 si la transcripción no terminó, si es un video o si el trabajo es de otra clase", async () => {
+    const pending = (await (await upload("charla.mp3", "audio/mpeg")).json()) as { id: string };
+    created.push(pending.id);
+    expect((await fetch(`${base}/v1/jobs/${pending.id}/artifacts/source`)).status).toBe(404);
+    const video = await completedTranscription("clase.mp4", "video/mp4");
+    expect((await fetch(`${base}/v1/jobs/${video}/artifacts/source`)).status).toBe(404); // el original de un video no se sirve
+    const parent = await completedTranscription("voz.wav", "audio/wav");
+    const dub = (await (await post(`${base}/v1/jobs/${parent}/dub`, { provider: "openai", voice: "alloy" })).json()) as { id: string };
+    created.push(dub.id);
+    await owner.query(`UPDATE "Job" SET status = 'COMPLETED' WHERE id = $1`, [dub.id]);
+    expect((await fetch(`${base}/v1/jobs/${dub.id}/artifacts/source`)).status).toBe(404);
+  });
+});

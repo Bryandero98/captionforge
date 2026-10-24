@@ -600,6 +600,11 @@ select:disabled {
   margin: 0 0 6px;
   font-size: 0.9375rem;
 }
+.result__audio {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+}
 .burn__video {
   display: block;
   width: 100%;

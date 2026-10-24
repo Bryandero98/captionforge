@@ -12,6 +12,8 @@ describe("errorFromResponse: códigos estables de claves externas, traducir y do
   const cases = [
     [400, "invalid_key_format", "invalid_key_format"],
     [400, "same_language", "same_language"],
+    [400, "burn_not_available_for_audio", "burn_not_available_for_audio"],
+    [400, "mix_not_available_for_audio", "mix_not_available_for_audio"],
     [404, "byok_disabled", "byok_disabled"],
     [409, "byok_disabled", "byok_disabled"],
     [409, "external_key_missing", "external_key_missing"],

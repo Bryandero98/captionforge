@@ -687,6 +687,11 @@ export class JobsService {
   async artifactKey(tenantId: string, id: string, name: string): Promise<{ key: string; filename: string } | null> {
     const job = await this.require(tenantId, id);
     if (job.status !== "COMPLETED") return null;
+    if (name === "source") {
+      // El audio original, para escucharlo mientras se editan los subtítulos. Solo el de una transcripción de audio: el de un video no se sirve.
+      if (job.kind !== "TRANSCRIBE" || mediaKindOf(job.contentType) !== "audio" || !job.inputKey.startsWith(`jobs/${job.id}/input`) || job.inputKey.includes("..")) return null;
+      return { key: job.inputKey, filename: job.originalFilename };
+    }
     if (!ARTIFACTS_BY_KIND[job.kind].includes(name)) return null;
     const artifacts = (job.result as { artifacts?: Record<string, unknown> } | null)?.artifacts;
     const entry = artifacts?.[name];

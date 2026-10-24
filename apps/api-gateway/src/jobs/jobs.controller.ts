@@ -30,7 +30,7 @@ import { TenantId } from "../tenancy/tenant-auth.guard.js";
 import { JobIdPipe } from "./job-id.pipe.js";
 import { JobsService, MAX_LIST_LIMIT, contentDisposition, isTerminal, toView, type JobView } from "./jobs.service.js";
 
-const ARTIFACTS = ["srt", "segments", "waveform", "video", "audio"] as const;
+const ARTIFACTS = ["srt", "segments", "waveform", "video", "audio", "source"] as const;
 const POLL_MS = 1000;
 const HEARTBEAT_MS = 15_000;
 const DEFAULT_PAGE = 20;
