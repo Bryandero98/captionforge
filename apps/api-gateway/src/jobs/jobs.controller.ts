@@ -28,13 +28,13 @@ import { Quota, TenantQuotaInterceptor } from "../quota/tenant-quota.interceptor
 import { StorageService } from "../storage/storage.service.js";
 import { TenantId } from "../tenancy/tenant-auth.guard.js";
 import { JobIdPipe } from "./job-id.pipe.js";
-import { JobsService, contentDisposition, isTerminal, toView, type JobView } from "./jobs.service.js";
+import { JobsService, MAX_LIST_LIMIT, contentDisposition, isTerminal, toView, type JobView } from "./jobs.service.js";
 
 const ARTIFACTS = ["srt", "segments", "waveform", "video", "audio"] as const;
 const POLL_MS = 1000;
 const HEARTBEAT_MS = 15_000;
 const DEFAULT_PAGE = 20;
-const MAX_PAGE = 100;
+const MAX_PAGE = MAX_LIST_LIMIT;
 const jobIdPipe = new JobIdPipe();
 
 @Controller("v1/jobs")

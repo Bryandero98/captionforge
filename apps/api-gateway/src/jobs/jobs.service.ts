@@ -142,6 +142,9 @@ function extensionOf(filename: string): string {
   return match?.[1] ? `.${match[1].toLowerCase()}` : "";
 }
 
+/** Máximo de trabajos por página en GET /v1/jobs (protección contra consultas sin tope). */
+export const MAX_LIST_LIMIT = 100;
+
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
@@ -616,7 +619,9 @@ export class JobsService {
    * Los trabajos del tenant, del más reciente al más antiguo. `cursor` es el id del último de la página anterior: debe
    * ser del mismo tenant (si no, 404 como en cualquier otra consulta).
    */
-  async list(tenantId: string, { limit, cursor }: { limit: number; cursor?: string }): Promise<{ jobs: JobView[]; nextCursor: string | null }> {
+  async list(tenantId: string, { limit: requested, cursor }: { limit: number; cursor?: string }): Promise<{ jobs: JobView[]; nextCursor: string | null }> {
+    // Tope propio del servicio: aunque otro llamador pida de más, la consulta nunca trae más de MAX_LIST_LIMIT + 1 filas.
+    const limit = Number.isFinite(requested) ? Math.min(Math.max(Math.trunc(requested), 1), MAX_LIST_LIMIT) : 1;
     if (cursor !== undefined) await this.require(tenantId, cursor);
     const rows = await this.prisma.job.findMany({
       where: { tenantId },
