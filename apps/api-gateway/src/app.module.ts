@@ -12,6 +12,8 @@ import { JobsService } from "./jobs/jobs.service.js";
 import { ReaperService } from "./jobs/reaper.service.js";
 import { MetricsService } from "./observability/metrics.service.js";
 import { PrismaService } from "./prisma/prisma.service.js";
+import { QualityController } from "./quality/quality.controller.js";
+import { QualityService } from "./quality/quality.service.js";
 import { QueueService } from "./queue/queue.service.js";
 import { ExternalKeysController } from "./external-keys/external-keys.controller.js";
 import { ExternalKeysService } from "./external-keys/external-keys.service.js";
@@ -30,13 +32,14 @@ export class AppModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, JobsController],
+      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, JobsController, QualityController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         PrismaService,
         StorageService,
         QueueService,
         JobsService,
+        QualityService,
         AuthService,
         WorkspacesService,
         ExternalKeysService,
