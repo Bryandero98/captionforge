@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import httpx
@@ -23,11 +25,29 @@ log = logging.getLogger("ai_worker")
 MIN_TOKEN_LENGTH = 32
 _MAX_KEY_LENGTH = 512
 _MIN_KEY_LENGTH = 8
+_MAX_BASE_URL_LENGTH = 2048
+#: Mismo formato que valida el API (ADR 0022): letras, números y . _ : / @ + - (hasta 100).
+_MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$")
 _MAX_ATTEMPTS = 3
 _BACKOFF_SECONDS = (0.5, 1.5)
 #: Un `Retry-After` desmesurado no debe dejar al worker esperando minutos con el hueco de ejecución tomado.
 _MAX_RETRY_AFTER = 10.0
 _TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+
+
+@dataclass(frozen=True)
+class ExternalCredential:
+    """Lo que el API entrega para un trabajo: la clave y, si el espacio los guardó, la URL base y el modelo (ADR 0022).
+
+    `base_url` y `model` son opcionales; sin ellos se usa el host y el modelo fijos del proveedor. La URL se censura en los registros
+    igual que la clave: una traza de httpx la lleva dentro."""
+
+    secret: Secret = field(repr=False)
+    base_url: str | None = None
+    model: str | None = None
+
+    def __repr__(self) -> str:
+        return f"ExternalCredential(base_url={'<oculta>' if self.base_url else None}, model={self.model!r})"
 
 
 class ExternalKeyError(Exception):
@@ -87,7 +107,11 @@ class ExternalKeyClient:
         self._sleep = sleep
 
     async def fetch(self, job_id: str, provider: str) -> Secret:
-        """La clave de `provider` del espacio al que pertenece `job_id`. Reintenta solo lo transitorio (red, 429, 5xx)."""
+        """Solo la clave de `provider` del espacio al que pertenece `job_id` (la voz no usa URL base ni modelo)."""
+        return (await self.fetch_credential(job_id, provider)).secret
+
+    async def fetch_credential(self, job_id: str, provider: str) -> ExternalCredential:
+        """La clave, y la URL base y el modelo si los hay. Reintenta solo lo transitorio (red, 429, 5xx)."""
         reason, status = "unavailable", None
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             wait: float | None = None
@@ -107,7 +131,7 @@ class ExternalKeyClient:
                 reason, status = "unavailable", None
             else:
                 outcome = self._interpret(response)
-                if isinstance(outcome, Secret):
+                if isinstance(outcome, ExternalCredential):
                     return outcome
                 reason, status, retry, wait = outcome
                 if not retry:
@@ -118,7 +142,7 @@ class ExternalKeyClient:
                 await self._sleep(delay)
         raise ExternalKeyError(reason, status) from None
 
-    def _interpret(self, response: httpx.Response) -> Secret | tuple[str, int, bool, float | None]:
+    def _interpret(self, response: httpx.Response) -> ExternalCredential | tuple[str, int, bool, float | None]:
         """Una respuesta es la clave o (motivo, estado, ¿reintentar?, espera). Nunca se repite su contenido en un mensaje."""
         status = response.status_code
         if status == 200:
@@ -145,25 +169,42 @@ class ExternalKeyClient:
             return "bad_request", status, False, None
         return "unavailable", status, False, None  # 3xx u otro estado inesperado: no se sigue ni se reintenta
 
-    def _read_key(self, response: httpx.Response) -> Secret | tuple[str, int, bool, float | None]:
+    def _read_key(self, response: httpx.Response) -> ExternalCredential | tuple[str, int, bool, float | None]:
+        bad = ("bad_response", response.status_code, False, None)
         try:
             body = response.json()
         except ValueError:
-            return "bad_response", response.status_code, False, None
+            return bad
         key = body.get("key") if isinstance(body, dict) else None
         if not isinstance(key, str) or not _MIN_KEY_LENGTH <= len(key) <= _MAX_KEY_LENGTH:
-            return "bad_response", response.status_code, False, None
+            return bad
+        base_url, model = body.get("baseUrl"), body.get("model")
+        # Ausente o null = sin valor propio. Presente pero con otra forma, la respuesta entera se descarta (nunca se adivina a dónde enviar la clave).
+        if "baseUrl" in body and base_url is not None and not (isinstance(base_url, str) and 0 < len(base_url) <= _MAX_BASE_URL_LENGTH):
+            return bad
+        if "model" in body and model is not None and not (isinstance(model, str) and _MODEL_NAME.fullmatch(model)):
+            return bad
         REDACTOR.register(key)  # desde este instante ningún log ni traza puede llevarla
-        return Secret(key)
+        if base_url is not None:
+            REDACTOR.register(base_url)
+        return ExternalCredential(Secret(key), base_url, model)
 
     @contextlib.asynccontextmanager
     async def lease(self, job_id: str, provider: str) -> AsyncIterator[Secret]:
         """La clave durante un trabajo. Al salir (también con error) el `Secret` se borra; el texto sigue censurado un tiempo, porque
         la traza del error que se propaga puede registrarse después de salir de aquí."""
-        secret = await self.fetch(job_id, provider)
-        value = secret.reveal()
+        async with self.lease_credential(job_id, provider) as credential:
+            yield credential.secret
+
+    @contextlib.asynccontextmanager
+    async def lease_credential(self, job_id: str, provider: str) -> AsyncIterator[ExternalCredential]:
+        """Como `lease`, pero con la URL base y el modelo del espacio si los guardó (ADR 0022)."""
+        credential = await self.fetch_credential(job_id, provider)
+        value = credential.secret.reveal()
         try:
-            yield secret
+            yield credential
         finally:
             REDACTOR.retire(value)
-            secret.wipe()
+            if credential.base_url is not None:
+                REDACTOR.retire(credential.base_url)
+            credential.secret.wipe()
