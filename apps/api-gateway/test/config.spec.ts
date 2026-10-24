@@ -85,4 +85,97 @@ describe("loadConfig: interfaz web", () => {
   it.each(["off", "OFF", "none", "false"])("WEB_ROOT=%s desactiva la interfaz (despliegue solo de API)", (value) => {
     expect(loadConfig({ ...base, WEB_ROOT: value }).webRoot).toBeUndefined();
   });
+
+  describe("APP_SECRET (claves externas propias, ADR 0020)", () => {
+    const HEX = "9f2c6a41d07b83e5a1c4f6d2b9087e53c1a4d6f8b20e7395a1c4d6f8e0b2a497"; // randomBytes(32).toString("hex")
+    const BASE64URL = "k3Jx9mQ2vL8nR5tY7uZ1aB4cD6eF0gH2iJ4kL6mN8oP"; // 43 caracteres, como randomBytes(32).toString("base64url")
+    const BASE64 = "k3Jx9mQ2vL8nR5tY7uZ1aB4cD6eF0gH2iJ4kL6mN8oP=";
+
+    it("sin valor la función queda apagada: no hay secreto y el resto de la configuración carga", () => {
+      expect(loadConfig(base).byok.appSecret).toBeUndefined();
+      expect(loadConfig({ ...base, APP_SECRET: "" }).byok.appSecret).toBeUndefined();
+    });
+
+    it.each([
+      ["hexadecimal de 32 bytes", HEX],
+      ["base64url de 32 bytes", BASE64URL],
+      ["base64 de 32 bytes", BASE64],
+    ])("acepta un secreto aleatorio: %s", (_name, value) => {
+      expect(loadConfig({ ...base, APP_SECRET: value }).byok.appSecret).toBe(value);
+    });
+
+    it.each([
+      ["demasiado corto", "corto-pero-secreto"],
+      ["hexadecimal de solo 20 bytes", HEX.slice(0, 40)],
+      ["hexadecimal de 25 bytes (50 caracteres)", HEX.slice(0, 50)],
+      ["un carácter repetido", "a".repeat(64)],
+      ["pocos caracteres distintos", "ab".repeat(32)],
+      ["una frase con espacios", "una frase larga de mas de treinta y dos bytes"],
+      ["texto con símbolos fuera del alfabeto", "!".repeat(20) + HEX],
+      ["no ASCII", "ñ".repeat(48)],
+    ])("rechaza al arrancar un secreto que no parece aleatorio: %s, sin repetir el valor", (_name, value) => {
+      expect(() => loadConfig({ ...base, APP_SECRET: value })).toThrow(/APP_SECRET/);
+      let message = "";
+      try {
+        loadConfig({ ...base, APP_SECRET: value });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain(value);
+    });
+
+    it("espacios al principio o al final (error típico de un .env) fallan al arrancar", () => {
+      expect(() => loadConfig({ ...base, APP_SECRET: ` ${HEX}` })).toThrow(/APP_SECRET.*espacios/);
+      expect(() => loadConfig({ ...base, APP_SECRET: `${HEX}
+` })).toThrow(/APP_SECRET.*espacios/);
+    });
+  });
+
+  describe("canal interno del worker (ADR 0020)", () => {
+    const TOKEN = "d41f9a6c27b8e035f1a49c62d8b07e3a95c1f4d60b28e7a3c91d5f8b02e6a47c";
+    const SECRET = "9f2c6a41d07b83e5a1c4f6d2b9087e53c1a4d6f8b20e7395a1c4d6f8e0b2a497";
+
+    it("apagado por defecto: sin puerto no hay listener ni hace falta el token", () => {
+      expect(loadConfig(base).internal).toMatchObject({ port: 0, host: "127.0.0.1", workerToken: undefined });
+    });
+
+    it("con INTERNAL_PORT y WORKER_INTERNAL_TOKEN queda configurado, solo en el loopback si no se dice otra cosa", () => {
+      const config = loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: TOKEN });
+      expect(config.internal).toMatchObject({ port: 3100, host: "127.0.0.1", workerToken: TOKEN });
+      expect(loadConfig({ ...base, INTERNAL_PORT: "3100", INTERNAL_HOST: "0.0.0.0", WORKER_INTERNAL_TOKEN: TOKEN }).internal.host).toBe("0.0.0.0");
+    });
+
+    it("un puerto sin token falla al arrancar: el listener nunca queda abierto sin autenticación", () => {
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "3100" })).toThrow(/WORKER_INTERNAL_TOKEN/);
+    });
+
+    it.each([
+      ["corto", "corto"],
+      ["una frase", "una frase larga con espacios de mas de treinta y dos bytes"],
+      ["un carácter repetido", "a".repeat(64)],
+    ])("un token que no parece aleatorio falla al arrancar, sin repetirlo: %s", (_name, value) => {
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: value })).toThrow(/WORKER_INTERNAL_TOKEN/);
+      let message = "";
+      try {
+        loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: value });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain(value);
+    });
+
+    it("el token no puede ser el mismo valor que APP_SECRET (dos secretos, dos funciones)", () => {
+      expect(() => loadConfig({ ...base, APP_SECRET: SECRET, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: SECRET })).toThrow(/WORKER_INTERNAL_TOKEN.*APP_SECRET/);
+    });
+
+    it("un puerto fuera de rango o que no es número falla", () => {
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "70000", WORKER_INTERNAL_TOKEN: TOKEN })).toThrow(/INTERNAL_PORT/);
+      expect(() => loadConfig({ ...base, INTERNAL_PORT: "abc", WORKER_INTERNAL_TOKEN: TOKEN })).toThrow(/INTERNAL_PORT/);
+    });
+
+    it("el límite de peticiones por minuto tiene un valor por defecto y se puede cambiar", () => {
+      expect(loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: TOKEN }).internal.rateLimitPerMinute).toBe(120);
+      expect(loadConfig({ ...base, INTERNAL_PORT: "3100", WORKER_INTERNAL_TOKEN: TOKEN, INTERNAL_RATE_LIMIT_PER_MINUTE: "30" }).internal.rateLimitPerMinute).toBe(30);
+    });
+  });
 });

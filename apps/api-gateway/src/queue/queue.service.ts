@@ -2,7 +2,7 @@ import { Inject, Injectable, type OnModuleDestroy } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 
-import type { BurnJob, TranscribeJob } from "@captionforge/contracts/types";
+import type { BurnJob, DubJob, TranscribeJob, TranslateJob } from "@captionforge/contracts/types";
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { assertContract } from "../contracts/validators.js";
 import type { JobKind } from "../generated/prisma/client.js";
@@ -15,6 +15,8 @@ export const REDIS_COMMAND_TIMEOUT_MS = 4000;
 export class QueueService implements OnModuleDestroy {
   private readonly transcribe: Queue;
   private readonly burn: Queue;
+  private readonly translate: Queue;
+  private readonly dub: Queue;
   private readonly publisher: Redis;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
@@ -32,6 +34,8 @@ export class QueueService implements OnModuleDestroy {
     const defaultJobOptions = { attempts: 1, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86_400 } };
     this.transcribe = new Queue(QUEUES.transcribe, { connection, defaultJobOptions });
     this.burn = new Queue(QUEUES.burn, { connection, defaultJobOptions });
+    this.translate = new Queue(QUEUES.translate, { connection, defaultJobOptions });
+    this.dub = new Queue(QUEUES.dub, { connection, defaultJobOptions });
     this.publisher = new Redis(connection);
   }
 
@@ -46,9 +50,32 @@ export class QueueService implements OnModuleDestroy {
     await this.burn.add("burn", payload, { jobId: payload.jobId });
   }
 
+  async enqueueTranslate(payload: TranslateJob): Promise<void> {
+    assertContract("translate-job.v1", payload);
+    await this.translate.add("translate", payload, { jobId: payload.jobId });
+  }
+
+  async enqueueDub(payload: DubJob): Promise<void> {
+    assertContract("dub-job.v1", payload);
+    await this.dub.add("dub", payload, { jobId: payload.jobId });
+  }
+
+  private queueFor(kind: JobKind): Queue {
+    switch (kind) {
+      case "BURN":
+        return this.burn;
+      case "TRANSLATE":
+        return this.translate;
+      case "DUB":
+        return this.dub;
+      default:
+        return this.transcribe;
+    }
+  }
+
   /** ¿Sigue el trabajo en su cola, en cualquier estado? (esperando, activo, completado o fallido) */
   async exists(kind: JobKind, jobId: string): Promise<boolean> {
-    const job = await (kind === "BURN" ? this.burn : this.transcribe).getJob(jobId);
+    const job = await this.queueFor(kind).getJob(jobId);
     if (!job) return false;
     // Un trabajo fallido o completado en Redis ya no va a ejecutarse: para una fila QUEUED es como si se hubiera perdido
     // (p. ej. el worker no pudo reclamarlo porque PostgreSQL estaba caído y BullMQ lo dio por fallido).
@@ -58,7 +85,7 @@ export class QueueService implements OnModuleDestroy {
 
   /** Quita el trabajo de la cola si todavía no empezó. true = se quitó (nadie lo había tomado). */
   async removeIfWaiting(kind: JobKind, jobId: string): Promise<boolean> {
-    const job = await (kind === "BURN" ? this.burn : this.transcribe).getJob(jobId);
+    const job = await this.queueFor(kind).getJob(jobId);
     if (!job) return false;
     const state = await job.getState();
     if (state !== "waiting" && state !== "delayed" && state !== "prioritized") return false;
@@ -106,7 +133,7 @@ export class QueueService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await Promise.all([this.transcribe.close(), this.burn.close()]);
+    await Promise.all([this.transcribe.close(), this.burn.close(), this.translate.close(), this.dub.close()]);
     this.publisher.disconnect();
   }
 }

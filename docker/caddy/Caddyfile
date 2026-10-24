@@ -13,6 +13,11 @@
 	handle @metrics {
 		respond 404
 	}
+	# El canal interno del worker (BYOK, ADR 0020) vive en otro puerto y nunca se enruta; si alguien lo apuntara aquí, 404.
+	@internal path /internal /internal/*
+	handle @internal {
+		respond 404
+	}
 
 	handle {
 		reverse_proxy api-gateway:3000 {

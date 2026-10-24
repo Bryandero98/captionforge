@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "jobId": "3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10",
+  "provider": "argos",
+  "sourceLanguage": "en",
+  "targetLanguage": "es",
+  "segmentCount": 42,
+  "characters": 3180,
+  "artifacts": {
+    "segments": {
+      "bucket": "captionforge",
+      "objectKey": "jobs/3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10/out/translated-segments.json",
+      "etag": "5d41402abc4b2a76b9719d911017c592"
+    }
+  }
+}

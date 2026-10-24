@@ -1,7 +1,7 @@
 // Errores del API como valores con código estable: la interfaz decide el texto por `code`, nunca por el
 // mensaje del servidor (que viene en español y puede cambiar). El `detail` del servidor se muestra solo como apoyo.
 
-/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"role_forbidden"|"gone"|"not_found"|"too_slow"|"conflict"|"last_owner"|"invite_limit"|"last_membership"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
+/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"role_forbidden"|"gone"|"not_found"|"too_slow"|"conflict"|"last_owner"|"invite_limit"|"last_membership"|"invalid_key_format"|"same_language"|"byok_disabled"|"external_key_missing"|"job_too_large"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
 
 /** @type {Record<number, ErrorCode>} */
 const CODE_BY_STATUS = {
@@ -24,6 +24,19 @@ const RETRYABLE = new Set(["rate_limited", "busy", "server", "network", "timeout
 
 /** `code` estable de un 409 del API (ADR 0019): distingue «último Dueño» de «tope de invitaciones» y de «único espacio». */
 const CONFLICT_CODES = new Set(["last_owner", "invite_limit", "last_membership"]);
+
+/**
+ * `code` estable de un 400/404/409/413 de claves externas, traducir y doblar (ADR 0020): cada uno vale solo con los estados que el API le da,
+ * así un cuerpo raro en un 500 no se hace pasar por un error del usuario.
+ * @type {Record<string, readonly number[]>}
+ */
+const BODY_CODE_STATUSES = {
+  invalid_key_format: [400],
+  same_language: [400],
+  byok_disabled: [404, 409],
+  external_key_missing: [409],
+  job_too_large: [413],
+};
 
 const MAX_DETAIL = 300;
 const MAX_RETRY_AFTER_SECONDS = 300;
@@ -99,6 +112,7 @@ export function errorFromResponse(status, bodyText, retryAfterHeader) {
   const roleDenied = status === 403 && body !== null && typeof body === "object" && /** @type {{ code?: unknown }} */ (body).code === "role_forbidden";
   const bodyCode = body !== null && typeof body === "object" ? /** @type {{ code?: unknown }} */ (body).code : undefined;
   const conflictCode = status === 409 && typeof bodyCode === "string" && CONFLICT_CODES.has(bodyCode) ? /** @type {ErrorCode} */ (bodyCode) : null;
-  const code = roleDenied ? "role_forbidden" : (conflictCode ?? CODE_BY_STATUS[status] ?? (status >= 500 ? "server" : "unexpected"));
+  const externalCode = typeof bodyCode === "string" && Object.hasOwn(BODY_CODE_STATUSES, bodyCode) && BODY_CODE_STATUSES[bodyCode]?.includes(status) ? /** @type {ErrorCode} */ (bodyCode) : null;
+  const code = roleDenied ? "role_forbidden" : (conflictCode ?? externalCode ?? CODE_BY_STATUS[status] ?? (status >= 500 ? "server" : "unexpected"));
   return new ApiError({ status, code, detail: detailOf(body), retryAfter: parseRetryAfter(retryAfterHeader) });
 }

@@ -78,3 +78,28 @@ test("un jobId distinto del de la clave sigue siendo válido para el esquema (se
   body.jobId = "11111111-2222-4333-8444-555555555555";
   assert.ok(validate(body));
 });
+
+// ADR 0020: un mensaje de la cola (visible en Redis) jamás puede llevar una clave externa ni texto crudo de un proveedor.
+function* objectSchemas(node, path) {
+  if (node === null || typeof node !== "object") return;
+  if (node.type === "object") yield { path, node };
+  for (const [key, child] of Object.entries(node.properties ?? {})) yield* objectSchemas(child, `${path}.${key}`);
+  for (const [key, child] of Object.entries(node.$defs ?? {})) yield* objectSchemas(child, `${path}.$defs.${key}`);
+  if (node.items) yield* objectSchemas(node.items, `${path}[]`);
+}
+
+for (const name of ["translate-job.v1", "translate-result.v1", "dub-job.v1", "dub-result.v1"]) {
+  test(`${name}: cada objeto cierra sus propiedades y ningún campo puede llevar una clave`, () => {
+    const schema = readSchema(name);
+    let seen = 0;
+    for (const { path, node } of objectSchemas(schema, name)) {
+      seen += 1;
+      assert.equal(node.additionalProperties, false, `${path} debe declarar additionalProperties:false`);
+      for (const field of Object.keys(node.properties ?? {})) {
+        // objectKey/ObjectKey son rutas de S3; cualquier otro nombre con key/secret/token/password/auth es sospechoso.
+        assert.doesNotMatch(field, /^(?!objectKey$)(.*(api.?key|secret|token|password|credential|authorization).*)$/i, `${path}.${field}`);
+      }
+    }
+    assert.ok(seen >= 2, "se esperaban varios objetos en el esquema");
+  });
+}

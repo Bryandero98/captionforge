@@ -15,6 +15,16 @@ datasource db {
 enum JobKind {
   TRANSCRIBE
   BURN
+  /// Traducir los subtítulos de una transcripción terminada (ADR 0020).
+  TRANSLATE
+  /// Doblar (texto a voz) los subtítulos de una transcripción terminada (ADR 0020).
+  DUB
+}
+
+/// Proveedores externos con clave propia del espacio de trabajo (ADR 0020). Argos es local y no usa clave.
+enum ExternalProvider {
+  openai
+  elevenlabs
 }
 
 enum JobStatus {
@@ -32,12 +42,13 @@ model Tenant {
   name      String
   createdAt DateTime @default(now())
 
-  users       User[]
-  apiKeys     ApiKey[]
-  jobs        Job[]
-  memberships Membership[]
-  sessions    Session[]
-  invitations Invitation[]
+  users        User[]
+  apiKeys      ApiKey[]
+  jobs         Job[]
+  memberships  Membership[]
+  sessions     Session[]
+  invitations  Invitation[]
+  externalKeys TenantExternalKey[]
 }
 
 // Persona. `provider` + `subject` identifican la cuenta en el proveedor de inicio de sesión (github, google): los
@@ -51,12 +62,13 @@ model User {
   subject   String?
   createdAt DateTime @default(now())
 
-  tenant              Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sessions            Session[]
   memberships         Membership[]
-  invitationsCreated  Invitation[] @relation("InvitationCreator")
-  invitationsAccepted Invitation[] @relation("InvitationAcceptor")
-  apiKeysCreated      ApiKey[]     @relation("ApiKeyCreator")
+  invitationsCreated  Invitation[]        @relation("InvitationCreator")
+  invitationsAccepted Invitation[]        @relation("InvitationAcceptor")
+  apiKeysCreated      ApiKey[]            @relation("ApiKeyCreator")
+  externalKeysCreated TenantExternalKey[] @relation("ExternalKeyCreator")
 
   @@unique([provider, subject])
   @@index([tenantId])
@@ -182,4 +194,27 @@ model Invitation {
   acceptor User?  @relation("InvitationAcceptor", fields: [acceptedBy], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+}
+
+/// Clave de un proveedor externo (OpenAI, ElevenLabs) que un espacio de trabajo aporta para delegar cómputo (ADR 0020). `ciphertext`
+/// es `v1.<iv>.<etiqueta>.<datos>` (AES-256-GCM con AAD tenantId|provider|keyVersion): el valor en claro NUNCA se guarda. `cf_worker` no
+/// tiene ningún permiso sobre esta tabla: el worker pide la clave al API por el canal interno.
+model TenantExternalKey {
+  id         String           @id @db.Uuid
+  tenantId   String           @db.Uuid
+  provider   ExternalProvider
+  ciphertext String
+  keyVersion Int              @default(1)
+  /// Últimos 4 caracteres para reconocerla en la interfaz; vacío si la clave es corta.
+  last4      String
+  /// Quién la pegó (solo auditoría): la clave es del espacio y no se revoca si esa persona deja de ser Dueño.
+  createdBy  String?          @db.Uuid
+  createdAt  DateTime         @default(now())
+  rotatedAt  DateTime?
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  creator User?  @relation("ExternalKeyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, provider])
+  @@index([createdBy])
 }

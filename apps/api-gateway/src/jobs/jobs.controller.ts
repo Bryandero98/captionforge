@@ -30,7 +30,7 @@ import { TenantId } from "../tenancy/tenant-auth.guard.js";
 import { JobIdPipe } from "./job-id.pipe.js";
 import { JobsService, contentDisposition, isTerminal, toView, type JobView } from "./jobs.service.js";
 
-const ARTIFACTS = ["srt", "segments", "waveform", "video"] as const;
+const ARTIFACTS = ["srt", "segments", "waveform", "video", "audio"] as const;
 const POLL_MS = 1000;
 const HEARTBEAT_MS = 15_000;
 const DEFAULT_PAGE = 20;
@@ -229,6 +229,24 @@ export class JobsController {
   @Quota("queue")
   burn(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
     return this.jobs.createBurn(tenantId, id, body);
+  }
+
+  /** Traduce los subtítulos: { "provider": "argos" | "openai", "targetLanguage": "es" }. Con `openai` hace falta la clave del espacio. */
+  @Post(":id/translate")
+  @HttpCode(202)
+  @UseInterceptors(TenantQuotaInterceptor)
+  @Quota("queue")
+  translate(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
+    return this.jobs.createTranslate(tenantId, id, body);
+  }
+
+  /** Dobla los subtítulos: { "provider": "openai" | "elevenlabs", "voice": "alloy", "mix": "none" | "replace" | "duck", "translationId"? }. */
+  @Post(":id/dub")
+  @HttpCode(202)
+  @UseInterceptors(TenantQuotaInterceptor)
+  @Quota("queue")
+  dub(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<JobView> {
+    return this.jobs.createDub(tenantId, id, body);
   }
 
   @Get(":id/artifacts/:name")

@@ -4,9 +4,10 @@
 
 export const MAX_ENTRIES = 20;
 const MAX_NAME = 255;
+const KINDS = new Set(["TRANSCRIBE", "BURN", "TRANSLATE", "DUB"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** @typedef {{ id: string, name: string, kind: "TRANSCRIBE" | "BURN", at: number, parentId?: string }} HistoryEntry */
+/** @typedef {{ id: string, name: string, kind: "TRANSCRIBE" | "BURN" | "TRANSLATE" | "DUB", at: number, parentId?: string }} HistoryEntry */
 
 /** @param {unknown} value @returns {HistoryEntry | null} */
 function cleanEntry(value) {
@@ -14,10 +15,10 @@ function cleanEntry(value) {
   const raw = /** @type {Record<string, unknown>} */ (value);
   if (typeof raw.id !== "string" || !UUID.test(raw.id)) return null;
   if (typeof raw.name !== "string" || raw.name.trim() === "") return null;
-  if (raw.kind !== "TRANSCRIBE" && raw.kind !== "BURN") return null;
+  if (typeof raw.kind !== "string" || !KINDS.has(raw.kind)) return null;
   if (typeof raw.at !== "number" || !Number.isFinite(new Date(raw.at).getTime())) return null;
   /** @type {HistoryEntry} */
-  const entry = { id: raw.id.toLowerCase(), name: raw.name.slice(0, MAX_NAME), kind: raw.kind, at: raw.at };
+  const entry = { id: raw.id.toLowerCase(), name: raw.name.slice(0, MAX_NAME), kind: /** @type {HistoryEntry["kind"]} */ (raw.kind), at: raw.at };
   if (typeof raw.parentId === "string" && UUID.test(raw.parentId)) entry.parentId = raw.parentId.toLowerCase();
   return entry;
 }

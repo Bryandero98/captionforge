@@ -10,13 +10,14 @@ import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 const baseConfig = loadConfig();
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
-async function start(diarization: boolean): Promise<{ base: string; prisma: PrismaService }> {
+async function start(diarization: boolean, appSecret?: string): Promise<{ base: string; prisma: PrismaService }> {
   await sharedTenant();
   const app = await createApp({
     ...baseConfig,
     port: 0,
     webRoot: undefined,
     features: { diarization },
+    byok: { appSecret },
     reaper: { ...baseConfig.reaper, intervalMs: 0 },
     security: { ...baseConfig.security, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0 },
   });
@@ -44,8 +45,18 @@ describe("GET /v1/capabilities", () => {
       const { base } = await start(enabled);
       const response = await fetch(`${base}/v1/capabilities`);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ diarization: { enabled } });
+      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [] } });
     }
+  });
+
+  it("anuncia las claves externas propias solo con APP_SECRET, con los proveedores y sin exponer el secreto", async () => {
+    const secret = "capacidades-secreto-de-32-bytes-o-mas!!";
+    const { base } = await start(false, secret);
+    const response = await fetch(`${base}/v1/capabilities`);
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"] } });
+    expect(text).not.toContain(secret);
   });
 });
 

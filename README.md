@@ -3,7 +3,7 @@
 **English** | [Español](README.es.md)
 
 [![Monorepo CI](https://github.com/Bryandero98/captionforge/actions/workflows/monorepo.yml/badge.svg)](https://github.com/Bryandero98/captionforge/actions/workflows/monorepo.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: BSL 1.1](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
 
 Free automatic video captions - transcription, translation and burned-in
 subtitles - without a watermark or a monthly limit, and today without an account.
@@ -161,7 +161,7 @@ Designed so the failure mode is "refuse, cut off or do nothing" rather than "run
   the workflow.
 
 The full picture, including what is **not** covered yet, is in
-[docs/architecture_and_security.md](docs/architecture_and_security.md).
+[docs/architecture_and_security.md](docs/architecture_and_security.md). Release notes are in the [CHANGELOG](CHANGELOG.md); operating the external-keys secret is in the [`APP_SECRET` runbook](docs/runbook-app-secret.md) (in Spanish, with [ADR 0020](docs/adr/0020-ia-avanzada-y-claves-externas-byok.md)).
 
 ## Commands
 
@@ -213,7 +213,7 @@ to send a PR.
 
 ## Support this project
 
-CaptionForge is free by design and will stay that way. A tip unlocks nothing; it goes toward
+CaptionForge is free for personal, educational and non-commercial use under the BSL license, and will stay that way. A tip unlocks nothing; it goes toward
 eventually paying for a real host, so people who do not want to install anything have a
 "no-install-at-all" option too:
 
@@ -221,6 +221,10 @@ eventually paying for a real host, so people who do not want to install anything
 - **USDT (TRC20):** `TEG4Kk2qXYMQ4mHNd7dPhSPRyT14CGr2or` - double-check the network is set to
   **TRC20** before sending; a transfer on the wrong network cannot be recovered.
 
+## Contributing
+
+CaptionForge uses a Business Source model. Commercial or production use requires a license. Pull Requests to suggest improvements or fix bugs are welcome; by submitting a PR, the contributor assigns the commercial rights over that code to the original author.
+
 ## License
 
-[MIT](LICENSE)
+[Business Source License 1.1](LICENSE) (Licensor: Bryan Andrés Delgado Rodríguez). Becomes Apache 2.0 on 2030-10-23.

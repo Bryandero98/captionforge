@@ -34,21 +34,39 @@
     "ObjectRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["bucket", "objectKey"],
+      "required": [
+        "bucket",
+        "objectKey"
+      ],
       "properties": {
-        "bucket": { "$ref": "#/$defs/Bucket" },
-        "objectKey": { "$ref": "#/$defs/ObjectKey" }
+        "bucket": {
+          "$ref": "#/$defs/Bucket"
+        },
+        "objectKey": {
+          "$ref": "#/$defs/ObjectKey"
+        }
       }
     },
     "VersionedObjectRef": {
       "description": "Referencia con ETag: el worker verifica que el objeto no cambió desde que se aprobó.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["bucket", "objectKey", "etag"],
+      "required": [
+        "bucket",
+        "objectKey",
+        "etag"
+      ],
       "properties": {
-        "bucket": { "$ref": "#/$defs/Bucket" },
-        "objectKey": { "$ref": "#/$defs/ObjectKey" },
-        "etag": { "type": "string", "pattern": "^[0-9a-f]{32}(-[0-9]+)?$" }
+        "bucket": {
+          "$ref": "#/$defs/Bucket"
+        },
+        "objectKey": {
+          "$ref": "#/$defs/ObjectKey"
+        },
+        "etag": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}(-[0-9]+)?$"
+        }
       }
     },
     "LanguageCode": {
@@ -58,11 +76,50 @@
     },
     "ModelSize": {
       "type": "string",
-      "enum": ["base", "small", "medium"]
+      "enum": [
+        "base",
+        "small",
+        "medium"
+      ]
     },
     "StylePreset": {
       "type": "string",
-      "enum": ["modern", "tiktok", "youtube", "minimal"]
+      "enum": [
+        "modern",
+        "tiktok",
+        "youtube",
+        "minimal"
+      ]
+    },
+    "TranslateProvider": {
+      "description": "Motor de traducción: argos corre en local (sin clave); openai usa la clave propia del espacio.",
+      "type": "string",
+      "enum": [
+        "argos",
+        "openai"
+      ]
+    },
+    "DubProvider": {
+      "description": "Motor de voz (texto a voz): siempre externo, con la clave propia del espacio.",
+      "type": "string",
+      "enum": [
+        "openai",
+        "elevenlabs"
+      ]
+    },
+    "VoiceId": {
+      "description": "Identificador de voz del proveedor (p. ej. alloy, o un id de ElevenLabs). Solo [A-Za-z0-9_-] para que no pueda formar rutas ni URL.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "DubMix": {
+      "description": "none: solo dub.mp3. replace: el video con la voz doblada en lugar del audio original. duck: el audio original bajado bajo la voz.",
+      "type": "string",
+      "enum": [
+        "none",
+        "replace",
+        "duck"
+      ]
     },
     "Stage": {
       "type": "string",
@@ -77,7 +134,9 @@
         "diarizing",
         "translating",
         "uploading",
-        "burning"
+        "burning",
+        "synthesizing",
+        "mixing"
       ]
     },
     "ErrorCode": {
@@ -89,6 +148,13 @@
         "OUT_OF_DISK",
         "INPUT_NOT_FOUND",
         "SEGMENTS_CHANGED",
+        "EXTERNAL_KEY_MISSING",
+        "EXTERNAL_AUTH_FAILED",
+        "EXTERNAL_RATE_LIMITED",
+        "EXTERNAL_QUOTA_EXCEEDED",
+        "EXTERNAL_TIMEOUT",
+        "EXTERNAL_UNAVAILABLE",
+        "JOB_TOO_LARGE",
         "CANCELLED",
         "INTERNAL"
       ]

@@ -64,6 +64,19 @@ describe("cf_worker (solo lee y actualiza columnas concretas)", () => {
   });
 });
 
+describe("cf_worker: lista cerrada de tablas", () => {
+  it("solo tiene permisos sobre \"Job\": una tabla nueva que herede SELECT por defecto sin su REVOKE rompe esta prueba", async () => {
+    const granted = await owner.query<{ table_name: string }>(
+      `SELECT DISTINCT table_name FROM information_schema.role_table_grants WHERE grantee = 'cf_worker' AND table_schema = 'public' ORDER BY table_name`,
+    );
+    const columns = await owner.query<{ table_name: string }>(
+      `SELECT DISTINCT table_name FROM information_schema.role_column_grants WHERE grantee = 'cf_worker' AND table_schema = 'public' ORDER BY table_name`,
+    );
+    expect(granted.rows.map((row) => row.table_name)).toEqual(["Job"]);
+    expect(columns.rows.map((row) => row.table_name)).toEqual(["Job"]);
+  });
+});
+
 describe("cf_api (datos sí, esquema no)", () => {
   it("inserta, lee, actualiza y borra trabajos", async () => {
     const other = randomUUID();
@@ -103,6 +116,7 @@ describe("tablas de tenencia y sesiones (ADR 0015 y 0016)", () => {
 
   afterAll(async () => {
     await owner.query(`DELETE FROM "Session" WHERE "userId" = $1`, [userRow]);
+    await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantRow]); // si una prueba falló antes de borrar la suya
     await owner.query(`DELETE FROM "ApiKey" WHERE "tenantId" = $1`, [tenantRow]);
     await owner.query(`DELETE FROM "User" WHERE "tenantId" = $1`, [tenantRow]);
     await owner.query(`DELETE FROM "Tenant" WHERE id = $1`, [tenantRow]);
@@ -170,6 +184,59 @@ describe("tablas de tenencia y sesiones (ADR 0015 y 0016)", () => {
     await expect(api.query(`DELETE FROM "ApiKey" WHERE id = $1`, [keyRow])).rejects.toThrow(/permission denied/);
     await expect(api.query(`UPDATE "User" SET "tenantId" = $2 WHERE id = $1`, [userRow, randomUUID()])).rejects.toThrow(/permission denied/);
     await expect(api.query(`UPDATE "Tenant" SET name = 'x' WHERE id = $1`, [tenantRow])).rejects.toThrow(/permission denied/);
+  });
+
+  it("claves externas (ADR 0020): cf_api crea, lee, reemplaza el cifrado y borra, pero no reescribe a quién ni a qué proveedor pertenecen", async () => {
+    const row = randomUUID();
+    await api.query(
+      `INSERT INTO "TenantExternalKey" (id, "tenantId", provider, ciphertext, "keyVersion", last4, "createdBy") VALUES ($1, $2, 'openai', 'v1.x.y.z', 1, 'abcd', $3)`,
+      [row, tenantRow, userRow],
+    );
+    expect((await api.query(`SELECT provider, last4 FROM "TenantExternalKey" WHERE id = $1`, [row])).rows).toEqual([{ provider: "openai", last4: "abcd" }]);
+    await api.query(`UPDATE "TenantExternalKey" SET ciphertext = 'v1.a.b.c', "keyVersion" = 1, last4 = 'wxyz', "rotatedAt" = now() WHERE id = $1`, [row]);
+    // createdBy es de auditoría: quien la guardó primero no se reescribe.
+    for (const column of ["tenantId", "provider", "id", "createdBy", "createdAt"]) {
+      const value = column === "provider" ? `'elevenlabs'` : column === "createdAt" ? "now()" : `'${randomUUID()}'`;
+      await expect(api.query(`UPDATE "TenantExternalKey" SET "${column}" = ${value} WHERE id = $1`, [row]), column).rejects.toThrow(/permission denied/);
+    }
+    // Una sola clave por proveedor y espacio.
+    await expect(
+      api.query(`INSERT INTO "TenantExternalKey" (id, "tenantId", provider, ciphertext, "keyVersion", last4) VALUES ($1, $2, 'openai', 'v1.x.y.z', 1, 'abcd')`, [randomUUID(), tenantRow]),
+    ).rejects.toThrow(/duplicate key|unique/i);
+    await api.query(`DELETE FROM "TenantExternalKey" WHERE id = $1`, [row]); // borrar de verdad: una clave retirada no debe quedar cifrada en la base
+    expect((await api.query(`SELECT 1 FROM "TenantExternalKey" WHERE id = $1`, [row])).rowCount).toBe(0);
+  });
+
+  it("claves externas: cf_worker NO tiene ningún permiso sobre la tabla ni sobre ninguna de sus columnas", async () => {
+    await expect(worker.query(`SELECT * FROM "TenantExternalKey"`)).rejects.toThrow(/permission denied/);
+    await expect(worker.query(`SELECT ciphertext FROM "TenantExternalKey"`)).rejects.toThrow(/permission denied/);
+    await expect(worker.query(`INSERT INTO "TenantExternalKey" (id, "tenantId", provider, ciphertext, "keyVersion", last4) VALUES ($1, $2, 'openai', 'x', 1, 'abcd')`, [randomUUID(), tenantRow])).rejects.toThrow(/permission denied/);
+    await expect(worker.query(`UPDATE "TenantExternalKey" SET ciphertext = 'x'`)).rejects.toThrow(/permission denied/);
+    await expect(worker.query(`DELETE FROM "TenantExternalKey"`)).rejects.toThrow(/permission denied/);
+    // Ni siquiera por una consulta de catálogo: el rol no tiene el privilegio en ninguna forma.
+    const privileges = await owner.query<{ priv: string; allowed: boolean }>(
+      `SELECT priv, has_table_privilege('cf_worker', '"TenantExternalKey"', priv) AS allowed FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS priv`,
+    );
+    expect(privileges.rows.filter((row) => row.allowed)).toEqual([]);
+    const columns = await owner.query<{ allowed: boolean }>(
+      `SELECT has_column_privilege('cf_worker', '"TenantExternalKey"', attname, 'SELECT') AS allowed FROM pg_attribute WHERE attrelid = '"TenantExternalKey"'::regclass AND attnum > 0 AND NOT attisdropped`,
+    );
+    expect(columns.rows.length).toBeGreaterThan(5);
+    expect(columns.rows.filter((row) => row.allowed)).toEqual([]);
+  });
+
+  it("claves externas: cf_api tampoco puede vaciar la tabla ni cambiar su estructura", async () => {
+    await expect(api.query(`TRUNCATE "TenantExternalKey"`)).rejects.toThrow(/permission denied/);
+    await expect(api.query(`ALTER TABLE "TenantExternalKey" DROP COLUMN ciphertext`)).rejects.toThrow(/must be owner/);
+  });
+
+  it("los tipos de trabajo TRANSLATE y DUB existen", async () => {
+    for (const kind of ["TRANSLATE", "DUB"]) {
+      const job = randomUUID();
+      await api.query(insert.replace("'TRANSCRIBE'", `'${kind}'`), [job]);
+      expect((await api.query(`SELECT kind::text AS kind FROM "Job" WHERE id = $1`, [job])).rows).toEqual([{ kind }]);
+      await api.query(`DELETE FROM "Job" WHERE id = $1`, [job]);
+    }
   });
 
   it("cf_worker no ve nada de la tenencia ni de las sesiones", async () => {

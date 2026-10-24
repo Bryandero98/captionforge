@@ -290,6 +290,23 @@ main {
   font-weight: 600;
 }
 
+.field input[type="text"],
+.field input[type="password"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  color: var(--text);
+  font: inherit;
+  transition: border-color 150ms ease;
+}
+.field input[type="text"]:hover,
+.field input[type="password"]:hover {
+  border-color: var(--text-dim);
+}
+
 select {
   width: 100%;
   min-height: 44px;
@@ -519,6 +536,19 @@ select:disabled {
 .burn .btn {
   margin-top: 14px;
 }
+.ai .options {
+  align-items: start;
+}
+.ai .field--wide {
+  grid-column: 1 / -1;
+}
+.ai .field input,
+.ai .field select {
+  width: 100%;
+}
+.ai .field .panel__detail {
+  margin: 4px 0 0;
+}
 .burn__video {
   display: block;
   width: 100%;
@@ -689,6 +719,20 @@ select:disabled {
 .keys__item .btn {
   grid-column: 2;
   grid-row: 1 / span 2;
+}
+.extkeys__item {
+  grid-template-columns: 1fr;
+}
+.extkeys__item .keys__detail,
+.extkeys__item .btn {
+  grid-column: 1;
+  grid-row: auto;
+}
+.extkeys__field {
+  margin: 0.25rem 0;
+}
+.extkeys__field input {
+  width: 100%;
 }
 .keys__created {
   display: grid;

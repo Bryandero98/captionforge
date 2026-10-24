@@ -151,6 +151,8 @@ describe("autenticación por clave de API", () => {
       ["GET", `/v1/jobs/${ABSENT}/segments`],
       ["PUT", `/v1/jobs/${ABSENT}/segments`],
       ["POST", `/v1/jobs/${ABSENT}/burn`],
+      ["POST", `/v1/jobs/${ABSENT}/translate`],
+      ["POST", `/v1/jobs/${ABSENT}/dub`],
       ["GET", `/v1/jobs/${ABSENT}/artifacts/srt`],
       ["HEAD", `/v1/jobs/${ABSENT}/artifacts/srt`],
     ];

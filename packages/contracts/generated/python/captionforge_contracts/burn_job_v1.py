@@ -75,6 +75,32 @@ class StylePreset(StrEnum):
     minimal = 'minimal'
 
 
+class TranslateProvider(StrEnum):
+    argos = 'argos'
+    openai = 'openai'
+
+
+class DubProvider(StrEnum):
+    openai = 'openai'
+    elevenlabs = 'elevenlabs'
+
+
+class VoiceId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            description='Identificador de voz del proveedor (p. ej. alloy, o un id de ElevenLabs). Solo [A-Za-z0-9_-] para que no pueda formar rutas ni URL.',
+            pattern='^[A-Za-z0-9_-]{1,64}$',
+        ),
+    ]
+
+
+class DubMix(StrEnum):
+    none = 'none'
+    replace = 'replace'
+    duck = 'duck'
+
+
 class Stage(StrEnum):
     downloading_input = 'downloading_input'
     extracting_audio = 'extracting_audio'
@@ -87,6 +113,8 @@ class Stage(StrEnum):
     translating = 'translating'
     uploading = 'uploading'
     burning = 'burning'
+    synthesizing = 'synthesizing'
+    mixing = 'mixing'
 
 
 class ErrorCode(StrEnum):
@@ -96,6 +124,13 @@ class ErrorCode(StrEnum):
     OUT_OF_DISK = 'OUT_OF_DISK'
     INPUT_NOT_FOUND = 'INPUT_NOT_FOUND'
     SEGMENTS_CHANGED = 'SEGMENTS_CHANGED'
+    EXTERNAL_KEY_MISSING = 'EXTERNAL_KEY_MISSING'
+    EXTERNAL_AUTH_FAILED = 'EXTERNAL_AUTH_FAILED'
+    EXTERNAL_RATE_LIMITED = 'EXTERNAL_RATE_LIMITED'
+    EXTERNAL_QUOTA_EXCEEDED = 'EXTERNAL_QUOTA_EXCEEDED'
+    EXTERNAL_TIMEOUT = 'EXTERNAL_TIMEOUT'
+    EXTERNAL_UNAVAILABLE = 'EXTERNAL_UNAVAILABLE'
+    JOB_TOO_LARGE = 'JOB_TOO_LARGE'
     CANCELLED = 'CANCELLED'
     INTERNAL = 'INTERNAL'
 

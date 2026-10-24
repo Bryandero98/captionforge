@@ -12,7 +12,7 @@
 --                       `prisma migrate deploy` (servicio `migrate`). Crea las tablas.
 --   * cf_api         -> el API Gateway en ejecución: lectura y escritura de datos, sin DDL.
 --   * cf_worker      -> el AI Worker: SOLO LEE y actualiza columnas concretas de "Job". Nunca
---                       inserta ni borra filas. Esas columnas se conceden en una migración de
+--                       inserta ni borra filas, y no ve ninguna otra tabla (tenencia, sesiones, claves externas). Esas columnas se conceden en una migración de
 --                       Prisma (los permisos por columna no se pueden dar por adelantado a
 --                       tablas que todavía no existen).
 --
@@ -89,6 +89,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE cf_owner IN SCHEMA public
   GRANT SELECT ON TABLES TO cf_worker;
 
+-- Todo lo que sigue es UNA transacción: los GRANT globales de abajo le darían a cf_worker lectura de tablas que luego se le
+-- quitan (tenencia, claves externas). Sin transacción, un fallo a mitad (ON_ERROR_STOP) la dejaría con la lectura del cifrado;
+-- con ella, un fallo revierte todo y los permisos quedan como estaban (fail-closed).
+BEGIN;
+
 -- Para tablas que ya existían antes de aplicar este archivo (re-ejecución sobre un volumen con
 -- datos): los privilegios por defecto no son retroactivos.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cf_api;
@@ -136,5 +141,14 @@ BEGIN
   IF to_regclass('public."Session"') IS NOT NULL THEN
     GRANT UPDATE ("tenantId") ON "Session" TO cf_api;
   END IF;
+  -- Claves externas (ADR 0020): el GRANT SELECT ... ON ALL TABLES de arriba le habría dado a cf_worker la lectura del cifrado.
+  -- cf_api reemplaza el cifrado y borra de verdad; sin TRUNCATE. cf_worker no tiene ningún permiso: la clave le llega del API.
+  IF to_regclass('public."TenantExternalKey"') IS NOT NULL THEN
+    REVOKE ALL ON "TenantExternalKey" FROM cf_api, cf_worker;
+    GRANT SELECT, INSERT, DELETE ON "TenantExternalKey" TO cf_api;
+    GRANT UPDATE ("ciphertext", "keyVersion", "last4", "rotatedAt") ON "TenantExternalKey" TO cf_api;
+  END IF;
 END
 $$;
+
+COMMIT;

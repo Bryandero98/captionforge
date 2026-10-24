@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://captionforge.dev/schemas/dub-result.v1.json",
+  "title": "DubResult",
+  "description": "returnvalue del trabajo de doblaje.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "provider", "mix", "segmentCount", "characters", "overflowSegments", "artifacts"],
+  "properties": {
+    "schemaVersion": { "description": "Siempre 1 en este esquema.", "type": "integer", "minimum": 1, "maximum": 1 },
+    "jobId": { "$ref": "common.v1.json#/$defs/Uuid" },
+    "provider": { "$ref": "common.v1.json#/$defs/DubProvider" },
+    "mix": { "$ref": "common.v1.json#/$defs/DubMix" },
+    "segmentCount": { "type": "integer", "minimum": 0 },
+    "characters": { "description": "Caracteres enviados a sintetizar (lo que cuenta para el gasto).", "type": "integer", "minimum": 0 },
+    "overflowSegments": {
+      "description": "Índices de los segmentos cuya voz no cupo en su tiempo ni acelerando al tope; se recortó su silencio y aun así se desborda.",
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "type": "integer", "minimum": 0 }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audio"],
+      "properties": {
+        "audio": { "$ref": "common.v1.json#/$defs/ObjectKey" },
+        "video": { "description": "Solo si mix es replace o duck.", "$ref": "common.v1.json#/$defs/ObjectKey" }
+      }
+    }
+  }
+}

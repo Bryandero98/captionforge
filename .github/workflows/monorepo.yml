@@ -76,6 +76,8 @@ jobs:
             echo "$v=$(openssl rand -hex 16)" >> .env
           done
           echo "DEFAULT_API_KEY=cfk_$(openssl rand -hex 32)" >> .env
+          echo "APP_SECRET=$(openssl rand -hex 32)" >> .env
+          echo "WORKER_INTERNAL_TOKEN=$(openssl rand -hex 32)" >> .env
 
       - name: Validar docker-compose.yml (infraestructura y perfil app)
         run: npm run compose:check
@@ -107,6 +109,30 @@ jobs:
           npm run build -w @captionforge/api-gateway
           npm run seed -w @captionforge/api-gateway
 
+      # Sin torch ni faster-whisper: el código heredado los importa de forma diferida y las pruebas
+      # simulan Whisper. ffmpeg llega con imageio-ffmpeg (el mismo localizador que usa el worker).
+      - name: AI Worker - entorno Python
+        run: |
+          python -m venv apps/ai-worker/.venv
+          apps/ai-worker/.venv/bin/python -m pip install -e packages/contracts/generated/python
+          apps/ai-worker/.venv/bin/python -m pip install --no-deps -e legacy
+          apps/ai-worker/.venv/bin/python -m pip install huggingface_hub tqdm imageio-ffmpeg
+          apps/ai-worker/.venv/bin/python -m pip install -e "apps/ai-worker[dev]"
+
+      # El doblaje (T9) exporta MP3 con el ffmpeg del localizador: sin libmp3lame fallaría solo en producción.
+      - name: AI Worker - ffmpeg con libmp3lame
+        run: |
+          FFMPEG="$(apps/ai-worker/.venv/bin/python -c 'from captionforge.ffmpeg_locator import find_ffmpeg; print(find_ffmpeg())')"
+          ENCODERS="$("$FFMPEG" -hide_banner -encoders 2>/dev/null)"
+          case "$ENCODERS" in *libmp3lame*) ;; *) echo "El ffmpeg del localizador no trae libmp3lame"; exit 1 ;; esac
+          # Las pruebas del API generan una voz de prueba con «ffmpeg» del PATH: se publica el mismo binario ahí.
+          mkdir -p "$RUNNER_TEMP/ffbin"
+          ln -sf "$FFMPEG" "$RUNNER_TEMP/ffbin/ffmpeg"
+          echo "$RUNNER_TEMP/ffbin" >> "$GITHUB_PATH"
+
+      - name: Scripts de arranque - generan APP_SECRET y WORKER_INTERNAL_TOKEN sin pisar los existentes
+        run: node --test tools/start-env.test.mjs
+
       - name: API Gateway - pruebas contra PostgreSQL, Redis y S3 reales
         run: npm test -w @captionforge/api-gateway
 
@@ -118,7 +144,7 @@ jobs:
       - name: API Gateway - construir la imagen de despliegue
         run: docker compose --profile app build migrate
 
-      - name: Perímetro - Caddy delante del API (TLS, /metrics cerrado, IP real, cookie Secure)
+      - name: Perímetro - Caddy delante del API (TLS, /metrics e /internal cerrados, IP real, cookie Secure)
         env:
           TRUST_PROXY: 172.16.0.0/12
           PUBLIC_URL: https://localhost
@@ -132,6 +158,8 @@ jobs:
           test "$(web -o /dev/null -w '%{http_code}' http://localhost/health)" = 308
           test "$(web -o /dev/null -w '%{http_code}' https://localhost/metrics)" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/metrics)" = 404
+          test "$(web -o /dev/null -w '%{http_code}' https://localhost/internal/v1/jobs/x/external-key)" = 404
+          if curl -s -m 2 -o /dev/null http://127.0.0.1:3100/; then echo "El puerto interno está publicado en el anfitrión"; exit 1; fi
           if curl -s -m 2 -o /dev/null http://127.0.0.1:9090/metrics; then echo "El puerto de métricas está publicado en el anfitrión"; exit 1; fi
           web -D - -o /dev/null https://localhost/auth/github/start | grep -i '^set-cookie: __Host-cf_oauth=.*secure'
           web -o /dev/null -H 'X-Forwarded-For: 203.0.113.9' https://localhost/v1/jobs
@@ -148,16 +176,6 @@ jobs:
           grep -q 'invite=REDACTED' "$RUNNER_TEMP/caddy.log"
           grep -q 'invites/REDACTED/accept' "$RUNNER_TEMP/caddy.log"
           if grep -q "$TOKEN" "$RUNNER_TEMP/caddy.log"; then echo "El token de invitación llegó a los registros de Caddy"; exit 1; fi
-
-      # Sin torch ni faster-whisper: el código heredado los importa de forma diferida y las pruebas
-      # simulan Whisper. ffmpeg llega con imageio-ffmpeg (el mismo localizador que usa el worker).
-      - name: AI Worker - entorno Python
-        run: |
-          python -m venv apps/ai-worker/.venv
-          apps/ai-worker/.venv/bin/python -m pip install -e packages/contracts/generated/python
-          apps/ai-worker/.venv/bin/python -m pip install --no-deps -e legacy
-          apps/ai-worker/.venv/bin/python -m pip install huggingface_hub tqdm imageio-ffmpeg
-          apps/ai-worker/.venv/bin/python -m pip install -e "apps/ai-worker[dev]"
 
       - name: AI Worker - pruebas contra PostgreSQL, Redis, S3 y ffmpeg reales
         run: npm run worker:test
@@ -184,6 +202,8 @@ jobs:
             echo "$v=$(openssl rand -hex 16)" >> .env
           done
           echo "DEFAULT_API_KEY=cfk_$(openssl rand -hex 32)" >> .env
+          echo "APP_SECRET=$(openssl rand -hex 32)" >> .env
+          echo "WORKER_INTERNAL_TOKEN=$(openssl rand -hex 32)" >> .env
 
       - name: Construir la imagen
         run: docker compose --profile app build ai-worker

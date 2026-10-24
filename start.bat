@@ -48,11 +48,12 @@ if exist ".env" (
   )
   echo .env creado. Guardalo: tiene las contrasenas de tu instalacion ^(no se sube a git^).
 )
-rem Un .env anterior a la tenencia ^(ADR 0015^) no trae DEFAULT_API_KEY: se anade sin tocar nada mas.
-powershell -NoProfile -ExecutionPolicy Bypass -File "tools\new-env.ps1" -EnsureKey
+rem Un .env anterior a la tenencia ^(ADR 0015^) o a BYOK ^(ADR 0020^) no trae DEFAULT_API_KEY, APP_SECRET ni WORKER_INTERNAL_TOKEN:
+rem se anaden sin tocar nada mas. Nunca se cambia un valor que ya existe.
+powershell -NoProfile -ExecutionPolicy Bypass -File "tools\new-env.ps1" -Complete
 if errorlevel 1 (
   echo.
-  echo No se pudo continuar: no se pudo completar el .env con DEFAULT_API_KEY.
+  echo No se pudo continuar: no se pudo completar el .env con las claves que faltan.
   exit /b 1
 )
 

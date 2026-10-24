@@ -11,7 +11,7 @@ export const PREVIEW_MAX_BYTES = 256 * 1024 * 1024;
 
 /**
  * Pide un artefacto con la clave de API. Lanza ApiError si el servidor responde con un error.
- * @param {{ baseUrl: string, jobId: string, name: "srt" | "segments" | "waveform" | "video", signal?: AbortSignal, fetchImpl?: typeof fetch }} options
+ * @param {{ baseUrl: string, jobId: string, name: "srt" | "segments" | "waveform" | "video" | "audio", signal?: AbortSignal, fetchImpl?: typeof fetch }} options
  * @returns {Promise<Response>}
  */
 export async function fetchArtifact({ baseUrl, jobId, name, signal, fetchImpl = (...args) => fetch(...args) }) {

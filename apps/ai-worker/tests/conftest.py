@@ -191,3 +191,97 @@ def fake_models():
     provider = ModelProvider(loader=lambda size: (whisper, "cpu"), is_cached=lambda size: True)
     provider.whisper = whisper  # type: ignore[attr-defined]
     return provider
+
+
+@pytest.fixture
+def new_translate_job(api_db, storage: Storage, config: WorkerConfig, new_job, tmp_path):
+    """Crea un trabajo TRANSLATE como lo haría el API: transcripción padre con su segments.json en S3 y la fila
+    TRANSLATE en estado QUEUED. Devuelve (id, payload, etag)."""
+    created: list[str] = []
+
+    def make(
+        *,
+        provider: str = "argos",
+        segments: list[dict] | None = None,
+        source: str = "en",
+        target: str = "es",
+        upload_segments: bool = True,
+    ) -> tuple[str, dict, str]:
+        parent_id, parent_payload = new_job(upload_input=False)
+        job_id = str(uuid.uuid4())
+        segments_key = f"{parent_payload['outputPrefix']}segments.json"
+        etag = "0" * 32
+        if upload_segments:
+            path = tmp_path / f"{job_id}.json"
+            path.write_bytes(json.dumps(sample_segments() if segments is None else segments).encode())
+            etag = storage.upload_file(path, segments_key, "application/json")
+        output_prefix = f"jobs/{job_id}/out/"
+        options = {"provider": provider, "sourceLanguage": source, "targetLanguage": target}
+        api_db.execute(
+            """INSERT INTO "Job" (id, "tenantId", kind, "parentJobId", "inputBucket", "inputKey", "originalFilename", "contentType",
+                 "sizeBytes", "outputPrefix", options, "updatedAt")
+               VALUES (%s, %s, 'TRANSLATE', %s, %s, %s, 'entrevista.mp4', 'video/mp4', 1, %s, %s::jsonb, now())""",
+            (job_id, DEFAULT_TENANT_ID, parent_id, config.s3_bucket, parent_payload["input"]["objectKey"], output_prefix, json.dumps(options)),
+        )
+        created.append(job_id)
+        payload = {
+            "schemaVersion": 1,
+            "jobId": job_id,
+            "requestedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "segments": {"bucket": config.s3_bucket, "objectKey": segments_key, "etag": etag},
+            "outputPrefix": output_prefix,
+            "options": options,
+        }
+        return job_id, payload, etag
+
+    yield make
+    for job_id in created:
+        api_db.execute('DELETE FROM "Job" WHERE id = %s', (job_id,))
+
+
+@pytest.fixture
+def new_dub_job(api_db, storage: Storage, config: WorkerConfig, new_job, tmp_path):
+    """Crea un trabajo DUB como lo haría el API: transcripción padre con su video y su segments.json en S3 y la fila DUB QUEUED.
+    Devuelve (id, payload, etag)."""
+    created: list[str] = []
+
+    def make(
+        *,
+        provider: str = "openai",
+        voice: str = "alloy",
+        mix: str = "none",
+        segments: list[dict] | None = None,
+        upload_video: bool = True,
+        upload_segments: bool = True,
+    ) -> tuple[str, dict, str]:
+        parent_id, parent_payload = new_job(upload_input=upload_video)
+        job_id = str(uuid.uuid4())
+        segments_key = f"{parent_payload['outputPrefix']}segments.json"
+        etag = "0" * 32
+        if upload_segments:
+            path = tmp_path / f"{job_id}.json"
+            path.write_bytes(json.dumps(sample_segments(words=False) if segments is None else segments).encode())
+            etag = storage.upload_file(path, segments_key, "application/json")
+        output_prefix = f"jobs/{job_id}/out/"
+        options = {"provider": provider, "voice": voice, "mix": mix}
+        api_db.execute(
+            """INSERT INTO "Job" (id, "tenantId", kind, "parentJobId", "inputBucket", "inputKey", "originalFilename", "contentType",
+                 "sizeBytes", "outputPrefix", options, "updatedAt")
+               VALUES (%s, %s, 'DUB', %s, %s, %s, 'entrevista.mp4', 'video/mp4', %s, %s, %s::jsonb, now())""",
+            (job_id, DEFAULT_TENANT_ID, parent_id, config.s3_bucket, parent_payload["input"]["objectKey"], CLIP.stat().st_size, output_prefix, json.dumps(options)),
+        )
+        created.append(job_id)
+        payload = {
+            "schemaVersion": 1,
+            "jobId": job_id,
+            "requestedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "input": {k: parent_payload["input"][k] for k in ("bucket", "objectKey")},
+            "segments": {"bucket": config.s3_bucket, "objectKey": segments_key, "etag": etag},
+            "outputPrefix": output_prefix,
+            "options": options,
+        }
+        return job_id, payload, etag
+
+    yield make
+    for job_id in created:
+        api_db.execute('DELETE FROM "Job" WHERE id = %s', (job_id,))

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PROVIDERS, type ProviderEndpoints, type ProviderId } from "../auth/providers.js";
+import { MIN_APP_SECRET_BYTES } from "../external-keys/external-key-crypto.js";
 
 export const APP_CONFIG = Symbol("APP_CONFIG");
 
@@ -44,6 +45,18 @@ export interface AppConfig {
   observability: { logFormat: "json" | "text"; logRequests: boolean; metricsHost: string; metricsPort: number };
   /** Funciones opcionales que el servidor anuncia en GET /v1/capabilities. */
   features: { diarization: boolean };
+  /**
+   * Claves externas propias (BYOK, ADR 0020). Sin `appSecret` la función queda apagada: nunca se cifra con un valor por defecto.
+   * Es un secreto: no se registra ni se devuelve en ninguna respuesta.
+   */
+  byok: { appSecret: string | undefined };
+  /** Topes de gasto por trabajo de traducir/doblar (ADR 0020 §7): el dinero es de la persona usuaria. El worker aplica los mismos. */
+  ai: { maxJobCharacters: number; maxJobSegments: number };
+  /**
+   * Canal interno del worker (ADR 0020), en un puerto aparte que no se publica. `port` 0 = apagado. `workerToken` es un secreto: no se
+   * registra ni se devuelve. `rateLimitPerMinute` 0 = sin límite.
+   */
+  internal: { host: string; port: number; workerToken: string | undefined; rateLimitPerMinute: number };
   /** Recolector de trabajos huérfanos (ver ReaperService). intervalMs = 0 lo desactiva. */
   reaper: { intervalMs: number; staleRunningMs: number; queuedGraceMs: number };
   /** Seguridad del API: clave por defecto de la interfaz web y límites de uso por IP (0 = sin límite). */
@@ -183,6 +196,43 @@ function parseObservability(env: NodeJS.ProcessEnv, integer: (name: string, fall
   };
 }
 
+/** Alfabeto de un secreto aleatorio en hexadecimal, base64 o base64url, de al menos 32 bytes (43 caracteres en base64). */
+const SECRET_FORMAT = /^[A-Za-z0-9+/_-]{43,}={0,2}$/;
+/** Un secreto aleatorio usa muchos símbolos distintos; `aaaa…` o `abab…` pasan el largo pero no son un secreto. */
+const SECRET_MIN_DISTINCT = 12;
+
+/**
+ * Un secreto del servicio (APP_SECRET, WORKER_INTERNAL_TOKEN): sin valor, `undefined`. Definido, debe ser ALEATORIO (hex, base64 o
+ * base64url) de 32 bytes o más: HKDF no estira un secreto débil, y con un volcado de la base o un token adivinable alguien podría probar
+ * frases sin conexión. Ningún espacio ni salto de línea en los extremos (un .env mal copiado cambiaría la clave derivada y dejaría
+ * ilegibles las claves ya guardadas). El mensaje nunca repite el valor.
+ */
+function parseRandomSecret(name: string, raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  if (raw !== raw.trim()) throw new Error(`${name} no puede llevar espacios ni saltos de línea al principio o al final`);
+  // En hexadecimal cada byte son 2 caracteres: 32 bytes = 64 (el largo de 43 es el del base64).
+  const hexOnly = /^[0-9a-fA-F]+$/.test(raw);
+  if (!SECRET_FORMAT.test(raw) || (hexOnly && raw.length < MIN_APP_SECRET_BYTES * 2) || new Set(raw).size < SECRET_MIN_DISTINCT) {
+    throw new Error(
+      `${name} debe ser un secreto aleatorio de ${MIN_APP_SECRET_BYTES} bytes o más en hexadecimal o base64, no una frase (genera uno con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * Canal interno del worker (ADR 0020): un listener aparte que entrega al worker la clave externa de SU trabajo. INTERNAL_PORT=0 (por
+ * defecto) lo apaga. Encendido exige WORKER_INTERNAL_TOKEN (nunca queda abierto sin autenticación) y que no sea el mismo valor que
+ * APP_SECRET. Escucha en el loopback salvo que se diga otra cosa; en Docker se pone 0.0.0.0 y el puerto NO se publica.
+ */
+function parseInternal(env: NodeJS.ProcessEnv, integer: (name: string, fallback: number, options?: { allowZero?: boolean; max?: number }) => number, appSecret: string | undefined): AppConfig["internal"] {
+  const port = integer("INTERNAL_PORT", 0, { allowZero: true, max: 65_535 });
+  const workerToken = parseRandomSecret("WORKER_INTERNAL_TOKEN", env.WORKER_INTERNAL_TOKEN);
+  if (port > 0 && workerToken === undefined) throw new Error("INTERNAL_PORT requiere WORKER_INTERNAL_TOKEN: el canal interno no se abre sin autenticación");
+  if (workerToken !== undefined && workerToken === appSecret) throw new Error("WORKER_INTERNAL_TOKEN no puede ser el mismo valor que APP_SECRET");
+  return { host: (env.INTERNAL_HOST ?? "127.0.0.1").trim() || "127.0.0.1", port, workerToken, rateLimitPerMinute: integer("INTERNAL_RATE_LIMIT_PER_MINUTE", 120, { allowZero: true }) };
+}
+
 /** PUBLIC_URL: origen público del servicio. Sin valor, el de la dirección local. */
 function parsePublicUrl(raw: string | undefined, port: number): string {
   const value = (raw ?? "").trim();
@@ -222,6 +272,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("WEB_API_KEY debe tener al menos 32 caracteres (es la DEFAULT_API_KEY del .env)");
   }
 
+  const appSecret = parseRandomSecret("APP_SECRET", env.APP_SECRET);
+
   return {
     host: env.HOST ?? "127.0.0.1",
     port: integer("PORT", 3000),
@@ -245,6 +297,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       providers: { github: parseProvider(env, "github"), google: parseProvider(env, "google") },
     },
     features: { diarization: parseDiarization(env) },
+    byok: { appSecret },
+    ai: { maxJobCharacters: integer("MAX_JOB_CHARACTERS", 50_000), maxJobSegments: integer("MAX_JOB_SEGMENTS", 1_000) },
+    internal: parseInternal(env, integer, appSecret),
     observability: parseObservability(env, integer),
     reaper: {
       intervalMs: integer("REAPER_INTERVAL_SECONDS", 60, { allowZero: true }) * 1000,

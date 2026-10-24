@@ -51,6 +51,7 @@
       <span class="account__role" id="account-role"></span>
       <button type="button" class="btn btn--ghost" id="account-team-toggle" hidden aria-expanded="false" aria-controls="team-panel" data-i18n="account.team">Equipo</button>
       <button type="button" class="btn btn--ghost" id="account-keys-toggle" hidden aria-expanded="false" aria-controls="keys-panel" data-i18n="account.keys">Claves de API</button>
+      <button type="button" class="btn btn--ghost" id="account-extkeys-toggle" hidden aria-expanded="false" aria-controls="extkeys-panel" data-i18n="account.extkeys">Claves externas</button>
       <button type="button" class="btn btn--ghost" id="account-signout" data-i18n="account.signOut">Salir</button>
     </div>
 
@@ -63,6 +64,16 @@
         <button type="button" class="btn btn--primary" id="invite-confirm-join" data-i18n="invite.confirm.join">Unirme</button>
         <button type="button" class="btn btn--ghost" id="invite-confirm-decline" data-i18n="invite.confirm.decline">Ahora no</button>
         <button type="button" class="btn btn--primary" id="invite-confirm-continue" hidden data-i18n="invite.confirm.continue">Continuar</button>
+      </div>
+    </dialog>
+
+    <!-- Confirmación del gasto (ADR 0020): antes de mandar texto a OpenAI o ElevenLabs, que cobran a la persona. js/ui/spend-confirm.js la abre; el foco empieza en «Cancelar». -->
+    <dialog class="invite-confirm" id="spend-confirm" aria-labelledby="spend-confirm-title" aria-describedby="spend-confirm-body">
+      <h2 class="panel__status" id="spend-confirm-title" data-i18n="spend.title">¿Confirmas el gasto?</h2>
+      <p class="panel__detail" id="spend-confirm-body"></p>
+      <div class="panel__actions">
+        <button type="button" class="btn btn--primary" id="spend-confirm-yes" data-i18n="spend.confirm">Sí, continuar</button>
+        <button type="button" class="btn btn--ghost" id="spend-confirm-no" data-i18n="spend.cancel">Cancelar</button>
       </div>
     </dialog>
 
@@ -114,6 +125,14 @@
         </div>
         <button type="submit" class="btn btn--primary" id="keys-create" data-i18n="keys.create">Crear clave</button>
       </form>
+    </section>
+
+    <!-- Claves de OpenAI / ElevenLabs del espacio (ADR 0020). Solo Dueño con sesión y BYOK activado: js/ui/external-keys.js la muestra; en modo local no existe. -->
+    <section class="panel" id="extkeys-panel" hidden aria-labelledby="extkeys-title">
+      <h2 class="panel__status" id="extkeys-title" data-i18n="extkeys.title">Claves externas</h2>
+      <p class="panel__detail" data-i18n="extkeys.intro">Para traducir y doblar con tus propias cuentas.</p>
+      <ul class="keys__list" id="extkeys-list"></ul>
+      <p class="panel__detail" id="extkeys-problem" role="alert" hidden></p>
     </section>
 
     <main id="main" tabindex="-1">
@@ -260,6 +279,47 @@
           <p class="panel__detail" id="burn-hint" role="status" hidden></p>
           <button type="submit" class="btn btn--secondary" id="burn-start" aria-describedby="burn-hint" data-i18n="burn.start">Crear video con subtítulos</button>
         </form>
+        <form class="burn ai" id="translate-form" hidden>
+          <h3 class="burn__title" data-i18n="translate.title">Traducir los subtítulos</h3>
+          <div class="options">
+            <div class="field">
+              <label for="translate-provider" data-i18n="translate.provider">Motor</label>
+              <select id="translate-provider"></select>
+            </div>
+            <div class="field">
+              <label for="translate-target" data-i18n="translate.target">Traducir a</label>
+              <select id="translate-target"></select>
+            </div>
+          </div>
+          <p class="panel__detail" id="translate-estimate" role="status"></p>
+          <p class="panel__detail" id="translate-hint" role="status" hidden></p>
+          <button type="submit" class="btn btn--secondary" id="translate-start" aria-describedby="translate-estimate translate-hint" data-i18n="translate.start">Traducir</button>
+        </form>
+        <form class="burn ai" id="dub-form" hidden>
+          <h3 class="burn__title" data-i18n="dub.title">Doblar con voz sintética</h3>
+          <div class="options">
+            <div class="field">
+              <label for="dub-provider" data-i18n="dub.provider">Voz de</label>
+              <select id="dub-provider"></select>
+            </div>
+            <div class="field">
+              <label for="dub-voice" data-i18n="dub.voice">Voz</label>
+              <input id="dub-voice" type="text" maxlength="64" autocomplete="off" spellcheck="false" autocapitalize="off" aria-describedby="dub-voice-hint">
+              <p class="panel__detail" id="dub-voice-hint"></p>
+            </div>
+            <div class="field field--wide">
+              <label for="dub-source" data-i18n="dub.source">Texto a doblar</label>
+              <select id="dub-source"></select>
+            </div>
+            <div class="field field--wide">
+              <label for="dub-mix" data-i18n="dub.mix">Salida</label>
+              <select id="dub-mix"></select>
+            </div>
+          </div>
+          <p class="panel__detail" id="dub-estimate" role="status"></p>
+          <p class="panel__detail" id="dub-hint" role="status" hidden></p>
+          <button type="submit" class="btn btn--secondary" id="dub-start" aria-describedby="dub-estimate dub-hint" data-i18n="dub.start">Doblar</button>
+        </form>
         <p class="panel__detail" id="result-status" role="status" hidden></p>
         <button type="button" class="btn btn--secondary" id="result-retry" hidden data-i18n="action.retry">Reintentar</button>
         <div class="editor-bar" id="editor-bar" hidden>
@@ -290,6 +350,39 @@
           <button type="button" class="btn btn--secondary" id="burn-cancel" hidden data-i18n="action.cancel">Cancelar</button>
           <button type="button" class="btn btn--primary" id="burn-reconnect" hidden data-i18n="job.reconnect">Volver a conectar</button>
           <button type="button" class="btn btn--ghost" id="burn-open-parent" hidden data-i18n="burn.openParent">Abrir los subtítulos</button>
+        </div>
+      </section>
+
+      <section class="panel" id="translate-panel" tabindex="-1" hidden aria-labelledby="translate-title">
+        <h2 class="visually-hidden" id="translate-title" data-i18n="translate.panel.title">Traducción</h2>
+        <p class="panel__status" id="translate-status"></p>
+        <div class="bar" id="translate-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="translate-title">
+          <div class="bar__fill" id="translate-bar-fill"></div>
+        </div>
+        <p class="panel__detail" id="translate-detail" hidden></p>
+        <div class="panel__actions">
+          <button type="button" class="btn btn--primary" id="translate-dl-srt" hidden data-i18n="translate.dl.srt">Descargar .srt traducido</button>
+          <button type="button" class="btn btn--secondary" id="translate-dl-vtt" hidden data-i18n="translate.dl.vtt">Descargar .vtt traducido</button>
+          <button type="button" class="btn btn--secondary" id="translate-cancel" hidden data-i18n="action.cancel">Cancelar</button>
+          <button type="button" class="btn btn--primary" id="translate-reconnect" hidden data-i18n="job.reconnect">Volver a conectar</button>
+          <button type="button" class="btn btn--ghost" id="translate-open-parent" hidden data-i18n="ai.openParent">Abrir los subtítulos originales</button>
+        </div>
+      </section>
+
+      <section class="panel" id="dub-panel" tabindex="-1" hidden aria-labelledby="dub-title">
+        <h2 class="visually-hidden" id="dub-title" data-i18n="dub.panel.title">Doblaje</h2>
+        <p class="panel__status" id="dub-status"></p>
+        <div class="bar" id="dub-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="dub-title">
+          <div class="bar__fill" id="dub-bar-fill"></div>
+        </div>
+        <p class="panel__detail" id="dub-detail" hidden></p>
+        <p class="panel__detail" id="dub-overflow" role="status" hidden></p>
+        <div class="panel__actions">
+          <button type="button" class="btn btn--primary" id="dub-dl-audio" hidden data-i18n="dub.dl.audio">Descargar audio (.mp3)</button>
+          <button type="button" class="btn btn--secondary" id="dub-dl-video" hidden data-i18n="dub.dl.video">Descargar video doblado (.mp4)</button>
+          <button type="button" class="btn btn--secondary" id="dub-cancel" hidden data-i18n="action.cancel">Cancelar</button>
+          <button type="button" class="btn btn--primary" id="dub-reconnect" hidden data-i18n="job.reconnect">Volver a conectar</button>
+          <button type="button" class="btn btn--ghost" id="dub-open-parent" hidden data-i18n="ai.openParent">Abrir los subtítulos originales</button>
         </div>
       </section>
 

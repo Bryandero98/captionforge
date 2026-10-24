@@ -9,13 +9,15 @@ import { precheckFile, uploadVideo } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
 import { MAX_FILES, addFiles, currentOf, emptyBatch, markCancelled, markDone, markError, markUploading, removeItem, summaryOf } from "../domain/batch.js";
 import { trackingViewOf } from "../domain/job-state.js";
-import { LANGUAGES } from "../domain/languages.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
+import { createAi } from "./ai.js";
 import { createBurn } from "./burn.js";
 import { createHistory } from "./history.js";
 import { detailText, statusText } from "./job-text.js";
+import { languageNames as languageNamesFor } from "./language-names.js";
 import { createResults } from "./results.js";
+import { createSpendConfirm } from "./spend-confirm.js";
 import { createTracker } from "./tracker.js";
 
 const LANG_KEY = "captionforge_lang";
@@ -32,10 +34,12 @@ const MODELS = ["base", "small", "medium"];
  *   follower?: typeof followJob,
  *   fetchJob?: typeof getJob,
  *   capabilities?: typeof getCapabilities,
+ *   canLaunch?: boolean,
+ *   byokAvailable?: boolean,
  *   onTranslate?: (t: (key: string, params?: Record<string, string | number>) => string) => void,
  * }} deps
  */
-export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob, capabilities = getCapabilities, onTranslate = () => {} }) {
+export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob, capabilities = getCapabilities, canLaunch = true, byokAvailable = true, onTranslate = () => {} }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -117,7 +121,15 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   const translate = (/** @type {string} */ key, /** @type {Record<string, string | number> | undefined} */ params) => t(key, params);
   /** @type {ReturnType<typeof createBurn> | null} */
   let burn = null;
-  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), onChange: () => burn?.refreshForm() });
+  /** @type {ReturnType<typeof createAi> | null} */
+  let ai = null;
+  // Qué ofrece el servidor: lo usan la casilla de hablantes y los formularios de traducir y doblar.
+  const found = capabilities({ baseUrl: config.baseUrl });
+  const spend = createSpendConfirm({ doc, t: translate });
+  const results = createResults({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), onChange: () => {
+    burn?.refreshForm();
+    ai?.refreshForm();
+  } });
   const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
   burn = createBurn({
     doc,
@@ -129,6 +141,22 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     onStarted: (job, parentName) => history.add({ id: job.id, name: parentName, kind: "BURN", at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
     onOpenParent: (parentId) => void openJob(parentId),
     follower,
+  });
+  ai = createAi({
+    doc,
+    win,
+    baseUrl: config.baseUrl,
+    t: translate,
+    lang: () => lang,
+    announce: (text) => announce(text),
+    context: () => results.context,
+    canLaunch,
+    // Las claves externas se guardan con una sesión de Dueño: sin sesión (modo local) nadie puede ponerlas, aunque el servidor tenga APP_SECRET.
+    capabilities: () => found.then((all) => (byokAvailable ? all : { ...all, byok: { enabled: false, providers: [] } })),
+    spend,
+    follower,
+    onStarted: (job, parentName, kind) => history.add({ id: job.id, name: parentName, kind, at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
+    onOpenParent: (parentId) => void openJob(parentId),
   });
 
   // ---------- estado ----------
@@ -195,6 +223,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     if (state.phase !== "idle") state = initialState;
     render();
     burn?.stop();
+    ai?.stop();
     const { job, replaced } = await tracker.open(jobId, fetchJob);
     if (replaced) return; // otra apertura lo reemplazó
     if (job?.kind === "BURN") {
@@ -204,12 +233,20 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
       doc.getElementById("burn-panel")?.focus();
       return;
     }
+    if (job?.kind === "TRANSLATE" || job?.kind === "DUB") {
+      // Traducir y doblar también tienen su propio panel (ui/ai.js).
+      tracker.stop();
+      ai?.adopt(job);
+      doc.getElementById(job.kind === "DUB" ? "dub-panel" : "translate-panel")?.focus();
+      return;
+    }
     els.jobPanel.focus();
   }
 
   function stopTracking() {
     tracker.stop();
     burn?.stop();
+    ai?.stop();
     trackedKind = "none";
     trackedStep = -1;
   }
@@ -389,7 +426,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   function renderJob() {
     const view = trackingViewOf(tracker.state);
     // Un quemado tiene su propio panel (ui/burn.js): el principal solo muestra transcripciones.
-    const hidden = view.kind === "none" || tracker.state.job?.kind === "BURN";
+    const jobKind = tracker.state.job?.kind;
+    const hidden = view.kind === "none" || jobKind === "BURN" || jobKind === "TRANSLATE" || jobKind === "DUB";
     els.jobPanel.hidden = hidden;
     if (hidden) {
       results.hide();
@@ -582,24 +620,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     onTranslate(t); // la cuenta (ui/account.js) repinta lo que depende de los datos
   }
 
-  /** Nombre del idioma en el idioma de la interfaz; si el navegador no lo conoce, el nombre del diccionario. */
-  function languageNames() {
-    let names = null;
-    try {
-      names = new Intl.DisplayNames([lang], { type: "language" });
-    } catch {
-      // sin soporte: nombres en inglés
-    }
-    return LANGUAGES.map(({ code, name }) => {
-      let label = name;
-      try {
-        label = names?.of(code) ?? name;
-      } catch {
-        // código que Intl no conoce
-      }
-      return { code, label: label.charAt(0).toLocaleUpperCase(lang) + label.slice(1) };
-    }).sort((a, b) => a.label.localeCompare(b.label, lang));
-  }
+  const languageNames = () => languageNamesFor(lang);
 
   /** Reconstruye los <select> conservando lo elegido. */
   function fillSelects() {
@@ -627,6 +648,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     results.refresh();
     history.refresh();
     burn?.refresh();
+    spend.refresh(translate);
+    ai?.refresh();
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }
@@ -688,7 +711,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   translateStatic();
   render();
-  void capabilities({ baseUrl: config.baseUrl }).then(applyCapabilities);
+  void found.then(applyCapabilities);
 
   return { get state() { return state; }, dispatch, setLang };
 }
