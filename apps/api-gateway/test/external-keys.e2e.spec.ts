@@ -166,7 +166,7 @@ describe("guardar, listar y borrar (Dueño)", () => {
     expect(text).not.toContain("v1.");
     const body = JSON.parse(text) as { keys: Record<string, unknown>[] };
     expect(body.keys).toHaveLength(1);
-    expect(Object.keys(body.keys[0]!).sort()).toEqual(["createdAt", "last4", "provider", "rotatedAt"]);
+    expect(Object.keys(body.keys[0]!).sort()).toEqual(["baseUrlHost", "createdAt", "last4", "provider", "rotatedAt"]);
     expect(body.keys[0]).toMatchObject({ provider: "openai", last4: CANARY.slice(-4), rotatedAt: null });
   });
 
@@ -215,6 +215,110 @@ describe("guardar, listar y borrar (Dueño)", () => {
     const again = await call(on, "DELETE", `${PATH}/elevenlabs`, cookies.get("OWNER"));
     expect(again.status).toBe(404);
     expect(await again.json()).toMatchObject({ code: "external_key_not_found" });
+  });
+});
+
+const BASE_URL = "https://api.deepseek.com/v1";
+const baseRows = async (tenantId: string): Promise<{ baseUrlCiphertext: string | null; baseUrlHost: string | null }[]> =>
+  (await owner.query(`SELECT "baseUrlCiphertext", "baseUrlHost" FROM "TenantExternalKey" WHERE "tenantId" = $1 ORDER BY provider`, [tenantId])).rows;
+
+describe("URL base propia (ADR 0022)", () => {
+  it("sin baseUrl la clave se guarda como siempre y la vista no trae host", async () => {
+    const response = await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ provider: "openai", baseUrlHost: null });
+    expect(await baseRows(tenant.id)).toEqual([{ baseUrlCiphertext: null, baseUrlHost: null }]);
+  });
+
+  it("guarda la URL cifrada, devuelve solo el host y la base no contiene la URL en claro", async () => {
+    const response = await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY, baseUrl: `${BASE_URL}/` });
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).not.toContain("/v1");
+    expect(text).not.toContain("v1."); // ni el cifrado
+    expect(JSON.parse(text)).toMatchObject({ provider: "openai", baseUrlHost: "api.deepseek.com" });
+
+    const [row] = await baseRows(tenant.id);
+    expect(row!.baseUrlHost).toBe("api.deepseek.com");
+    expect(row!.baseUrlCiphertext!.startsWith("v1.")).toBe(true);
+    const everything = JSON.stringify((await owner.query(`SELECT * FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenant.id])).rows);
+    expect(everything).not.toContain(BASE_URL);
+    expect(everything).not.toContain("deepseek.com/v1");
+    // Con el contexto exacto (y el propósito) se recupera la URL normalizada; sin propósito no descifra.
+    const cipher = new ExternalKeyCipher(APP_SECRET);
+    const context = { tenantId: tenant.id, provider: "openai" as const, keyVersion: 1 };
+    expect(cipher.decrypt(row!.baseUrlCiphertext!, { ...context, purpose: "base-url" })).toBe(BASE_URL);
+    expect(() => cipher.decrypt(row!.baseUrlCiphertext!, context)).toThrow();
+  });
+
+  it("el listado muestra el host, nunca la URL completa", async () => {
+    const body = (await (await call(on, "GET", PATH, cookies.get("OWNER"))).json()) as { keys: { provider: string; baseUrlHost: string | null }[] };
+    expect(body.keys).toHaveLength(1);
+    expect(body.keys[0]).toMatchObject({ provider: "openai", baseUrlHost: "api.deepseek.com" });
+    expect(JSON.stringify(body)).not.toContain("/v1");
+  });
+
+  it("reemplazar la clave SIN baseUrl borra la URL guardada (un reemplazo es completo, no hereda)", async () => {
+    expect((await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY })).status).toBe(200);
+    expect(await baseRows(tenant.id)).toEqual([{ baseUrlCiphertext: null, baseUrlHost: null }]);
+  });
+
+  it("una baseUrl vacía o null cuenta como «sin URL»", async () => {
+    for (const baseUrl of ["", null]) {
+      expect((await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY, baseUrl })).status).toBe(200);
+      expect(await baseRows(tenant.id)).toEqual([{ baseUrlCiphertext: null, baseUrlHost: null }]);
+    }
+  });
+
+  it.each([
+    ["http sin cifrar", "http://api.deepseek.com/v1"],
+    ["IP de bucle", "https://127.0.0.1/v1"],
+    ["metadatos de nube", "https://169.254.169.254/latest"],
+    ["localhost", "https://localhost/v1"],
+    ["red privada", "https://192.168.1.10/v1"],
+    ["credenciales en la URL", "https://user:clave@api.deepseek.com/v1"],
+    ["consulta", "https://api.deepseek.com/v1?x=1"],
+    ["no es texto", 42],
+  ])("rechaza con 400 invalid_base_url: %s, sin repetirla y sin tocar lo guardado", async (_name, baseUrl) => {
+    const before = await rows(tenant.id);
+    const response = await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY, baseUrl });
+    expect(response.status).toBe(400);
+    const text = await response.text();
+    expect(JSON.parse(text)).toMatchObject({ code: "invalid_base_url" });
+    if (typeof baseUrl === "string") expect(text).not.toContain(baseUrl);
+    expect(text).not.toContain(CANARY);
+    expect(await rows(tenant.id)).toEqual(before);
+  });
+
+  it("ElevenLabs no admite baseUrl: su host es fijo", async () => {
+    const response = await call(on, "PUT", `${PATH}/elevenlabs`, cookies.get("OWNER"), { key: ELEVEN, baseUrl: BASE_URL });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "invalid_base_url" });
+  });
+
+  it("borrar la clave borra también la URL cifrada", async () => {
+    expect((await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY, baseUrl: BASE_URL })).status).toBe(200);
+    expect((await call(on, "DELETE", `${PATH}/openai`, cookies.get("OWNER"))).status).toBe(204);
+    expect(await baseRows(tenant.id)).toEqual([]);
+  });
+
+  it("la URL no aparece en Redis", async () => {
+    const redis = new Redis({ host: baseConfig.redis.host, port: baseConfig.redis.port, password: baseConfig.redis.password });
+    try {
+      expect((await call(on, "PUT", `${PATH}/openai`, cookies.get("OWNER"), { key: CANARY, baseUrl: "https://canario-url.example.com/v1" })).status).toBe(200);
+      let cursor = "0";
+      do {
+        const [next, batch] = await redis.scan(cursor, "COUNT", 500);
+        for (const name of batch) {
+          const dump = (await redis.callBuffer("DUMP", name)) as Buffer | null;
+          expect(Buffer.concat([Buffer.from(name), dump ?? Buffer.alloc(0)]).toString("latin1").includes("canario-url"), name).toBe(false);
+        }
+        cursor = next;
+      } while (cursor !== "0");
+    } finally {
+      redis.disconnect();
+      await call(on, "DELETE", `${PATH}/openai`, cookies.get("OWNER"));
+    }
   });
 });
 
