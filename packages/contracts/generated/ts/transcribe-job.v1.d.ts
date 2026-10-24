@@ -34,7 +34,22 @@ export interface TranscribeJob {
      */
     originalFilename: string;
     contentType:
-      "video/mp4" | "video/quicktime" | "video/x-matroska" | "video/webm" | "video/x-msvideo";
+      | "video/mp4"
+      | "video/quicktime"
+      | "video/x-matroska"
+      | "video/webm"
+      | "video/x-msvideo"
+      | "audio/mpeg"
+      | "audio/mp3"
+      | "audio/wav"
+      | "audio/x-wav"
+      | "audio/wave"
+      | "audio/mp4"
+      | "audio/x-m4a"
+      | "audio/m4a"
+      | "audio/ogg"
+      | "audio/flac"
+      | "audio/x-flac";
     sizeBytes: number;
   };
   /**

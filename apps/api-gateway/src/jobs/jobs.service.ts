@@ -21,15 +21,9 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { QueueService } from "../queue/queue.service.js";
 import { StorageService } from "../storage/storage.service.js";
 import { KeyedMutex } from "./keyed-mutex.js";
+import { ALLOWED_CONTENT_TYPES, type MediaKind, mediaKindOf } from "./media-kind.js";
 import { type Segment, SegmentsError, applyEdits, parseEdits, parseSegments, segmentsToSrt } from "./segments.js";
 
-export const ALLOWED_CONTENT_TYPES = [
-  "video/mp4",
-  "video/quicktime",
-  "video/x-matroska",
-  "video/webm",
-  "video/x-msvideo",
-] as const;
 
 const TERMINAL: readonly JobStatus[] = ["COMPLETED", "FAILED", "CANCELLED"];
 
@@ -53,6 +47,8 @@ export interface JobView {
   percent: number;
   message: string | null;
   originalFilename: string;
+  /** Clase del archivo de entrada: la interfaz decide por ella el reproductor y qué acciones ofrece (sin quemado ni mezcla con audio). */
+  mediaKind: MediaKind;
   sizeBytes: number;
   options: unknown;
   error: { code: string; message: string | null } | null;
@@ -72,6 +68,7 @@ export function toView(job: Job): JobView {
     percent: job.percent,
     message: job.message,
     originalFilename: job.originalFilename,
+    mediaKind: mediaKindOf(job.contentType),
     sizeBytes: Number(job.sizeBytes), // el máximo del contrato (100 GiB) cabe en un número seguro
     options: job.options,
     error: job.errorCode ? { code: job.errorCode, message: job.errorMessage } : null,
@@ -349,6 +346,9 @@ export class JobsService {
   async createBurn(tenantId: string, parentId: string, rawOptions: unknown): Promise<JobView> {
     const options = this.parseBurnOptions(rawOptions);
     const { job: parent, segmentsKey } = await this.completedTranscription(tenantId, parentId);
+    if (mediaKindOf(parent.contentType) === "audio") {
+      throw coded(BadRequestException, 400, "Bad Request", "burn_not_available_for_audio", "Un audio no tiene imagen: no se pueden quemar subtítulos. Descarga el .srt.");
+    }
     const head = await this.storage.head(segmentsKey);
     if (!head) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
 
@@ -488,6 +488,9 @@ export class JobsService {
   async createDub(tenantId: string, parentId: string, rawOptions: unknown): Promise<JobView> {
     const options = this.parseDubOptions(rawOptions);
     const { job: parent, segmentsKey: originalKey } = await this.completedTranscription(tenantId, parentId);
+    if (options.mix !== "none" && mediaKindOf(parent.contentType) === "audio") {
+      throw coded(BadRequestException, 400, "Bad Request", "mix_not_available_for_audio", "Un audio no tiene video con el que mezclar: el doblaje se entrega solo como pista .mp3.");
+    }
 
     let segmentsKey = originalKey;
     if (options.translationId !== undefined) {
