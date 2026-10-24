@@ -114,7 +114,7 @@ describe("GET /v1/jobs/:id/quality", () => {
   });
 
   it("sin ?profile usa netflix; con otro perfil mide con los umbrales de ese perfil", async () => {
-    const { id } = await completedTranscription([{ start: 0, end: 3, text: "a".repeat(30), words: null }]);
+    const { id } = await completedTranscription([{ start: 0, end: 3, text: "a".repeat(36), words: null }]);
     const netflix = (await (await get(`/v1/jobs/${id}/quality`)).json()) as { profile: string; issues: unknown[] };
     const shorts = (await (await get(`/v1/jobs/${id}/quality?profile=shorts`)).json()) as { profile: string; issues: { rule: string }[] };
     expect(netflix.profile).toBe("netflix");
@@ -139,5 +139,49 @@ describe("GET /v1/jobs/:id/quality", () => {
     await get(`/v1/jobs/${id}/quality?profile=bbc`);
     const after = (await (await get(`/v1/jobs/${id}/segments`)).json()) as { etag: string };
     expect(after.etag).toBe(etag);
+  });
+});
+
+describe("POST /v1/jobs/:id/quality/fix", () => {
+  const LONG = " Esta es una frase bastante larga que no cabe en una sola línea de subtítulo";
+  const post = (path: string, body: unknown): Promise<Response> =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const put = (path: string, body: unknown): Promise<Response> =>
+    fetch(`${base}${path}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  it("propone ediciones, no guarda nada, y aplicarlas con PUT /segments mejora el informe y conserva los tiempos por palabra", async () => {
+    const words = [{ start: 0, end: 1, text: " Esta", probability: 0.9 }];
+    const { id, etag } = await completedTranscription([
+      { start: 0, end: 6, text: LONG, words },
+      { start: 6.02, end: 8, text: " Fin", words: null },
+    ]);
+    const before = (await (await get(`/v1/jobs/${id}/quality?profile=netflix`)).json()) as { summary: { errors: number; warnings: number } };
+
+    const response = await post(`/v1/jobs/${id}/quality/fix`, { profile: "netflix" });
+    expect(response.status).toBe(200);
+    const fix = (await response.json()) as { etag: string; edits: { index: number; text?: string }[]; before: { errors: number }; after: { errors: number } };
+    expect(fix.etag).toBe(etag);
+    expect(fix.edits.length).toBeGreaterThan(0);
+    expect(fix.after.errors).toBeLessThan(fix.before.errors);
+    // proponer no guarda: los subtítulos siguen con el mismo etag
+    expect(((await (await get(`/v1/jobs/${id}/segments`)).json()) as { etag: string }).etag).toBe(etag);
+
+    const applied = await put(`/v1/jobs/${id}/segments`, { segments: fix.edits, etag: fix.etag });
+    expect(applied.status).toBe(200);
+    const stored = (await applied.json()) as { segments: { text: string; words: unknown }[] };
+    expect(stored.segments[0]!.text).toContain("\n");
+    expect(stored.segments[0]!.text.replace(/\n/g, " ")).toBe(LONG.trim());
+    expect(stored.segments[0]!.words).toEqual(words); // solo cambiaron saltos de línea y tiempos: las palabras se conservan
+
+    const after = (await (await get(`/v1/jobs/${id}/quality?profile=netflix`)).json()) as { summary: { errors: number; warnings: number } };
+    expect(after.summary.errors + after.summary.warnings).toBeLessThan(before.summary.errors + before.summary.warnings);
+  });
+
+  it("400 con un perfil desconocido y 409 si los subtítulos cambiaron desde que se calculó la propuesta", async () => {
+    const { id } = await completedTranscription([{ start: 0, end: 6, text: LONG, words: null }]);
+    expect((await post(`/v1/jobs/${id}/quality/fix`, { profile: "inventado" })).status).toBe(400);
+    const fix = (await (await post(`/v1/jobs/${id}/quality/fix`, { profile: "netflix" })).json()) as { etag: string; edits: unknown[] };
+    await put(`/v1/jobs/${id}/segments`, { segments: [{ index: 0, text: "Otro texto" }] });
+    expect((await put(`/v1/jobs/${id}/segments`, { segments: fix.edits, etag: fix.etag })).status).toBe(409);
   });
 });

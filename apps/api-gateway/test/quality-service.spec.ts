@@ -42,6 +42,24 @@ describe("QualityService", () => {
     await expect(service.report("t", "j", value)).rejects.toThrow(BadRequestException);
   });
 
+  it("propone el arreglo como ediciones aplicables con PUT /segments, sin guardar nada", async () => {
+    const getSegmentsLong = vi.fn(async () => ({
+      segments: [{ index: 0, start: 0, end: 6, text: "Esta es una frase bastante larga que no cabe en una sola línea de subtítulo", words: null }],
+      etag: "e1",
+    }));
+    const service = new QualityService({ getSegments: getSegmentsLong } as unknown as JobsService);
+    const fix = await service.fix("t", "j", "netflix");
+    expect(fix.etag).toBe("e1");
+    expect(fix.edits).toEqual([expect.objectContaining({ index: 0, text: expect.stringContaining("\n") })]);
+    expect(fix.after.errors).toBeLessThan(fix.before.errors);
+    expect(fix.changes[0]).toMatchObject({ segment: 0, kind: "line_break" });
+  });
+
+  it("un perfil desconocido en el arreglo también es 400", async () => {
+    const { service } = build();
+    await expect(service.fix("t", "j", "inventado")).rejects.toThrow(BadRequestException);
+  });
+
   it("lista los perfiles con sus umbrales para que la interfaz los muestre", () => {
     const { service } = build();
     const listed = service.profiles();
