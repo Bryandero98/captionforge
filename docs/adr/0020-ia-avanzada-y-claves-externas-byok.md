@@ -1,8 +1,8 @@
 # ADR 0020: IA avanzada (traducir y doblar) y claves externas propias (BYOK)
 
 ## Estado
-**Propuesta** (issue [#11](https://github.com/Bryandero98/captionforge/issues/11)). El Tech Lead aprobó el plan y las siete decisiones de
-abajo; el ADR pasa a «Aceptada» al cerrar el issue (tarea T12). Plan y tareas: `tasks/plan.md` y `tasks/todo.md`.
+**Aceptada** (issue [#11](https://github.com/Bryandero98/captionforge/issues/11)). El Tech Lead aprobó el plan y las siete decisiones de
+abajo; pasó a «Aceptada» al cerrar la Fase 5 (tarea T12). Plan y tareas: `tasks/plan.md` y `tasks/todo.md`.
 Se apoya en el [ADR 0003](0003-python-directo-a-postgres-y-prisma-fuente-del-esquema.md) (el worker habla con PostgreSQL con permisos
 por columna), el [ADR 0015](0015-tenencia-y-claves-de-api.md) (tenencia) y el [ADR 0019](0019-equipos-membresias-roles-e-invitaciones.md) (roles).
 

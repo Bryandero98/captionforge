@@ -43,6 +43,79 @@ placeholder changes).
 6. **Put the captions on the video.** Pick a style (Modern, TikTok, YouTube, Minimal) and, if the video has word timings,
    turn on karaoke. "Create video with captions" starts a separate job; when it finishes you can watch it on the page and
    download it.
+7. **Translate or dub (optional).** With a finished transcription and your changes saved, "Translate the captions" and
+   "Dub with a synthetic voice" create separate jobs. Translating works without an external account; dubbing needs a
+   provider key saved by the Owner. See the next sections.
+
+## External keys (Owner only)
+
+"Dub" and translating with OpenAI use **your own account** at OpenAI or ElevenLabs (BYOK, *bring your own key*). CaptionForge
+does not bill that compute: your provider does, at your account's price. Keys are stored per workspace
+(ADR [0020](adr/0020-ia-avanzada-y-claves-externas-byok.md)).
+
+1. Sign in (`LOCAL_MODE=false`) as an **Owner** of the workspace. The **External keys** button in the top bar only appears for
+   the Owner.
+2. Create an API key in your [OpenAI](https://platform.openai.com/api-keys) or ElevenLabs account.
+3. Paste it in the provider's field and press **Save**. To change it, paste the new one and press **Replace**. To remove it,
+   press **Delete** and confirm by pressing again.
+
+Good to know:
+
+- The key is stored encrypted and **never shown again**: the list only shows "Saved: …" with its last 4 characters. If you
+  lose it, paste it again.
+- Only the Owner, signed in, saves, replaces or deletes. The **Editor uses** the keys when launching jobs without seeing
+  them; the **Viewer** does not launch jobs. Workspace API keys cannot manage them either.
+- Keys belong to the workspace, not to a person: if you stop being an Owner, they stay in use for the team.
+- A key must have the provider's format (OpenAI keys start with `sk-`) and be 20 or more characters; otherwise it is rejected
+  without repeating what you pasted.
+- Never paste a key into a chat, an issue or a commit. If it leaks, revoke it in your provider's dashboard and paste another.
+- If the server does not have the feature on (no `APP_SECRET`), there is no panel and "Dub" is blocked. Whoever runs the
+  server turns it on following the [`APP_SECRET` runbook](runbook-app-secret.md).
+
+## Translate the captions
+
+1. With the transcription finished and **no unsaved changes** (if there are, the button is disabled and the page says why),
+   open "Translate the captions".
+2. Under *Engine* pick **On this machine (free)**, which uses Argos on the server, or **OpenAI (with your key)**, which needs the
+   OpenAI key saved by the Owner. Under *Translate to* pick the target language, which must differ from the detected one.
+3. Press **Translate**. With OpenAI the [spend confirmation](#spend-confirmation-and-limits) appears first.
+4. When it finishes, download the **translated .srt** or **translated .vtt**. The translation is a separate job: the original
+   captions do not change.
+
+Only one translation can run per transcription; wait for it to finish or cancel it.
+
+## Dub with a synthetic voice
+
+1. With the transcription finished and your changes saved, open "Dub with a synthetic voice".
+2. *Voice from*: OpenAI or ElevenLabs. Under *Voice* type the OpenAI voice name (for example `alloy`, `nova` or `onyx`; `alloy`
+   is suggested) or paste the ID of a voice from your ElevenLabs account.
+3. *Text to dub*: the original captions or a finished translation.
+4. *Output*: the voice track only (`.mp3`), the video with the dubbed voice **instead of** the original audio (`replace`), or
+   the video with the original audio **lowered** under the voice (`duck`).
+5. Press **Dub**, confirm the spend and download the **audio (.mp3)** or the **dubbed video (.mp4)** when it finishes.
+
+How the voice fits the timing: each phrase is sped up or slowed down between 0.85x and 1.25x to fit its slot, and two voices
+never overlap. If a phrase does not fit even at maximum speed-up, it ends later than planned and the result warns you
+("N phrases do not fit their time…"): shorten that caption or accept the offset. Blank segments are neither sent nor billed.
+Only one dub can run per transcription.
+
+## Spend confirmation and limits
+
+Before sending text to an external provider, the page opens a dialog: "This operation uses your OpenAI account. Estimate:
+≈ N characters. Your provider does the billing and it cannot be undone." Focus starts on **Cancel** and Esc also cancels, so
+Enter cannot spend by accident. Local translation does not ask, because it costs nothing.
+
+Each job has a limit of **50,000 characters** and **1,000 captions**, defaults that whoever runs the server adjusts with
+`MAX_JOB_CHARACTERS` and `MAX_JOB_SEGMENTS`. If the text exceeds them, the server rejects it **before** asking the provider
+for anything. There are no daily or monthly limits per workspace yet: total spend depends on your provider account, so it is
+worth setting a spending limit there.
+
+## In local mode
+
+On a single-person install without sign-in (`LOCAL_MODE=true`, the default) BYOK is not offered: there is no "External keys"
+button (saving keys requires being a signed-in Owner) and "Dub" is blocked with the explanation "this server does not have them
+enabled (they are not available in local mode)". **Translating keeps working with the local engine (Argos)**, with no key and
+no cost. To dub or to translate with OpenAI, use a server with sign-in (`LOCAL_MODE=false`).
 
 ## Good to know
 
@@ -86,4 +159,14 @@ Never paste the token into a chat, an issue or a commit. If it leaks, revoke it 
 | "The background noise could not be removed…" in the result | Voice separation failed (for example, no GPU memory or the component is not installed) and the original audio was transcribed: review the captions more carefully or try without the option. |
 | The "Identify who is speaking" checkbox is disabled | The server has no Hugging Face token or the component is not installed: see "Turning on speaker identification". |
 | "Who is speaking could not be identified…" in the result | Identification failed (token without access or revoked, no network, out of memory or timed out) and the normal transcription was delivered. Check that you accepted the terms of both models and try again. |
+| "The provider key is missing. A workspace Owner must save it first under “External keys”" (409, or the job fails with `EXTERNAL_KEY_MISSING`) | The workspace has no key saved for that provider. Ask an Owner to paste it under **External keys** and launch the job again. |
+| "This server does not have your own external keys enabled" | The server has no `APP_SECRET`. Whoever runs it must set it (see the [runbook](runbook-app-secret.md)); in local mode the feature does not exist. |
+| "The provider rejected the key…" (`EXTERNAL_AUTH_FAILED`) | The key is wrong, revoked or lacks permission. The Owner replaces it under **External keys**. It is not retried. |
+| "Your provider account ran out of balance or hit its limit" (`EXTERNAL_QUOTA_EXCEEDED`) | Top up the account or raise its limit in the provider's dashboard and launch the job again. It is not retried. |
+| "The provider is receiving too many requests" (`EXTERNAL_RATE_LIMITED`) | The server already retried with growing waits. Wait a few minutes and launch it again. |
+| "The provider took too long" or "is not available" (`EXTERNAL_TIMEOUT`, `EXTERNAL_UNAVAILABLE`) | Temporary provider failure, after several retries. Try again later. If it happens on every job and the key was fine, tell whoever runs the server: it may be an `APP_SECRET` problem (see the [runbook](runbook-app-secret.md)). |
+| "The text is too long for a single job" (413 or `JOB_TOO_LARGE`) | You exceed 50,000 characters or 1,000 captions (defaults). Split the video into parts. |
+| "The captions are already in that language" | The target language equals the detected one: pick another. |
+| "A translation (or dub) is already in progress…" | Only one per transcription. Wait for it to finish or cancel it. |
+| "N phrases do not fit their time…" on a dub | The audio is delivered in full; those phrases end later than planned. Shorten them in the editor and dub again if sync matters. |
 | Two tabs editing the same captions | The second one to save sees the conflict notice (nothing is lost without your decision). |

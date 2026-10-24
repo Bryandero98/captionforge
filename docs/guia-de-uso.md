@@ -42,6 +42,79 @@ ningún marcador `{x}`).
 6. **Pon los subtítulos en el video.** Elige un estilo (Moderno, TikTok, YouTube, Minimalista) y, si el video tiene
    tiempos por palabra, activa el karaoke. «Crear video con subtítulos» lanza un trabajo aparte; al terminar puedes
    verlo en la página y descargarlo.
+7. **Traduce o dobla (opcional).** Con una transcripción terminada y los cambios guardados, «Traducir los subtítulos» y
+   «Doblar con voz sintética» crean trabajos aparte. Traducir funciona sin cuenta externa; doblar necesita la clave de un
+   proveedor guardada por el Dueño. Ver las secciones siguientes.
+
+## Claves externas (solo el Dueño)
+
+«Doblar» y la traducción con OpenAI usan **tu propia cuenta** de OpenAI o ElevenLabs (BYOK, *bring your own key*). CaptionForge
+no cobra ese cómputo: lo cobra tu proveedor, al precio de tu cuenta. Las claves se guardan por espacio de trabajo
+(ADR [0020](adr/0020-ia-avanzada-y-claves-externas-byok.md)).
+
+1. Inicia sesión (`LOCAL_MODE=false`) con un usuario **Dueño** del espacio. El botón **Claves externas** de la barra superior solo
+   aparece para el Dueño.
+2. Crea una clave de API en tu cuenta de [OpenAI](https://platform.openai.com/api-keys) o de ElevenLabs.
+3. Pégala en el campo del proveedor y pulsa **Guardar**. Para cambiarla, pega la nueva y pulsa **Reemplazar**. Para quitarla,
+   **Borrar** y confirma pulsando otra vez.
+
+Qué hay que saber:
+
+- La clave se guarda cifrada y **no se vuelve a mostrar**: la lista solo enseña «Guardada: …» con sus últimos 4 caracteres.
+  Si la pierdes, vuelve a pegarla.
+- Solo el Dueño, con sesión, guarda, reemplaza o borra. El **Editor usa** las claves al lanzar trabajos sin verlas; el **Lector**
+  no lanza trabajos. Las claves de API del espacio tampoco pueden gestionarlas.
+- Las claves son del espacio, no de la persona: si dejas de ser Dueño, siguen en uso para el equipo.
+- Una clave debe tener el formato del proveedor (OpenAI empieza por `sk-`) y 20 o más caracteres; si no, se rechaza sin repetir lo
+  que pegaste.
+- Nunca pegues una clave en un chat, un issue o un commit. Si se filtra, revócala en el panel de tu proveedor y pega otra.
+- Si el servidor no tiene activada la función (no hay `APP_SECRET`), no hay panel y «Doblar» queda bloqueado. Quien administra el
+  servidor la activa según el [runbook de `APP_SECRET`](runbook-app-secret.md).
+
+## Traducir los subtítulos
+
+1. Con la transcripción terminada y **sin cambios sin guardar** (si los hay, el botón se desactiva y la página lo explica),
+   abre «Traducir los subtítulos».
+2. En *Motor* elige **En este equipo (sin costo)**, que usa Argos en el servidor, u **OpenAI (con tu clave)**, que necesita la clave
+   de OpenAI guardada por el Dueño. En *Traducir a* elige el idioma de destino, que debe ser distinto del detectado.
+3. Pulsa **Traducir**. Con OpenAI aparece antes la [confirmación de gasto](#confirmación-de-gasto-y-topes).
+4. Al terminar descarga el **.srt traducido** o el **.vtt traducido**. La traducción es un trabajo aparte: los subtítulos
+   originales no cambian.
+
+Solo puede haber una traducción en curso por transcripción; espera a que termine o cancélala.
+
+## Doblar con voz sintética
+
+1. Con la transcripción terminada y los cambios guardados, abre «Doblar con voz sintética».
+2. *Voz de*: OpenAI o ElevenLabs. En *Voz* escribe el nombre de la voz de OpenAI (por ejemplo `alloy`, `nova` u `onyx`; viene
+   `alloy` propuesta) o pega el ID de una voz de tu cuenta de ElevenLabs.
+3. *Texto a doblar*: los subtítulos originales o una traducción ya terminada.
+4. *Salida*: solo la pista de voz (`.mp3`), el video con la voz doblada **en lugar** del audio original (`replace`), o el video
+   con el audio original **bajado** bajo la voz (`duck`).
+5. Pulsa **Doblar**, confirma el gasto y descarga el **audio (.mp3)** o el **video doblado (.mp4)** al terminar.
+
+Cómo encaja la voz en el tiempo: cada frase se acelera o se frena entre 0,85x y 1,25x para caber en su hueco, y nunca se
+solapan dos voces. Si una frase no cabe ni acelerando al máximo, termina después de lo previsto y el resultado avisa
+(«N frases no caben en su tiempo…»): acorta ese subtítulo o acepta el desfase. Los segmentos en blanco no se envían ni se
+cobran. Solo puede haber un doblaje en curso por transcripción.
+
+## Confirmación de gasto y topes
+
+Antes de enviar texto a un proveedor externo, la página abre un cuadro: «Esta operación usa tu cuenta de OpenAI. Estimación:
+≈ N caracteres. El cobro lo hace tu proveedor y no se puede deshacer». El foco empieza en **Cancelar** y Esc también cancela,
+así que Enter no gasta por descuido. La traducción local no pregunta, porque no cuesta.
+
+Cada trabajo tiene un tope de **50 000 caracteres** y **1 000 subtítulos**, valores por defecto que quien administra el servidor
+ajusta con `MAX_JOB_CHARACTERS` y `MAX_JOB_SEGMENTS`. Si el texto lo supera, el servidor lo rechaza **antes** de pedir nada al
+proveedor. Aún no hay topes diarios ni mensuales por espacio: el gasto total depende de tu cuenta con el proveedor, así que
+conviene fijar un límite de gasto allí.
+
+## En modo local
+
+En una instalación de una sola persona sin inicio de sesión (`LOCAL_MODE=true`, la predeterminada) no se ofrece BYOK:
+no hay botón «Claves externas» (guardar claves exige ser Dueño con sesión) y «Doblar» queda bloqueado con la explicación «este
+servidor no las tiene activadas (no están disponibles en modo local)». **Traducir sigue funcionando con el motor local (Argos)**,
+sin clave ni costo. Para doblar o traducir con OpenAI, usa un servidor con inicio de sesión (`LOCAL_MODE=false`).
 
 ## Qué hay que saber
 
@@ -84,4 +157,14 @@ Nunca pegues el token en un chat, un issue ni un commit. Si se filtra, revócalo
 | «No se pudo limpiar el ruido de fondo…» en el resultado | La separación de voz falló (por ejemplo, sin memoria de GPU o sin el componente instalado) y se transcribió el audio original: revisa los subtítulos con más atención o prueba sin la opción. |
 | La casilla «Identificar quién habla» está desactivada | El servidor no tiene el token de Hugging Face ni el componente instalado: ver «Activar la identificación de hablantes». |
 | «No se pudo identificar quién habla…» en el resultado | La identificación falló (token sin permiso o revocado, sin red, sin memoria o tiempo agotado) y se entregó la transcripción normal. Comprueba que aceptaste las condiciones de los dos modelos y vuelve a intentarlo. |
+| «Falta la clave del proveedor. Un Dueño del espacio debe guardarla antes en “Claves externas”» (409, o el trabajo falla con `EXTERNAL_KEY_MISSING`) | El espacio no tiene guardada la clave de ese proveedor. Pide a un Dueño que la pegue en **Claves externas** y vuelve a lanzar el trabajo. |
+| «Este servidor no tiene activadas las claves externas propias» | El servidor no tiene `APP_SECRET`. Quien lo administra debe definirlo (ver el [runbook](runbook-app-secret.md)); en modo local la función no existe. |
+| «El proveedor rechazó la clave…» (`EXTERNAL_AUTH_FAILED`) | La clave es incorrecta, está revocada o no tiene permiso. El Dueño la reemplaza en **Claves externas**. No se reintenta. |
+| «Tu cuenta del proveedor se quedó sin saldo o llegó a su límite» (`EXTERNAL_QUOTA_EXCEEDED`) | Recarga la cuenta o sube su límite en el panel del proveedor y lanza el trabajo de nuevo. No se reintenta. |
+| «El proveedor está recibiendo demasiadas peticiones» (`EXTERNAL_RATE_LIMITED`) | El servidor ya reintentó con esperas crecientes. Espera unos minutos y vuelve a lanzarlo. |
+| «El proveedor tardó demasiado» o «no está disponible» (`EXTERNAL_TIMEOUT`, `EXTERNAL_UNAVAILABLE`) | Fallo temporal del proveedor, tras varios reintentos. Inténtalo más tarde. Si ocurre con todos los trabajos y la clave estaba bien, avisa a quien administra el servidor: puede ser un problema de `APP_SECRET` (ver el [runbook](runbook-app-secret.md)). |
+| «El texto es demasiado largo para un solo trabajo» (413 o `JOB_TOO_LARGE`) | Superas 50 000 caracteres o 1 000 subtítulos (valores por defecto). Divide el video en partes. |
+| «Los subtítulos ya están en ese idioma» | El idioma de destino coincide con el detectado: elige otro. |
+| «Ya hay una traducción (o un doblaje) en curso…» | Solo uno por transcripción. Espera a que termine o cancélalo. |
+| «N frases no caben en su tiempo…» en un doblaje | El audio se entrega completo; esas frases terminan después de lo previsto. Acórtalas en el editor y dobla de nuevo si importa el sincronismo. |
 | Dos pestañas editando lo mismo | La segunda en guardar verá el aviso de conflicto (no se pierde nada sin que lo decidas). |

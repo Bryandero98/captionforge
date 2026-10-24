@@ -62,8 +62,8 @@ Regla: rojo → verde en cada tarea, un commit por tarea, `graphify update` al t
   - Verificación: pruebas web, e2e de navegador (clics DOM), revisión de textos en los 6 idiomas.
 
 ## Fase 5: cierre
-- [ ] T12 (M) Documentación y operación. ADR 0020 "Aceptada", `architecture_and_security.md`, guías ES/EN, `.env.example`, `start.sh/bat` generan `APP_SECRET` y `WORKER_INTERNAL_TOKEN`, compose (puerto interno, `API_INTERNAL_URL` del worker), CI.
-- [ ] T13 (XS) Revisión independiente (seguridad, base de datos, fallos silenciosos), `graphify update`, apagar infraestructura, PR único con commits por tarea.
+- [x] T12 (M) Documentación y operación. ADR 0020 "Aceptada", `architecture_and_security.md`, guías ES/EN, `.env.example`, `start.sh/bat` generan `APP_SECRET` y `WORKER_INTERNAL_TOKEN`, compose (puerto interno, `API_INTERNAL_URL` del worker), CI.
+- [x] T13 (XS) Revisión independiente (seguridad, base de datos, fallos silenciosos), `graphify update`, apagar infraestructura, PR único con commits por tarea.
 
 ### Punto de control: listo para revisión
 - [ ] Todos los criterios cumplidos, CI verde, canario limpio, plan de reversión (migración aditiva, función apagable sin `APP_SECRET`).
