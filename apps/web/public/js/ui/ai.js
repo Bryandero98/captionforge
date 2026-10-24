@@ -8,7 +8,7 @@
 
 import { fetchArtifact as defaultFetchArtifact, saveBlobAs } from "../api/download.js";
 import { ApiError } from "../api/errors.js";
-import { cancelJob, getSegments, startDub as defaultStartDub, startTranslate as defaultStartTranslate } from "../api/jobs.js";
+import { cancelJob, startDub as defaultStartDub, startTranslate as defaultStartTranslate } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { NO_CAPABILITIES } from "../api/capabilities.js";
 import { formatCount } from "../domain/spend.js";
@@ -22,6 +22,13 @@ const DUB_MIXES = /** @type {const} */ (["none", "replace", "duck"]);
 const DEFAULT_MIX = "replace";
 const OPENAI_DEFAULT_VOICE = "alloy";
 const EXTERNAL_TRANSLATE = "openai";
+
+/** Los subtítulos traducidos tal como los guarda el worker. Una forma rara es una respuesta que no es del API. @param {unknown} data @returns {{ start: number, end: number, text: string }[]} */
+function translatedSegments(data) {
+  const valid = (/** @type {any} */ item) => item !== null && typeof item === "object" && typeof item.text === "string" && Number.isFinite(item.start) && Number.isFinite(item.end);
+  if (!Array.isArray(data) || !data.every(valid)) throw ApiError.local("bad_response");
+  return data;
+}
 
 /**
  * @param {{
@@ -37,14 +44,14 @@ const EXTERNAL_TRANSLATE = "openai";
  *   onOpenParent: (parentId: string) => void,
  *   follower?: typeof followJob, cancel?: typeof cancelJob,
  *   startTranslate?: typeof defaultStartTranslate, startDub?: typeof defaultStartDub,
- *   fetchSegments?: typeof getSegments, fetchArtifact?: typeof defaultFetchArtifact,
+ *   fetchArtifact?: typeof defaultFetchArtifact,
  *   save?: (file: { blob: Blob, filename: string }) => void | Promise<void>,
  * }} deps `t` es el traductor inicial; `refresh(next)` lo cambia
  */
 export function createAi({
   doc, win, baseUrl, t: initialT, lang, announce, context, canLaunch, capabilities, spend, onStarted, onOpenParent,
   follower = followJob, cancel = cancelJob, startTranslate = defaultStartTranslate, startDub = defaultStartDub,
-  fetchSegments = getSegments, fetchArtifact = defaultFetchArtifact, save = (file) => saveBlobAs({ doc, win, ...file }),
+  fetchArtifact = defaultFetchArtifact, save = (file) => saveBlobAs({ doc, win, ...file }),
 }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
@@ -282,7 +289,8 @@ export function createAi({
     const job = translatePanel.state.job;
     if (job === null) return;
     void deliver("translate", async () => {
-      const { segments } = await fetchSegments({ baseUrl, jobId: job.id });
+      // GET /segments es solo de las transcripciones: la traducción se lee de su propio artefacto (una lista de subtítulos).
+      const segments = translatedSegments(await (await fetchArtifact({ baseUrl, jobId: job.id, name: "segments" })).json());
       const language = /** @type {{ targetLanguage?: unknown } | null} */ (job.result ?? null)?.targetLanguage;
       const original = typeof job.originalFilename === "string" ? job.originalFilename : "";
       const filename = downloadName(original, `${typeof language === "string" ? language : "translated"}.${format}`);

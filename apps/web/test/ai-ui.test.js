@@ -31,7 +31,7 @@ function setup({ capabilities = ON, context = ctx(), canLaunch = true, spendAnsw
   for (const id of ["translate-form", "dub-form", "translate-panel", "dub-panel", "translate-dl-srt", "translate-dl-vtt", "dub-dl-audio", "dub-dl-video", "dub-overflow", "translate-cancel", "dub-cancel", "translate-reconnect", "dub-reconnect", "translate-open-parent", "dub-open-parent", "translate-hint", "dub-hint"]) elements[id].hidden = true;
   elements["translate-provider"].value = "argos";
   const doc = { documentElement: { lang: "es" }, activeElement: null, body: new FakeElement(), getElementById: (id) => elements[id] ?? null, createElement: () => new FakeElement() };
-  const state = { context, asked: [], followed: [], started: [], translateCalls: [], dubCalls: [], saved: [], cancelled: [], segmentCalls: [], artifactCalls: [], feed };
+  const state = { context, asked: [], followed: [], started: [], translateCalls: [], dubCalls: [], saved: [], cancelled: [], artifactCalls: [], feed, translated: [{ start: 0, end: 2, text: " Hello world" }, { start: 2, end: 4, text: "Second" }] };
   const spend = { ask: async (spendRequest) => (state.asked.push(spendRequest), spendAnswer) };
   const follower = async ({ jobId, onJob }) => {
     state.followed.push(jobId);
@@ -62,8 +62,10 @@ function setup({ capabilities = ON, context = ctx(), canLaunch = true, spendAnsw
       return jobView("DUB", "QUEUED");
     },
     cancel: cancel ?? (async ({ jobId }) => (state.cancelled.push(jobId), jobView("TRANSLATE", "CANCELLED"))),
-    fetchSegments: async ({ jobId }) => (state.segmentCalls.push(jobId), { etag: "x", segments: [{ start: 0, end: 2, text: " Hello world" }, { start: 2, end: 4, text: "Second" }] }),
-    fetchArtifact: async ({ jobId, name }) => (state.artifactCalls.push({ jobId, name }), { blob: async () => new Blob([`bytes:${name}`]) }),
+    fetchArtifact: async ({ jobId, name }) => (
+      state.artifactCalls.push({ jobId, name }),
+      { blob: async () => new Blob([`bytes:${name}`]), json: async () => state.translated }
+    ),
     save: async ({ blob, filename }) => state.saved.push({ filename, text: await blob.text() }),
   });
   return { ai, elements, state, el: (id) => elements[id] };
@@ -205,7 +207,8 @@ describe("traducir: seguimiento y descargas", () => {
     await flush();
     el("translate-dl-vtt").fire("click");
     await flush();
-    assert.deepEqual(state.segmentCalls, [TRANSLATION, TRANSLATION]);
+    // La traducción se lee de su artefacto: GET /segments es solo de las transcripciones (409 para una traducción).
+    assert.deepEqual(state.artifactCalls, [{ jobId: TRANSLATION, name: "segments" }, { jobId: TRANSLATION, name: "segments" }]);
     assert.deepEqual(state.saved.map((file) => file.filename), ["charla.en.srt", "charla.en.vtt"]);
     assert.match(state.saved[0].text, /1\n00:00:00,000 --> 00:00:02,000\nHello world/);
     assert.match(state.saved[1].text, /^WEBVTT/);
@@ -228,6 +231,20 @@ describe("traducir: seguimiento y descargas", () => {
     assert.match(el("translate-status").textContent, /saldo|límite/);
     assert.doesNotMatch(el("translate-status").textContent, /interno/);
     assert.equal(el("translate-detail").hidden, true);
+  });
+});
+
+describe("traducir: descarga de una respuesta rota", () => {
+  it("si el artefacto no tiene la forma de unos subtítulos lo dice y no entrega ningún archivo", async () => {
+    const { el, state } = await ready({ feed: [translateDone()] });
+    state.translated = { no: "es una lista" };
+    el("translate-form").fire("submit");
+    await flush();
+    el("translate-dl-srt").fire("click");
+    await flush();
+    assert.deepEqual(state.saved, []);
+    assert.equal(el("translate-hint").hidden, false);
+    assert.match(el("translate-hint").textContent, /respuesta|servidor|inesperad/i);
   });
 });
 

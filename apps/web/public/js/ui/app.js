@@ -35,10 +35,11 @@ const MODELS = ["base", "small", "medium"];
  *   fetchJob?: typeof getJob,
  *   capabilities?: typeof getCapabilities,
  *   canLaunch?: boolean,
+ *   byokAvailable?: boolean,
  *   onTranslate?: (t: (key: string, params?: Record<string, string | number>) => string) => void,
  * }} deps
  */
-export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob, capabilities = getCapabilities, canLaunch = true, onTranslate = () => {} }) {
+export function createApp({ doc, win, config, uploader = uploadVideo, follower = followJob, fetchJob = getJob, capabilities = getCapabilities, canLaunch = true, byokAvailable = true, onTranslate = () => {} }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -150,7 +151,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     announce: (text) => announce(text),
     context: () => results.context,
     canLaunch,
-    capabilities: () => found,
+    // Las claves externas se guardan con una sesión de Dueño: sin sesión (modo local) nadie puede ponerlas, aunque el servidor tenga APP_SECRET.
+    capabilities: () => found.then((all) => (byokAvailable ? all : { ...all, byok: { enabled: false, providers: [] } })),
     spend,
     follower,
     onStarted: (job, parentName, kind) => history.add({ id: job.id, name: parentName, kind, at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),

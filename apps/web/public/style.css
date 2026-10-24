@@ -290,6 +290,23 @@ main {
   font-weight: 600;
 }
 
+.field input[type="text"],
+.field input[type="password"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  color: var(--text);
+  font: inherit;
+  transition: border-color 150ms ease;
+}
+.field input[type="text"]:hover,
+.field input[type="password"]:hover {
+  border-color: var(--text-dim);
+}
+
 select {
   width: 100%;
   min-height: 44px;
@@ -521,6 +538,9 @@ select:disabled {
 }
 .ai .options {
   align-items: start;
+}
+.ai .field--wide {
+  grid-column: 1 / -1;
 }
 .ai .field input,
 .ai .field select {

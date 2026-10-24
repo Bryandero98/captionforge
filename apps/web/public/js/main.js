@@ -64,6 +64,7 @@ createApp({
   doc: document,
   // Un Lector ve y descarga, pero no lanza trabajos (traducir y doblar pueden costar dinero); el API también lo exige.
   canLaunch: !(access.mode === "session" && access.me?.role === "VIEWER"),
+  byokAvailable: access.mode === "session",
   win: window,
   config,
   onTranslate: (t) => {
