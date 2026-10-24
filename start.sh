@@ -7,22 +7,9 @@ cd "$(dirname "$0")"
 
 PORT="${CF_PORT:-3000}"
 URL="http://localhost:${PORT}"
-# Las ocho credenciales obligatorias de .env.example (solo letras y números: van dentro de URLs de conexión).
-SECRETS="POSTGRES_PASSWORD CF_OWNER_DB_PASSWORD CF_API_DB_PASSWORD CF_WORKER_DB_PASSWORD REDIS_PASSWORD S3_ROOT_PASSWORD S3_API_SECRET_KEY S3_WORKER_SECRET_KEY"
-# La clave de API del tenant por defecto (ADR 0015): cfk_ + 256 bits aleatorios.
 
 say() { printf '%s\n' "$*"; }
 fail() { printf '\nNo se pudo continuar: %s\n' "$*" >&2; exit 1; }
-
-random_secret() {
-  bytes="${1:-18}"
-  if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex "$bytes"
-  else
-    # Hexadecimal del generador del sistema operativo.
-    od -An -N"$bytes" -tx1 /dev/urandom | tr -d ' \n'
-  fi
-}
 
 # --- 1. Docker ---------------------------------------------------------------------------------
 command -v docker >/dev/null 2>&1 || fail "Docker no está instalado. Instálalo desde https://docs.docker.com/get-docker/ y vuelve a ejecutar ./start.sh"
@@ -30,36 +17,10 @@ docker compose version >/dev/null 2>&1 || fail "Falta «docker compose» (v2). A
 docker info >/dev/null 2>&1 || fail "Docker está instalado pero no responde. Abre Docker Desktop (o inicia el servicio de Docker) y vuelve a ejecutar ./start.sh"
 
 # --- 2. .env con contraseñas propias -------------------------------------------------------------
-if [ -f .env ]; then
-  say "Se usa el .env que ya existe (no se modifica)."
-else
-  [ -f .env.example ] || fail "No encuentro .env.example en $(pwd). Ejecuta el script desde la carpeta de CaptionForge."
-  say "Creando .env con contraseñas aleatorias..."
-  umask 077
-  : > .env.tmp
-  while IFS= read -r line || [ -n "$line" ]; do
-    key="${line%%=*}"
-    for secret in $SECRETS; do
-      if [ "$key" = "$secret" ]; then
-        line="${secret}=$(random_secret)"
-        break
-      fi
-    done
-    if [ "$key" = "DEFAULT_API_KEY" ]; then line="DEFAULT_API_KEY=cfk_$(random_secret 32)"; fi
-    printf '%s\n' "$line" >> .env.tmp
-  done < .env.example
-  mv .env.tmp .env
-  chmod 600 .env
-  say ".env creado. Guárdalo: tiene las contraseñas de tu instalación (no se sube a git)."
-fi
-# Un .env anterior a la tenencia (ADR 0015) no trae la clave de API: se añade sin tocar nada más.
-if ! grep -Eq '^DEFAULT_API_KEY=.+' .env; then
-  say "Añadiendo DEFAULT_API_KEY al .env (clave de la interfaz local)..."
-  grep -v '^DEFAULT_API_KEY=' .env > .env.tmp || true
-  printf 'DEFAULT_API_KEY=cfk_%s\n' "$(random_secret 32)" >> .env.tmp
-  mv .env.tmp .env
-  chmod 600 .env
-fi
+# tools/ensure-env.sh crea el .env o, si ya existe, solo añade lo que falte (DEFAULT_API_KEY, APP_SECRET, WORKER_INTERNAL_TOKEN) sin
+# cambiar ningún valor. APP_SECRET nunca se regenera: cambiarlo deja ilegibles las claves externas guardadas.
+[ -f tools/ensure-env.sh ] || fail "No encuentro tools/ensure-env.sh en $(pwd). Ejecuta el script desde la carpeta de CaptionForge."
+bash tools/ensure-env.sh || fail "no se pudo crear o completar el .env."
 
 # --- 3. Levantar todo ----------------------------------------------------------------------------
 say "Levantando PostgreSQL, Redis, S3, la API y el worker (la primera vez tarda unos minutos)..."

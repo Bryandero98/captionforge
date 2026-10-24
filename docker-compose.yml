@@ -239,6 +239,9 @@ services:
       INTERNAL_HOST: 0.0.0.0
       INTERNAL_PORT: ${WORKER_INTERNAL_TOKEN:+3100}
       WORKER_INTERNAL_TOKEN: ${WORKER_INTERNAL_TOKEN:-}
+      # Topes de gasto por trabajo (413 job_too_large antes de encolar).
+      MAX_JOB_CHARACTERS: ${MAX_JOB_CHARACTERS:-50000}
+      MAX_JOB_SEGMENTS: ${MAX_JOB_SEGMENTS:-1000}
       # Páginas web ajenas (ADR 0011): solo estos nombres de host y estos orígenes de navegador. Vacío = solo mismo origen.
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
@@ -365,6 +368,8 @@ services:
       # Claves externas (ADR 0020): el worker las pide al API por la red interna, justo antes de usarlas. Sin token, no hay trabajos con BYOK.
       API_INTERNAL_URL: http://api-gateway:3100
       WORKER_INTERNAL_TOKEN: ${WORKER_INTERNAL_TOKEN:-}
+      MAX_JOB_CHARACTERS: ${MAX_JOB_CHARACTERS:-50000}
+      MAX_JOB_SEGMENTS: ${MAX_JOB_SEGMENTS:-1000}
     volumes:
       - model_cache:/models
       # Archivos de trabajo (videos de hasta 4 GiB): volumen, no tmpfs, porque tmpfs cuenta
