@@ -117,3 +117,36 @@ describe("confirmación del gasto", () => {
     assert.equal(elements["spend-confirm-title"].textContent, "Confirm the spend?");
   });
 });
+
+describe("confirmación del gasto con modelo y servidor propios (ADR 0022)", () => {
+  it("añade el servidor y el modelo configurados al texto, tras la estimación", async () => {
+    const { elements, spend } = setup();
+    const answer = spend.ask({ provider: "openai", characters: 800, model: "deepseek-chat", host: "api.deepseek.com" });
+    await Promise.resolve();
+    const body = elements["spend-confirm-body"].textContent;
+    assert.match(body, /Servidor: api\.deepseek\.com/);
+    assert.match(body, /Modelo: deepseek-chat/);
+    assert.match(body, /≈\s*800 caracteres/);
+    elements["spend-confirm-no"].fire("click");
+    await answer;
+  });
+
+  it("sin modelo ni servidor el texto no cambia", async () => {
+    const { elements, spend } = setup();
+    const answer = spend.ask({ provider: "openai", characters: 800 });
+    await Promise.resolve();
+    assert.doesNotMatch(elements["spend-confirm-body"].textContent, /Servidor|Modelo/);
+    elements["spend-confirm-no"].fire("click");
+    await answer;
+  });
+
+  it("el modelo y el servidor entran como texto, nunca como HTML", async () => {
+    const { elements, spend } = setup();
+    const answer = spend.ask({ provider: "openai", characters: 1, model: "<img src=x onerror=alert(1)>", host: "<b>x</b>" });
+    await Promise.resolve();
+    assert.equal(elements["spend-confirm-body"].textContent.includes("<img src=x"), true); // se ve literal
+    assert.equal(elements["spend-confirm-body"].innerHTML === undefined || elements["spend-confirm-body"].innerHTML === "", true);
+    elements["spend-confirm-no"].fire("click");
+    await answer;
+  });
+});
