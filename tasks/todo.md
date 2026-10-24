@@ -7,7 +7,7 @@ no fusionar sin orden del Tech Lead. **Estado: borrador, nada aprobado ni empeza
 - [ ] T0 (S) ADR 0021 (calidad) y ADR 0022 (estilos dinámicos y licencias) en «Propuesta»; el Tech Lead resuelve las 6 decisiones pendientes del plan.
 
 ## Fase 1: contratos y datos
-- [~] T1 (S) Perfiles (hechos como módulo TS tipado; falta contrastar los umbrales con cada fuente) `netflix`, `bbc`, `accessible`, `shorts` como JSON con esquema, fuente citada y pruebas de tabla.
+- [x] T1 (S) Perfiles (módulo TS tipado; umbrales contrastados con Netflix y DCMP, BBC sin fuente primaria y shorts criterio propio, declarado en `verification`) `netflix`, `bbc`, `accessible`, `shorts` como JSON con esquema, fuente citada y pruebas de tabla.
   - Criterios: cada umbral cita su guía; el esquema rechaza reglas desconocidas.
 - [ ] T2 (S) `Segment` y `Word` formales en `packages/contracts` (opcionales, aditivo); `burn-job` con `template` y `canvas` opcionales.
   - Verificación: `contracts:check` y paridad Node/Python; el quemado sin campos nuevos no cambia.
@@ -16,9 +16,9 @@ no fusionar sin orden del Tech Lead. **Estado: borrador, nada aprobado ni empeza
 - [x] T3 (M) Verificador puro (CPS, CPL, líneas, duración, separación, solape, equilibrio) y `GET /v1/jobs/:id/quality`.
   - Criterios: mismo permiso que ver segmentos; 404/409 coherentes; sin tocar la base.
   - Verificación: pruebas de tabla + `quality.e2e.spec.ts`.
-- [ ] T4 (M) Propuesta de arreglo (`POST …/quality/fix`), invariantes con pruebas de propiedades.
+- [x] T4 (M) Propuesta de arreglo (`POST …/quality/fix`), invariantes con pruebas de propiedades.
   - Criterios: texto idéntico sin saltos; sin solapes nuevos; idempotente.
-- [ ] T5 (M) Panel «Calidad» en la interfaz, 6 idiomas, accesible, aplicar la propuesta con el flujo de edición (ETag).
+- [x] T5 (M) Panel «Calidad» en la interfaz, 6 idiomas, accesible, aplicar la propuesta con el flujo de edición (ETag).
   - Verificación: pruebas web + e2e de navegador (clics DOM).
 
 ### Punto de control: calidad
