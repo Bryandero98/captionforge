@@ -19,8 +19,8 @@ Plan: [plan.md](plan.md). Rojo → verde, una suite del API a la vez, commit por
 - [x] T9 (S) Documentación ES/EN y README (Multi-LLM + Ollama con ALLOW_PRIVATE_BASE_URLS).
 
 ## Fase 2: audio universal
-- [ ] T10 (M) Validación de tipos de audio en servidor (tipo declarado + `ffprobe`) y cliente; `mediaKind` en el trabajo.
-- [ ] T11 (M) Worker: transcribir audio puro; rechazar `burn` sobre audio.
+- [x] T10 (M) Validación de tipos de audio en servidor (tipo declarado + `ffprobe`) y cliente; `mediaKind` en el trabajo.
+- [x] T11 (M) Worker: transcribir audio puro; rechazar `burn` sobre audio.
 - [ ] T12 (M) UI: `<audio controls>` y ocultar video, estilos y quemado.
 - [ ] T13 (M) Doblaje de audio a `.mp3`, mezcla desactivada y validada en el servidor.
 - [ ] T14 (S) Documentación, 6 idiomas, e2e en navegador con un MP3 real.

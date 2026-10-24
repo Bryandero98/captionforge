@@ -19,7 +19,7 @@ from captionforge.pipeline import _run_ffmpeg
 from captionforge_contracts import DubJob, DubResult
 
 from .adapters import Adapters
-from .audio import MAX_TEMPO, RATE, has_audio_stream, join_wavs, plan_tempo, wav_duration, write_silence
+from .audio import MAX_TEMPO, RATE, has_audio_stream, has_video_stream, join_wavs, plan_tempo, wav_duration, write_silence
 from .config import WorkerConfig
 from .errors import JobCancelled, JobFailure
 from .progress import Progress
@@ -134,6 +134,9 @@ class DubRunner:
             video = job_dir / "input.bin"
             await asyncio.to_thread(self._storage.download, payload.input.bucket, payload.input.objectKey, video)
             self._check(cancel)
+            if not await has_video_stream(video):
+                # Antes de sintetizar nada: con un audio no hay imagen donde mezclar la voz.
+                raise JobFailure("MIX_NEEDS_VIDEO", "Un archivo de audio no tiene video con el que mezclar: el doblaje se entrega solo como pista .mp3.")
 
         pending = [index for index, segment in enumerate(segments) if segment.text.strip()]
         pieces: list[Piece] = []
