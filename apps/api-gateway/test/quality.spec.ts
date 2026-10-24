@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Segment } from "../src/jobs/segments.js";
-import { PROFILES, QUALITY_PROFILE_IDS, getProfile, validateProfile } from "../src/quality/profiles.js";
+import { PROFILES, QUALITY_PROFILE_IDS, type QualityProfile, getProfile, validateProfile } from "../src/quality/profiles.js";
 import { checkQuality } from "../src/quality/verifier.js";
 
 const netflix = getProfile("netflix");
@@ -29,7 +29,7 @@ describe("perfiles", () => {
     ["verificación desconocida", { verification: "dudoso" }],
     ["identificador con mayúsculas o espacios", { id: "Mi Perfil" }],
   ])("rechaza un perfil con %s", (_name, change) => {
-    expect(() => validateProfile({ ...netflix, ...change })).toThrow();
+    expect(() => validateProfile({ ...netflix, ...change } as QualityProfile)).toThrow();
   });
 
   it("las cifras verificadas de Netflix coinciden con la guía publicada", () => {
