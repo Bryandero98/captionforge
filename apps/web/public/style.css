@@ -279,6 +279,165 @@ main {
   }
 }
 
+/* ---------- temas visuales (v1.3.0) ---------- */
+
+/* Los mismos tipos de letra que el motor de render (SIL OFL 1.1), recortados al alfabeto latino. Solo se piden al usarlos. */
+@font-face {
+  font-family: "CF Montserrat";
+  src: url("/fonts/montserrat-800-latin.woff") format("woff");
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CF Nunito";
+  src: url("/fonts/nunito-800-latin.woff") format("woff");
+  font-weight: 800;
+  font-display: swap;
+}
+
+.themes {
+  display: grid;
+  gap: 12px;
+}
+.theme-preview {
+  container-type: size;
+  display: grid;
+  place-items: end center;
+  overflow: hidden;
+  width: 100%;
+  margin-inline: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(120% 90% at 20% 10%, var(--surface-2), transparent 60%),
+    linear-gradient(160deg, #3a4150, #161a21);
+}
+.theme-preview[data-frame="source"] {
+  aspect-ratio: 16 / 9;
+  max-width: 28rem;
+}
+.theme-preview[data-frame="vertical"] {
+  aspect-ratio: 9 / 16;
+  max-width: 11rem;
+}
+.theme-preview__text,
+.theme-card__sample {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 0.28em;
+  max-width: 94%;
+  font-family: var(--cf-font, inherit);
+  font-weight: var(--cf-weight, 800);
+  text-transform: var(--cf-transform, none);
+  line-height: 1.15;
+  text-align: center;
+}
+.theme-preview__text {
+  /* El tamaño y el margen son proporciones de la altura del marco, como en el motor de render. */
+  font-size: calc(var(--cf-size, 0.06) * 100cqh);
+  margin-block-end: calc(var(--cf-margin, 0.1) * 100cqh);
+}
+.theme-card__sample {
+  font-size: 1rem;
+  min-height: 1.4em;
+}
+.cf-word {
+  color: var(--cf-base, #fff);
+  -webkit-text-stroke: calc(var(--cf-outline, 0.004) * 200cqh) var(--cf-outline-colour, #000);
+  paint-order: stroke fill;
+  background: var(--cf-box, transparent);
+  transition: color 120ms linear;
+}
+.theme-card__sample .cf-word {
+  -webkit-text-stroke-width: 0.05em;
+}
+.cf-word[data-state="active"],
+.cf-word[data-state="sung"] {
+  color: var(--cf-lit, #ff0);
+}
+.theme-preview[data-mode="pop"] .cf-word[data-state="active"] {
+  display: inline-block;
+  animation: cf-pop 260ms var(--ease-out) both;
+}
+@keyframes cf-pop {
+  from { transform: scale(1); }
+  45% { transform: scale(var(--cf-pop, 1.2)); }
+  to { transform: scale(1); }
+}
+.themes__gallery {
+  display: grid;
+  gap: 14px;
+}
+.theme-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 8px;
+}
+.theme-group__label {
+  grid-column: 1 / -1;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.theme-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 120ms var(--ease-out);
+}
+.theme-card:hover:not([aria-disabled="true"]) {
+  border-color: var(--accent);
+}
+.theme-card:active:not([aria-disabled="true"]) {
+  transform: scale(0.98);
+}
+.theme-card.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.theme-card.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.theme-card__sample {
+  justify-content: flex-start;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: linear-gradient(160deg, #3a4150, #161a21);
+  overflow: hidden;
+}
+.theme-card__name {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.theme-card__desc {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cf-word,
+  .theme-card {
+    transition: none;
+  }
+  .theme-preview[data-mode="pop"] .cf-word[data-state="active"] {
+    animation: none;
+  }
+}
+
 /* ---------- modo rápido y control total (v1.3.0) ---------- */
 
 .quick {

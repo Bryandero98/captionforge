@@ -1,6 +1,6 @@
 # v1.3.0, fase 2: temas visuales y editor guiado por problemas
 
-Rama: `feat/v1.3.0-editor-themes` (desde `main` tras fusionar el PR #37). Estado: **borrador de arquitectura para revisión del Tech Lead; no hay código de implementación.**
+Rama: `feat/v1.3.0-editor-themes` (desde `main` tras fusionar el PR #37). Estado: **plan aprobado por el Tech Lead. Iniciativa 3 (temas visuales) implementada en esta rama (PR #1); iniciativa 4 pendiente de luz verde.** Decisiones: vista previa en CSS, `POST …/quality/check` sin estado, insignia de calidad sin bloqueo, onda diferida a la fase 3, dos PR.
 Parte de [`docs/ROADMAP.md`](../../docs/ROADMAP.md) (iniciativas 3 y 4) y del [plan de la fase 1](plan.md). El CHANGELOG sigue en `[1.3.0] - Sin publicar` y no se etiqueta hasta completar las fases.
 
 Reglas heredadas: rojo → verde, funciones puras antes que DOM, el contrato de la API solo crece de forma compatible, ningún secreto ni dato sensible en el navegador, textos en los 6 idiomas, una suite del API a la vez.

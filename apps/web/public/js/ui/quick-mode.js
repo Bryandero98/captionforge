@@ -7,13 +7,13 @@
 //
 // Sincronizar los controles desde el código no dispara `change`, así que solo los gestos de la persona pasan a manual.
 
-import { BURN_TEMPLATES } from "../domain/burn-options.js";
 import { analyze } from "../domain/intent.js";
 import { clearPrefs, defaultPrefs, hasStoredPrefs, loadPrefs, savePrefs } from "../domain/prefs.js";
 import { planFor } from "../domain/plan.js";
 import { PROFILE_IDS } from "../domain/profiles.js";
+import { DEFAULT_THEME_ID, THEMES, themeById, themeForFollowUp } from "../domain/themes.js";
 
-const CONTROL_IDS = /** @type {const} */ (["opt-model", "opt-source", "opt-translate", "opt-clean", "opt-diarize", "opt-autoburn", "opt-burn-format", "opt-burn-template"]);
+const CONTROL_IDS = /** @type {const} */ (["opt-model", "opt-source", "opt-translate", "opt-clean", "opt-diarize", "opt-autoburn", "opt-burn-theme"]);
 
 /**
  * @param {{
@@ -43,8 +43,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     clean: $("opt-clean"),
     diarize: $("opt-diarize"),
     autoBurn: $("opt-autoburn"),
-    burnFormat: $("opt-burn-format"),
-    burnTemplate: $("opt-burn-template"),
+    burnTheme: $("opt-burn-theme"),
     reset: $("advanced-reset"),
     summary: $("quick-summary"),
     suggestion: $("quick-suggestion"),
@@ -74,14 +73,13 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
   if (hasStoredPrefs(storage)) {
     applyControls({
       modelSize: stored.modelSize, sourceLanguage: stored.sourceLanguage, translateTo: stored.translateTo, cleanAudio: stored.cleanAudio, diarize: stored.diarize,
-      autoBurn: stored.autoBurn, burnFormat: stored.burnFormat, burnTemplate: stored.burnTemplate,
+      autoBurn: stored.autoBurn, burnTheme: stored.burnTheme,
     });
     manual = true;
   }
 
   function buildStaticOptions() {
-    els.burnFormat.replaceChildren(...["classic", "vertical"].map((value) => option(value, t(`burn.format.${value}`))));
-    els.burnTemplate.replaceChildren(...BURN_TEMPLATES.map((value) => option(value, t(`burn.template.${value}`))));
+    els.burnTheme.replaceChildren(...THEMES.map((theme) => option(theme.id, t(`theme.${theme.id}`))));
   }
 
   /** @param {string} value @param {string} label */
@@ -99,11 +97,9 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     labelsFor = signature;
     els.profile.replaceChildren(option("auto", t("profile.auto")), ...PROFILE_IDS.map((id) => option(id, t(`profile.${id}`))));
     els.profile.value = profileChoice;
-    const format = els.burnFormat.value;
-    const template = els.burnTemplate.value;
+    const theme = els.burnTheme.value;
     buildStaticOptions();
-    els.burnFormat.value = format || "classic";
-    els.burnTemplate.value = template || BURN_TEMPLATES[0];
+    els.burnTheme.value = theme || DEFAULT_THEME_ID;
   }
 
   function readControls() {
@@ -114,8 +110,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
       cleanAudio: els.clean.checked === true,
       diarize: els.diarize.checked === true,
       autoBurn: els.autoBurn.checked === true,
-      burnFormat: /** @type {"vertical" | "classic"} */ (els.burnFormat.value === "vertical" ? "vertical" : "classic"),
-      burnTemplate: els.burnTemplate.value || BURN_TEMPLATES[0],
+      burnTheme: themeById(els.burnTheme.value).id,
     };
   }
 
@@ -127,8 +122,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     els.clean.checked = c.cleanAudio;
     els.diarize.checked = c.diarize && els.diarize.disabled !== true;
     els.autoBurn.checked = c.autoBurn;
-    els.burnFormat.value = c.burnFormat;
-    els.burnTemplate.value = c.burnTemplate;
+    els.burnTheme.value = c.burnTheme;
   }
 
   const choice = () => ({ profileChoice, manual, controls: readControls() });
@@ -157,8 +151,8 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     applyControls({
       ...plan.options,
       autoBurn: burn !== undefined,
-      burnFormat: burn?.canvas === "vertical" ? "vertical" : "classic",
-      burnTemplate: burn?.template ?? readControls().burnTemplate,
+      // Con un encadenado planeado se muestra su tema; sin él, el que la persona tenga elegido.
+      burnTheme: burn ? themeForFollowUp(plan.followUp).id : readControls().burnTheme,
     });
   }
 
@@ -209,8 +203,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     relabel();
     els.profile.value = profileChoice;
     syncControlsFromPlan();
-    els.burnFormat.disabled = !els.autoBurn.checked;
-    els.burnTemplate.disabled = !els.autoBurn.checked || els.burnFormat.value !== "vertical";
+    els.burnTheme.disabled = !els.autoBurn.checked;
 
     const text = summaryText();
     if (text !== lastSummary) {
@@ -232,7 +225,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
 
   function persist() {
     const c = readControls();
-    stored = { ...defaultPrefs(), ...stored, autoProfile: profileChoice === "auto", modelSize: /** @type {any} */ (c.modelSize), sourceLanguage: c.sourceLanguage, translateTo: c.translateTo, cleanAudio: c.cleanAudio, diarize: els.diarize.disabled === true ? stored.diarize : c.diarize, autoBurn: c.autoBurn, burnFormat: c.burnFormat, burnTemplate: c.burnTemplate };
+    stored = { ...defaultPrefs(), ...stored, autoProfile: profileChoice === "auto", modelSize: /** @type {any} */ (c.modelSize), sourceLanguage: c.sourceLanguage, translateTo: c.translateTo, cleanAudio: c.cleanAudio, diarize: els.diarize.disabled === true ? stored.diarize : c.diarize, autoBurn: c.autoBurn, burnTheme: c.burnTheme };
     savePrefs(storage, stored);
   }
 
@@ -264,7 +257,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     manual = false;
     profileChoice = "auto";
     const defaults = defaultPrefs();
-    applyControls({ modelSize: defaults.modelSize, sourceLanguage: "", translateTo: "", cleanAudio: false, diarize: false, autoBurn: false, burnFormat: defaults.burnFormat, burnTemplate: defaults.burnTemplate });
+    applyControls({ modelSize: defaults.modelSize, sourceLanguage: "", translateTo: "", cleanAudio: false, diarize: false, autoBurn: false, burnTheme: defaults.burnTheme });
     refresh();
   });
 

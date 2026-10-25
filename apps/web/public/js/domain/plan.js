@@ -4,9 +4,9 @@
 //   profile     eligió un perfil concreto en el selector: ese perfil para todos los archivos
 //   auto        perfil sugerido por el análisis de cada archivo (el modo por defecto)
 
-import { BURN_TEMPLATES } from "./burn-options.js";
 import { analyze } from "./intent.js";
 import { PROFILES, followUpFor, optionsFor } from "./profiles.js";
+import { followUpOf, themeById, unavailableReason } from "./themes.js";
 
 const MODELS = ["base", "small", "medium"];
 const LANGUAGE = /^[a-z]{2,3}$/;
@@ -14,7 +14,7 @@ const LANGUAGE = /^[a-z]{2,3}$/;
 /**
  * @typedef {{
  *   modelSize: string, sourceLanguage: string, translateTo: string, cleanAudio: boolean, diarize: boolean,
- *   autoBurn: boolean, burnFormat: string, burnTemplate: string,
+ *   autoBurn: boolean, burnTheme: string,
  * }} Controls
  * @typedef {{ profileChoice: string, manual: boolean, controls: Controls }} Choice
  * @typedef {{
@@ -22,9 +22,6 @@ const LANGUAGE = /^[a-z]{2,3}$/;
  *   options: import("./profiles.js").UploadOptions, followUp: import("./profiles.js").FollowUp | null, notes: string[],
  * }} Plan
  */
-
-/** @param {unknown} value @returns {value is number} */
-const known = (value) => typeof value === "number" && Number.isFinite(value) && value > 0;
 
 /**
  * @param {{ facts: import("./profiles.js").MediaFacts | null }} entry el archivo y lo que se sabe de él (null: aún sin analizar)
@@ -42,17 +39,11 @@ export function planFor(entry, choice, caps) {
     /** @type {import("./profiles.js").FollowUp | null} */
     let followUp = null;
     if (c.autoBurn && facts?.kind !== "audio") {
-      if (c.burnFormat === "vertical") {
-        const max = caps?.limits?.verticalMaxSeconds;
-        if (known(facts?.durationSeconds) && known(max) && facts.durationSeconds > max) notes.push("vertical_too_long");
-        else {
-          const offered = Array.isArray(caps?.burn?.templates) ? caps.burn.templates : BURN_TEMPLATES;
-          const template = BURN_TEMPLATES.includes(/** @type {any} */ (c.burnTemplate)) && offered.includes(/** @type {any} */ (c.burnTemplate)) ? c.burnTemplate : (BURN_TEMPLATES.find((name) => offered.includes(name)) ?? BURN_TEMPLATES[0]);
-          followUp = { burn: { canvas: "vertical", template } };
-        }
-      } else {
-        followUp = { burn: { canvas: "source", style: "modern" } };
-      }
+      const theme = themeById(c.burnTheme);
+      // Sin duración conocida el servidor decide; con una conocida por encima del tope, o con una plantilla que no ofrece, no se promete.
+      const unavailable = unavailableReason(theme, { durationSeconds: facts?.durationSeconds, caps });
+      if (unavailable) notes.push(unavailable.code);
+      else followUp = followUpOf(theme);
     }
     return {
       profileId: null,

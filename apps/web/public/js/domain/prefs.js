@@ -4,21 +4,23 @@
 //
 // Todas las funciones de almacenamiento son tolerantes: modo privado, datos bloqueados o cuota llena no deben romper la página.
 
-import { BURN_TEMPLATES } from "./burn-options.js";
+import { THEMES, DEFAULT_THEME_ID, themeForLegacy } from "./themes.js";
 
 export const PREFS_KEY = "cf-prefs";
-const VERSION = 1;
+/** v2 (v1.3.0, iniciativa 3): el formato y la plantilla del quemado se sustituyen por un tema. La v1 se sigue leyendo (ver `normalize`). */
+const VERSION = 2;
+const LEGACY_VERSION = 1;
 /** Más que esto no es una preferencia: es un dato ajeno o manipulado, y se ignora entero. */
 const MAX_CHARS = 2048;
 
 const MODELS = /** @type {const} */ (["base", "small", "medium"]);
-const FORMATS = /** @type {const} */ (["classic", "vertical"]);
+const THEME_IDS = THEMES.map((theme) => theme.id);
 const LANGUAGE = /^[a-z]{2,3}$/;
 
 /**
  * @typedef {{
- *   v: 1, autoProfile: boolean, modelSize: "base" | "small" | "medium", sourceLanguage: string, translateTo: string,
- *   cleanAudio: boolean, diarize: boolean, burnFormat: "classic" | "vertical", burnTemplate: string, burnKaraoke: boolean, autoBurn: boolean,
+ *   v: 2, autoProfile: boolean, modelSize: "base" | "small" | "medium", sourceLanguage: string, translateTo: string,
+ *   cleanAudio: boolean, diarize: boolean, burnTheme: string, burnKaraoke: boolean, autoBurn: boolean,
  * }} Prefs
  */
 
@@ -31,8 +33,7 @@ const DEFAULTS = Object.freeze({
   translateTo: "",
   cleanAudio: false,
   diarize: false,
-  burnFormat: "classic",
-  burnTemplate: "bold-pop",
+  burnTheme: DEFAULT_THEME_ID,
   burnKaraoke: false,
   autoBurn: false,
 });
@@ -55,8 +56,11 @@ const language = (value) => (typeof value === "string" && LANGUAGE.test(value) ?
 function normalize(input) {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return { ...DEFAULTS };
   const source = /** @type {Record<string, unknown>} */ (input);
-  if (!Object.hasOwn(source, "v") || source.v !== VERSION) return { ...DEFAULTS };
+  const version = Object.hasOwn(source, "v") ? source.v : undefined;
+  if (version !== VERSION && version !== LEGACY_VERSION) return { ...DEFAULTS };
   const own = (/** @type {string} */ key) => (Object.hasOwn(source, key) ? source[key] : undefined);
+  // La v1 guardaba el formato y la plantilla; el tema equivalente sale de ahí (lo roto cae al tema por defecto). Un campo `burnTheme` en una v1 no existía.
+  const burnTheme = version === LEGACY_VERSION ? themeForLegacy({ format: own("burnFormat"), template: own("burnTemplate") }).id : oneOf(own("burnTheme"), THEME_IDS, DEFAULTS.burnTheme);
   return {
     v: VERSION,
     autoProfile: bool(own("autoProfile"), DEFAULTS.autoProfile),
@@ -65,8 +69,7 @@ function normalize(input) {
     translateTo: language(own("translateTo")),
     cleanAudio: bool(own("cleanAudio"), DEFAULTS.cleanAudio),
     diarize: bool(own("diarize"), DEFAULTS.diarize),
-    burnFormat: /** @type {Prefs["burnFormat"]} */ (oneOf(own("burnFormat"), FORMATS, DEFAULTS.burnFormat)),
-    burnTemplate: oneOf(own("burnTemplate"), BURN_TEMPLATES, DEFAULTS.burnTemplate),
+    burnTheme,
     burnKaraoke: bool(own("burnKaraoke"), DEFAULTS.burnKaraoke),
     autoBurn: bool(own("autoBurn"), DEFAULTS.autoBurn),
   };

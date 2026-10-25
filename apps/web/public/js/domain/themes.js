@@ -64,6 +64,13 @@ export function themeForLegacy(legacy) {
   return THEMES.find((theme) => theme.group === "source" && theme.burn.style === legacy?.style) ?? DEFAULT_THEME;
 }
 
+/** El tema que equivale a lo que «Sube y olvídate» va a encadenar (la forma de la fase 1). @param {{ burn?: { canvas?: string, template?: string, style?: string } } | null | undefined} followUp */
+export function themeForFollowUp(followUp) {
+  const burn = followUp?.burn;
+  if (burn?.canvas === "vertical") return themeForLegacy({ format: "vertical", template: burn.template });
+  return themeForLegacy({ format: "classic", style: burn?.style });
+}
+
 /** @param {unknown} value @returns {value is number} */
 const known = (value) => typeof value === "number" && Number.isFinite(value) && value > 0;
 

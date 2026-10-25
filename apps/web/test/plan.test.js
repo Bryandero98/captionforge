@@ -9,7 +9,7 @@ import { planFor } from "../public/js/domain/plan.js";
 const caps = (extra = {}) => ({ ...NO_CAPABILITIES, diarization: { enabled: true }, ...extra });
 const PORTRAIT = { kind: "video", durationSeconds: 48, width: 1080, height: 1920 };
 const LANDSCAPE_LONG = { kind: "video", durationSeconds: 1800, width: 1920, height: 1080 };
-const CONTROLS = { modelSize: "small", sourceLanguage: "", translateTo: "", cleanAudio: false, diarize: false, autoBurn: false, burnFormat: "classic", burnTemplate: "bold-pop" };
+const CONTROLS = { modelSize: "small", sourceLanguage: "", translateTo: "", cleanAudio: false, diarize: false, autoBurn: false, burnTheme: "modern" };
 const entry = (facts) => ({ facts });
 
 describe("planFor: perfil automático", () => {
@@ -67,12 +67,29 @@ describe("planFor: ajustes manuales de «Control total»", () => {
   it("«crear el video al terminar» encadena el quemado con el formato y la plantilla elegidos", () => {
     const classic = planFor(entry(PORTRAIT), { profileChoice: "auto", manual: true, controls: { ...CONTROLS, autoBurn: true } }, caps());
     assert.deepEqual(classic.followUp, { burn: { canvas: "source", style: "modern" } });
-    const vertical = planFor(entry(PORTRAIT), { profileChoice: "auto", manual: true, controls: { ...CONTROLS, autoBurn: true, burnFormat: "vertical", burnTemplate: "clean-color" } }, caps());
+    const vertical = planFor(entry(PORTRAIT), { profileChoice: "auto", manual: true, controls: { ...CONTROLS, autoBurn: true, burnTheme: "clean-color" } }, caps());
     assert.deepEqual(vertical.followUp, { burn: { canvas: "vertical", template: "clean-color" } });
   });
 
+  it("un tema clásico encadena su propio estilo, no siempre «moderno»", () => {
+    const plan = planFor(entry(PORTRAIT), { profileChoice: "auto", manual: true, controls: { ...CONTROLS, autoBurn: true, burnTheme: "tiktok-bold" } }, caps());
+    assert.deepEqual(plan.followUp, { burn: { canvas: "source", style: "tiktok" } });
+  });
+
+  it("un tema cuya plantilla el servidor no ofrece no se encadena y lo dice", () => {
+    const only = caps({ burn: { templates: ["bold-pop"] } });
+    const plan = planFor(entry(PORTRAIT), { profileChoice: "auto", manual: true, controls: { ...CONTROLS, autoBurn: true, burnTheme: "soft-rounded" } }, only);
+    assert.equal(plan.followUp, null);
+    assert.deepEqual(plan.notes, ["template_unavailable"]);
+  });
+
+  it("un tema desconocido cae al tema por defecto", () => {
+    const plan = planFor(entry(PORTRAIT), { profileChoice: "auto", manual: true, controls: { ...CONTROLS, autoBurn: true, burnTheme: "neon" } }, caps());
+    assert.deepEqual(plan.followUp, { burn: { canvas: "source", style: "modern" } });
+  });
+
   it("vertical con una duración conocida por encima del tope no se encadena y lo dice", () => {
-    const controls = { ...CONTROLS, autoBurn: true, burnFormat: "vertical" };
+    const controls = { ...CONTROLS, autoBurn: true, burnTheme: "shorts-dynamic" };
     const plan = planFor(entry({ ...PORTRAIT, durationSeconds: 601 }), { profileChoice: "auto", manual: true, controls }, caps());
     assert.equal(plan.followUp, null);
     assert.deepEqual(plan.notes, ["vertical_too_long"]);

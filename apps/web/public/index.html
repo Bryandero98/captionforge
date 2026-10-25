@@ -250,12 +250,8 @@
                 <label for="opt-autoburn" data-i18n="advanced.autoburn">Crear el video con subtítulos al terminar (mantén la pestaña abierta)</label>
               </div>
               <div class="field">
-                <label for="opt-burn-format" data-i18n="burn.format">Formato</label>
-                <select id="opt-burn-format" disabled></select>
-              </div>
-              <div class="field">
-                <label for="opt-burn-template" data-i18n="burn.template">Plantilla</label>
-                <select id="opt-burn-template" disabled></select>
+                <label for="opt-burn-theme" data-i18n="advanced.theme">Tema de los subtítulos</label>
+                <select id="opt-burn-theme" disabled></select>
               </div>
               <button type="button" class="btn btn--ghost" id="advanced-reset" data-i18n="advanced.reset">Restablecer preferencias</button>
             </div>
@@ -324,26 +320,19 @@
         </fieldset>
         <form class="burn" id="burn-form" hidden>
           <h3 class="burn__title" data-i18n="burn.title">Poner los subtítulos en el video</h3>
-          <div class="options">
-            <div class="field">
-              <label for="burn-format" data-i18n="burn.format">Formato</label>
-              <select id="burn-format"></select>
+          <div class="themes">
+            <div class="theme-preview" id="burn-preview" data-frame="source">
+              <div class="theme-preview__text" id="burn-preview-text"></div>
             </div>
+            <p class="panel__detail theme-preview__note" id="burn-preview-note" data-i18n="theme.preview.note">Vista aproximada</p>
+            <div class="themes__gallery" id="burn-themes"></div>
             <div class="options__group" id="burn-classic">
-              <div class="field">
-                <label for="burn-style" data-i18n="burn.style">Estilo</label>
-                <select id="burn-style"></select>
-              </div>
               <div class="field field--check">
                 <input type="checkbox" id="burn-karaoke" />
                 <label for="burn-karaoke" data-i18n="burn.karaoke">Resaltar cada palabra (karaoke)</label>
               </div>
             </div>
             <div class="options__group" id="burn-vertical" hidden>
-              <div class="field">
-                <label for="burn-template" data-i18n="burn.template">Plantilla</label>
-                <select id="burn-template" aria-describedby="burn-vertical-hint"></select>
-              </div>
               <p class="panel__detail" id="burn-vertical-hint" data-i18n="burn.vertical.hint">El video se coloca centrado sobre un fondo desenfocado en 1080×1920 (9:16). Máximo 10 minutos.</p>
             </div>
           </div>
