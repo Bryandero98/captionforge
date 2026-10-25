@@ -9,8 +9,9 @@ un nombre con aspecto público puede apuntar a una IP privada, o cambiar de resp
 - `forbidden`: metadatos de nube y enlace local (169.254/16, fe80::/10), sin especificar, multidifusión, reservadas, IPv4 mapeada en IPv6.
   Nunca, ni con la bandera.
 
-Límite conocido: entre esta comprobación y la conexión TCP hay una ventana mínima en la que el DNS podría cambiar. La comprobación por
-petición la reduce a milisegundos; fijar la IP resuelta en la conexión (sin romper SNI/TLS) queda como mejora.
+`assert_url_allowed` devuelve un `ResolvedTarget` inmutable (host, puerto, IP validada, esquema) y `pinned_transport` conecta SOLO a esa IP, conservando
+Host, SNI y verificación del certificado del nombre original: entre la comprobación y la conexión no hay una segunda resolución que un DNS malicioso
+pueda cambiar (cierre del TOCTOU / DNS rebinding).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import asyncio
 import ipaddress
 import socket
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -66,6 +68,16 @@ async def system_resolver(host: str, port: int) -> list[str]:
     return [str(info[4][0]) for info in infos]
 
 
+@dataclass(frozen=True)
+class ResolvedTarget:
+    """Destino ya validado: `ip` es una de las direcciones comprobadas para `host`; la conexión debe abrirse contra ella y no contra el nombre."""
+
+    host: str
+    port: int
+    ip: str
+    scheme: str
+
+
 def _abort() -> JobFailure:
     return JobFailure("EXTERNAL_UNAVAILABLE", _MESSAGE)
 
@@ -83,8 +95,8 @@ def _split(url: str) -> tuple[str, str, int]:
     return parts.scheme, host, port or (443 if parts.scheme == "https" else 80)
 
 
-async def assert_url_allowed(url: str, *, allow_private: bool, resolve: Resolver = system_resolver) -> None:
-    """Lanza `JobFailure` (EXTERNAL_UNAVAILABLE, sin repetir la URL) si algún destino de `url` no está permitido. Si todo está bien, no hace nada."""
+async def assert_url_allowed(url: str, *, allow_private: bool, resolve: Resolver = system_resolver) -> ResolvedTarget:
+    """Lanza `JobFailure` (EXTERNAL_UNAVAILABLE, sin repetir la URL) si algún destino de `url` no está permitido; si todo está bien, devuelve el destino fijado."""
     scheme, host, port = _split(url)
     try:
         ipaddress.ip_address(host)
@@ -103,3 +115,4 @@ async def assert_url_allowed(url: str, *, allow_private: bool, resolve: Resolver
     # Sin cifrar solo hacia la red local: un servidor público exige https.
     if scheme == "http" and classes != {"private"}:
         raise _abort()
+    return ResolvedTarget(host=host, port=port, ip=addresses[0], scheme=scheme)

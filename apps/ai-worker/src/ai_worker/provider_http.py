@@ -8,12 +8,15 @@ pantalla. Del cuerpo del error solo se lee un código corto (p. ej. `insufficien
 - 429 y 5xx: hasta 3 reintentos con espera exponencial (1, 2, 4 s) o el `Retry-After` del proveedor (acotado), y con un tope de tiempo total.
 - Cuelgue, corte de red o respuesta rota: se reintentan igual y terminan en EXTERNAL_TIMEOUT / EXTERNAL_UNAVAILABLE.
 - Sin redirecciones ni proxies del entorno: la clave solo viaja al host configurado.
+- Con `target` (URL base propia, ADR 0022) se resuelve y valida el destino ANTES de cada intento y la conexión se fija a esa IP
+  (`PinnedAsyncTransport`): Host, SNI y certificado siguen siendo los del nombre original.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import ssl
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -21,6 +24,8 @@ from typing import Any
 import httpx
 
 from .errors import JobFailure
+from .net_guard import ResolvedTarget
+from .pinned_transport import PinnedAsyncTransport
 
 log = logging.getLogger("ai_worker")
 
@@ -89,7 +94,8 @@ class ProviderHttp:
         connect_timeout: float = 10.0,
         read_timeout: float = 60.0,
         total_timeout: float = 300.0,
-        guard: Callable[[], Awaitable[None]] | None = None,
+        target: Callable[[], Awaitable[ResolvedTarget]] | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._base_url = base_url
         self._headers = dict(headers)  # contiene la clave: no se registra ni se reexpone
@@ -98,8 +104,10 @@ class ProviderHttp:
         self._clock = clock
         self._timeout = httpx.Timeout(connect=connect_timeout, read=read_timeout, write=30.0, pool=connect_timeout)
         self._total_timeout = total_timeout
-        #: Se espera ANTES de cada intento (también de los reintentos); si lanza, no sale ninguna petición y la clave no viaja (ADR 0022).
-        self._guard = guard
+        #: Se espera ANTES de cada intento (también de los reintentos): resuelve, valida y devuelve el destino fijado. Si lanza, no sale ninguna
+        #: petición y la clave no viaja (ADR 0022). Con un `transport` inyectado (pruebas) solo se valida; sin él, la conexión se fija a la IP.
+        self._target = target
+        self._ssl_context = ssl_context
 
     def __repr__(self) -> str:
         return f"ProviderHttp(base_url={self._base_url!r})"
@@ -110,14 +118,17 @@ class ProviderHttp:
         code = "EXTERNAL_UNAVAILABLE"
         for attempt in range(MAX_RETRIES + 1):
             wait: float | None = None
-            if self._guard is not None:
-                await self._guard()
+            transport = self._transport
+            if self._target is not None:
+                resolved = await self._target()
+                if transport is None:
+                    transport = PinnedAsyncTransport(resolved, ssl_context=self._ssl_context)
             try:
                 async with httpx.AsyncClient(
                     base_url=self._base_url,
                     headers=self._headers,
                     timeout=self._timeout,
-                    transport=self._transport,
+                    transport=transport,
                     follow_redirects=False,  # la clave no se reenvía a otro sitio
                     trust_env=False,  # ni proxies ni certificados del entorno
                 ) as client:

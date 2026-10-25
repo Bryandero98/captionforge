@@ -34,8 +34,12 @@ nada cambia.
   URL base de la red local o privada, también por http (Ollama, vLLM). Siguen prohibidos siempre los metadatos de nube y el enlace
   local (169.254.0.0/16, fe80::/10), las direcciones sin especificar, de multidifusión o reservadas, y la IPv4 mapeada en IPv6.
 - **Guardia del worker**: antes de CADA petición (reintentos incluidos) resuelve el DNS y aborta el trabajo sin enviar la clave si
-  alguna respuesta es no permitida. Residual conocido: queda una ventana de milisegundos entre esa comprobación y la conexión;
-  fijar la IP resuelta en la conexión sin romper TLS es una mejora pendiente.
+  alguna respuesta es no permitida. Devuelve un `ResolvedTarget` inmutable (host, puerto, IP validada, esquema).
+- **IP fijada en la conexión** (cierre del TOCTOU / DNS rebinding, Issue #13): `PinnedAsyncTransport` (`pinned_transport.py`) abre el socket
+  TCP únicamente contra `ResolvedTarget.ip`. La URL, la cabecera Host, el pool y el SNI / verificación del certificado conservan el nombre
+  original (no se usa `verify=False` ni se reescribe la URL con la IP). Cualquier otro host o puerto se rechaza sin tocar la red, y no hay
+  conexiones reutilizadas entre intentos: cada reintento resuelve, valida y conecta de nuevo. `httpx` y `httpcore` están fijados a un rango
+  estrecho porque el backend de red de `httpcore` es la costura que se sustituye (`tests/test_pinned_transport.py` lo vigila con servidores TLS reales).
 
 ## Consecuencias
 - Cualquier proveedor compatible con OpenAI funciona sin cambiar código. El modelo se elige con el campo opcional `model`; sin él se usa `gpt-4o-mini`.

@@ -13,7 +13,10 @@ dependencies = [
   "psycopg[binary]>=3.2",
   "boto3>=1.35",
   "pydantic>=2.7",
-  "httpx>=0.27",
+  # El transporte fijado (pinned_transport.py) usa la API interna de red de httpcore: el rango es estrecho a propósito.
+  # Subir de versión exige revisar AsyncNetworkBackend y pasar tests/test_pinned_transport.py.
+  "httpx>=0.28.1,<0.29",
+  "httpcore>=1.0.9,<1.1",
   # Contratos generados (packages/contracts/generated/python) y bloques de proceso del paquete
   # heredado (legacy/): se instalan desde sus carpetas, ver requirements-dev.txt y el Dockerfile.
   "captionforge-contracts",

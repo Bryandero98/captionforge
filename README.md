@@ -147,7 +147,7 @@ CaptionForge **supports local models such as Ollama** through the same OpenAI-co
 
 - When CaptionForge itself runs in Docker, `localhost` is the container: reach an Ollama on your computer with `http://host.docker.internal:11434/v1`.
 - Cloud metadata addresses (`169.254.x.x`), multicast, reserved and unspecified ranges stay blocked even with the flag on.
-- The worker resolves the name on every request and sends the key only to an allowed address; a documented residual DNS-rebinding risk is described in [ADR 0022](docs/adr/0022-url-base-propia-para-proveedores-de-ia.md).
+- The worker resolves the name before every request (retries included), validates every address and opens the TCP connection to the validated IP only, keeping the original Host, SNI and certificate check, so DNS rebinding cannot redirect the key ([ADR 0022](docs/adr/0022-url-base-propia-para-proveedores-de-ia.md)).
 
 ## API
 
