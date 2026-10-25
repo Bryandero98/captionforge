@@ -95,8 +95,8 @@ describe("sendChat", () => {
       seen = { url: String(url), body: JSON.parse(init.body), method: init.method };
       return ok({ reply: "Hola" })();
     };
-    const reply = await sendChat({ baseUrl: "http://x", messages: [{ role: "user", content: "hola" }], ai: { key: "ds-12345678" }, jobId: "abc", fetchImpl });
-    assert.equal(reply, "Hola");
+    const out = await sendChat({ baseUrl: "http://x", messages: [{ role: "user", content: "hola" }], ai: { key: "ds-12345678" }, jobId: "abc", fetchImpl });
+    assert.deepEqual(out, { reply: "Hola", actions: [] });
     assert.equal(seen.url, "http://x/v1/assistant/chat");
     assert.equal(seen.method, "POST");
     assert.deepEqual(seen.body, { messages: [{ role: "user", content: "hola" }], ai: { key: "ds-12345678" }, jobId: "abc" });
@@ -108,8 +108,14 @@ describe("sendChat", () => {
     assert.equal("jobId" in body, false);
   });
 
-  it("una respuesta sin texto es bad_response", async () => {
+  it("una respuesta sin texto ni acciones es bad_response", async () => {
     await assert.rejects(sendChat({ baseUrl: "http://x", messages: [], ai: { key: "k" }, fetchImpl: ok({ reply: 5 }) }), (e) => e instanceof ApiError && e.code === "bad_response");
+    await assert.rejects(sendChat({ baseUrl: "http://x", messages: [], ai: { key: "k" }, fetchImpl: ok({ reply: "", actions: [] }) }), (e) => e instanceof ApiError && e.code === "bad_response");
+  });
+
+  it("devuelve las acciones propuestas y descarta las que no tienen forma de acción", async () => {
+    const out = await sendChat({ baseUrl: "http://x", messages: [], ai: { key: "k" }, fetchImpl: ok({ reply: "", actions: [{ name: "burn", args: {} }, "x", { name: 5 }, { name: "dub" }] }) });
+    assert.deepEqual(out, { reply: "", actions: [{ name: "burn", args: {} }, { name: "dub", args: {} }] });
   });
 
   it("los códigos del asistente llegan como códigos estables", async () => {

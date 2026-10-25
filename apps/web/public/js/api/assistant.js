@@ -14,7 +14,7 @@ const CHAT_TIMEOUT_MS = 70_000; // el servidor espera hasta 60 s a la IA
  *   signal?: AbortSignal,
  *   fetchImpl?: typeof fetch,
  * }} options
- * @returns {Promise<string>}
+ * @returns {Promise<{ reply: string, actions: { name: string, args: Record<string, unknown> }[] }>}
  */
 export async function sendChat({ baseUrl, messages, ai, jobId, signal, fetchImpl }) {
   const data = await requestJson({
@@ -25,7 +25,16 @@ export async function sendChat({ baseUrl, messages, ai, jobId, signal, fetchImpl
     fetchImpl,
     timeoutMs: CHAT_TIMEOUT_MS,
   });
-  const reply = data !== null && typeof data === "object" ? /** @type {{ reply?: unknown }} */ (data).reply : undefined;
-  if (typeof reply !== "string" || reply.trim() === "") throw ApiError.local("bad_response");
-  return reply;
+  const body = data !== null && typeof data === "object" ? /** @type {{ reply?: unknown, actions?: unknown }} */ (data) : {};
+  const reply = typeof body.reply === "string" ? body.reply.trim() : "";
+  // Solo se conserva lo que tiene forma de acción; la página vuelve a validar nombre y argumentos antes de usarla.
+  const actions = (Array.isArray(body.actions) ? body.actions : [])
+    .filter((item) => item !== null && typeof item === "object" && typeof (/** @type {{ name?: unknown }} */ (item)).name === "string")
+    .map((item) => {
+      const action = /** @type {{ name: string, args?: unknown }} */ (item);
+      const args = action.args !== null && typeof action.args === "object" && !Array.isArray(action.args) ? /** @type {Record<string, unknown>} */ (action.args) : {};
+      return { name: action.name, args };
+    });
+  if (reply === "" && actions.length === 0) throw ApiError.local("bad_response");
+  return { reply, actions };
 }

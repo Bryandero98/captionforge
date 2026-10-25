@@ -34,5 +34,6 @@ hacerlo después de que tú digas que sí.
 ## 3. Asistente dentro de la página
 
 En modo local aparece el botón **Asistente** (abajo a la derecha). Abre **Mi IA**, elige el servicio, pega tu clave de API y pulsa **Guardar en este navegador**.
-La clave se queda en tu navegador y viaja con cada mensaje a tu propio servidor, que no la guarda. El asistente solo conversa: las acciones las haces con los botones.
+La clave se queda en tu navegador y viaja con cada mensaje a tu propio servidor, que no la guarda. El asistente puede **proponerte acciones** (ir a un paso, traducir, doblar,
+crear el video, descargar el .srt) como tarjetas: solo se hacen si pulsas **Aplicar**, y las que cuestan dinero te piden confirmar otra vez.
 **Quitar el asistente** lo oculta (vuelve con **Mostrar el asistente**, arriba); **Olvidar mi clave** la borra del navegador.

@@ -19,7 +19,8 @@ Más fácil para quien empieza y abierta a las IAs: guía interactiva, pantalla 
 - **Más formatos**: audio OPUS (notas de voz), AAC, AMR, WMA, AIFF y WEBA; video M4V, 3GP, MPEG, WMV, FLV y OGV. Contrato, API, cliente y textos al día.
 - **Acceso para IAs** ([ADR 0028](docs/adr/0028-acceso-para-ias-mcp-y-asistente.md), [guía](docs/ai-access.md)): `GET /llms.txt` y `GET /openapi.json` (404 con `LOCAL_MODE=false`).
 - **Servidor MCP local** (`tools/mcp`, stdio, sin dependencias). Traducir, doblar, quemar, cancelar y editar exigen `confirmed: true`.
-- **Asistente removible** con la IA propia de la persona (clave solo en el navegador, `POST /v1/assistant/chat`, IP fijada, sin herramientas). `GET /v1/capabilities` anuncia `assistant`.
+- **Asistente removible** con la IA propia de la persona (clave solo en el navegador, `POST /v1/assistant/chat`, IP fijada). `GET /v1/capabilities` anuncia `assistant`.
+  La IA **propone** acciones (ir a un paso, traducir, doblar, crear el video, descargar el .srt) como tarjetas que la persona aplica o descarta; el servidor no ejecuta nada.
 
 ### Corregido
 

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AssistantService } from "../src/assistant/assistant.service.js";
-import { buildChatRequest, chooseAddress, parseAiCredentials, parseChatReply, sanitizeMessages, MAX_MESSAGES } from "../src/assistant/chat.js";
+import { ASSISTANT_TOOLS, buildChatRequest, chooseAddress, parseAiCredentials, parseChatReply, parseChatResponse, sanitizeMessages, MAX_MESSAGES } from "../src/assistant/chat.js";
 import { loadConfig } from "../src/config/config.js";
 
 describe("sanitizeMessages", () => {
@@ -60,9 +60,17 @@ describe("buildChatRequest", () => {
     expect(req.body.messages.slice(1)).toEqual(messages);
   });
 
-  it("no manda herramientas: el asistente solo conversa y no ejecuta nada", () => {
+  it("ofrece solo las herramientas de la lista cerrada: proponen acciones, nunca se ejecutan en el servidor", () => {
     const req = buildChatRequest({ key: "k", messages, job: null });
-    expect(JSON.stringify(req.body)).not.toMatch(/tools|functions|tool_choice/);
+    const names = (req.body.tools ?? []).map((tool) => tool.function.name).sort();
+    expect(names).toEqual(["burn", "download_srt", "dub", "go_to_step", "translate"]);
+    expect(names).toEqual(ASSISTANT_TOOLS.map((tool) => tool.function.name).sort());
+    expect(req.body.tool_choice).toBe("auto");
+  });
+
+  it("el mensaje de sistema dice que la persona confirma cada acción", () => {
+    const system = buildChatRequest({ key: "k", messages, job: null }).body.messages[0]?.content ?? "";
+    expect(system).toMatch(/confirm/i);
   });
 });
 
@@ -110,6 +118,52 @@ describe("parseChatReply", () => {
   });
 });
 
+describe("parseChatResponse (acciones propuestas)", () => {
+  const call = (name: string, args: unknown) => ({ function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) } });
+  const reply = (message: unknown) => parseChatResponse({ choices: [{ message }] });
+
+  it("sin herramientas devuelve el texto y ninguna acción", () => {
+    expect(reply({ content: "Hola" })).toEqual({ reply: "Hola", actions: [] });
+  });
+
+  it("acepta acciones válidas, también sin texto", () => {
+    const out = reply({ content: null, tool_calls: [call("translate", { targetLanguage: "en", provider: "argos" }), call("go_to_step", { step: "dub" })] });
+    expect(out.reply).toBe("");
+    expect(out.actions).toEqual([
+      { name: "translate", args: { targetLanguage: "en", provider: "argos" } },
+      { name: "go_to_step", args: { step: "dub" } },
+    ]);
+  });
+
+  it("descarta herramientas desconocidas, JSON roto y argumentos fuera de la lista cerrada", () => {
+    const out = reply({
+      content: "x",
+      tool_calls: [
+        call("delete_everything", {}),
+        call("translate", "{no es json"),
+        call("translate", { targetLanguage: "en; DROP", provider: "argos" }),
+        call("translate", { targetLanguage: "es", provider: "otro" }),
+        call("go_to_step", { step: "../../x" }),
+        call("dub", { voice: "a".repeat(65) }),
+        call("dub", { mix: "explotar" }),
+      ],
+    });
+    expect(out.actions).toEqual([]);
+  });
+
+  it("completa lo opcional con valores seguros y limita a 3 acciones", () => {
+    const out = reply({ content: "ok", tool_calls: [call("translate", { targetLanguage: "pt" }), call("dub", { voice: "Rachel", mix: "none" }), call("burn", {}), call("download_srt", {}), call("go_to_step", { step: "srt" })] });
+    expect(out.actions).toHaveLength(3);
+    expect(out.actions[0]).toEqual({ name: "translate", args: { targetLanguage: "pt", provider: "argos" } });
+    expect(out.actions[1]).toEqual({ name: "dub", args: { voice: "Rachel", mix: "none" } });
+  });
+
+  it("sin texto ni acciones válidas falla", () => {
+    expect(() => reply({ content: "" })).toThrow();
+    expect(() => reply({ content: null, tool_calls: [call("nope", {})] })).toThrow();
+  });
+});
+
 describe("chooseAddress (IP fijada en la conexión)", () => {
   it("elige la primera dirección pública", () => {
     expect(chooseAddress([{ address: "93.184.216.34", family: 4 }], false)).toEqual({ address: "93.184.216.34", family: 4 });
@@ -144,7 +198,7 @@ describe("AssistantService", () => {
   it("responde con el texto de la IA y manda la clave solo en la cabecera", async () => {
     const { service, posted } = make();
     const out = await service.chat("t1", { messages: chat, jobId: undefined, ai: AI });
-    expect(out).toEqual({ reply: "Usa «Traducirlos»." });
+    expect(out).toEqual({ reply: "Usa «Traducirlos».", actions: [] });
     expect((posted[0] as { url: string }).url).toBe("https://api.deepseek.com/v1/chat/completions");
     expect(JSON.stringify((posted[0] as { body: unknown }).body)).not.toContain("sk-secreta");
   });

@@ -6,7 +6,8 @@ import { findPreset } from "./ai-presets.js";
 
 /** @typedef {{ preset: string, key: string, model: string, baseUrl: string }} AiChoice */
 /** @typedef {{ hidden: boolean, ai: AiChoice | null }} AssistantPrefs */
-/** @typedef {{ role: "user" | "assistant", content: string }} Turn */
+/** @typedef {{ name: string, args: Record<string, unknown>, state?: "pending" | "applied" | "dismissed" | "failed", reason?: string }} TurnAction */
+/** @typedef {{ role: "user" | "assistant", content: string, actions?: TurnAction[] }} Turn */
 /** @typedef {{ getItem(key: string): string | null, setItem(key: string, value: string): void, removeItem?(key: string): void }} StorageLike */
 
 export const ASSISTANT_KEY = "cf-assistant";
@@ -63,12 +64,19 @@ export function aiPayload(choice) {
   return { key, ...(baseUrl === "" ? {} : { baseUrl }), ...(model === "" ? {} : { model }) };
 }
 
-/** @param {Turn[]} turns @param {string} role @param {string} content @returns {Turn[]} */
-export function addTurn(turns, role, content) {
-  const clean = content.trim();
+/**
+ * Agrega un turno. Un turno del asistente puede traer solo acciones: el texto del historial que se reenvía a la IA no puede quedar vacío.
+ * @param {Turn[]} turns @param {string} role @param {string} content @param {TurnAction[]} [actions] @returns {Turn[]}
+ */
+export function addTurn(turns, role, content, actions = []) {
+  const clean = content.trim() === "" && actions.length > 0 ? `(${actions.map((action) => action.name).join(", ")})` : content.trim();
   if ((role !== "user" && role !== "assistant") || clean === "") return turns;
-  return [...turns, { role: /** @type {"user" | "assistant"} */ (role), content: clean }].slice(-MAX_TURNS);
+  const turn = { role: /** @type {"user" | "assistant"} */ (role), content: clean, ...(actions.length > 0 ? { actions: actions.map((action) => ({ ...action, state: "pending" })) } : {}) };
+  return [...turns, /** @type {Turn} */ (turn)].slice(-MAX_TURNS);
 }
+
+/** Lo que se reenvía a la IA: solo rol y texto, nunca las acciones ni su estado. @param {Turn[]} turns */
+export const toMessages = (turns) => turns.map(({ role, content }) => ({ role, content }));
 
 /** @param {{ text: string, ai: AiChoice | null, busy: boolean }} state */
 export function canSend({ text: draft, ai, busy }) {

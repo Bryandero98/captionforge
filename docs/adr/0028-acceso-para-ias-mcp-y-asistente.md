@@ -17,8 +17,11 @@ manejarla. Se quiere lo uno y lo otro sin quitarle capacidad a nadie, y **solo e
    `confirmed: true`**; sin él devuelven `NEEDS_USER_CONFIRMATION` y no llaman al servidor. El texto de subtítulos vuelve marcado como dato no confiable. Usa una
    clave de API que crea la persona; un fallo se informa tal cual y no se reintenta.
 3. **Asistente en la interfaz**: botón flotante y panel de chat, **removible** (se quita, se vuelve a mostrar desde la barra superior y recuerda la decisión).
-   - **Solo conversa.** No se le ofrecen herramientas (`tools`): nada de lo que diga la IA, ni de lo que haya escrito en un archivo, puede ejecutar acciones.
-     Las acciones siguen siendo los botones de la página, con su propia confirmación de gasto.
+   - **Propone, la persona decide.** La IA recibe una lista cerrada de herramientas (`go_to_step`, `translate`, `dub`, `burn`, `download_srt`) con las que solo
+     puede **proponer** acciones. El servidor no ejecuta nada: sanea cada propuesta (nombre y argumentos de listas cerradas, máximo 3) y la devuelve. La página
+     la muestra como una tarjeta y **solo si la persona pulsa «Aplicar»** acciona sus propios botones, tras comprobar que todos existen y están activos. Lo que
+     cuesta (traducir con la IA propia, doblar) además pasa por la confirmación de gasto de la página. La IA no ve subtítulos, solo el estado y la clase de archivo
+     del trabajo abierto, así que el texto de un archivo no llega a ella.
    - **La IA es la de la persona** (DeepSeek, OpenAI, Gemini…, cualquier servicio compatible con OpenAI).
    - **Dónde vive la clave.** En modo local no hay sesión de Dueño, y sin sesión no se pueden guardar «Claves externas» (ADR 0020). Por eso la clave se guarda **solo en el
    navegador** (`localStorage`, clave `cf-assistant`) y viaja en el cuerpo de cada mensaje; **el servidor no la guarda ni la registra**. Quitar el asistente no la borra;
@@ -32,4 +35,5 @@ manejarla. Se quiere lo uno y lo otro sin quitarle capacidad a nadie, y **solo e
 - Con `LOCAL_MODE=true` la clave del asistente viaja por la red local en el cuerpo de cada mensaje: si se expone el puerto sin TLS, quien lo vea la ve. Es el mismo
   supuesto de confianza del modo local (quien alcanza el puerto actúa como el espacio). Para exponerlo hay que usar `LOCAL_MODE=false`, y entonces el asistente desaparece.
 - El MCP no tiene estado ni credenciales propias: cada ejecución lee `CAPTIONFORGE_URL` y `CAPTIONFORGE_API_KEY`.
-- El asistente no sustituye a las acciones de la página: aconseja. Que ejecute acciones por su cuenta quedaría para otra decisión, con confirmación previa en la interfaz.
+- El asistente nunca actúa por su cuenta: cada acción pide un «Aplicar» y las de gasto, una segunda confirmación. Una IA que invente herramientas o argumentos no
+  muestra ninguna tarjeta. Si en el futuro se quiere que actúe sin pedir permiso, será otra decisión.
