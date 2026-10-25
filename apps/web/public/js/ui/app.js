@@ -16,6 +16,7 @@ import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
 import { createAi } from "./ai.js";
 import { createBurn } from "./burn.js";
+import { createGuidedEditor } from "./guided-editor.js";
 import { createQuality } from "./quality.js";
 import { createFollowUp } from "./follow-up.js";
 import { createHistory } from "./history.js";
@@ -136,6 +137,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let ai = null;
   /** @type {ReturnType<typeof createQuality> | null} */
   let quality = null;
+  /** @type {ReturnType<typeof createGuidedEditor> | null} */
+  let guided = null;
   // Qué ofrece el servidor: lo usan la casilla de hablantes y los formularios de traducir y doblar.
   const found = capabilities({ baseUrl: config.baseUrl });
   const spend = createSpendConfirm({ doc, t: translate });
@@ -143,7 +146,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     burn?.refreshForm();
     ai?.refreshForm();
     quality?.refreshForm();
-  } });
+  }, onOpen: (id, language) => void guided?.open(id, language), onClose: () => guided?.close() });
   const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
   burn = createBurn({
     doc,
@@ -226,6 +229,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     applyEdits: ({ jobId, edits, etag }) => putSegments({ baseUrl: config.baseUrl, jobId, edits, etag }),
     onApplied: () => results.reload(),
   });
+
+  // Editor guiado (ADR 0027): marcas por fila, minimapa y arreglos de 1 clic sobre el editor de subtítulos.
+  guided = createGuidedEditor({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), editor: results.editor });
 
   // ---------- estado ----------
 
@@ -737,6 +743,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     spend.refresh(translate);
     ai?.refresh();
     quality?.refresh(translate);
+    guided?.refresh(translate);
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }

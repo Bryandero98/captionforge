@@ -37,9 +37,10 @@ export function downloadName(originalFilename, extension) {
  *   doc: Document, win: Window, baseUrl: string, t: (key: string, params?: Record<string, string | number>) => string,
  *   lang: () => string, announce: (text: string) => void, fetchSegments?: typeof getSegments,
  *   onChange?: () => void,
+ *   onOpen?: (jobId: string, language: string | null) => void, onClose?: () => void,
  * }} deps
  */
-export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegments = getSegments, onChange = () => {} }) {
+export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegments = getSegments, onChange = () => {}, onOpen = () => {}, onClose = () => {} }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -142,6 +143,8 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       const data = await fetchSegments({ baseUrl, jobId: job.id, signal: abort.signal });
       if (abort.signal.aborted) return;
       editor.open(job.id, data.segments, data.etag);
+      const detected = /** @type {{ detectedLanguage?: unknown } | null} */ (job.result ?? null)?.detectedLanguage;
+      onOpen(job.id, typeof detected === "string" ? detected : null);
     } catch (error) {
       if (abort.signal.aborted) return;
       if (!(error instanceof ApiError)) console.error(error);
@@ -213,6 +216,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       job = next;
       els.prefix.checked = false;
       editor.close();
+      onClose();
       els.panel.hidden = false;
       sourceAudio.show(next);
       try {
@@ -234,6 +238,7 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       failure = null;
       els.prefix.checked = false;
       editor.close();
+      onClose();
       sourceAudio.hide();
       els.panel.hidden = true;
       onChange();
@@ -249,6 +254,8 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       editor.refresh();
       sourceAudio.refresh(job);
     },
+    /** El editor de subtítulos (el editor guiado se engancha a él). */
+    editor,
     /** Hay cambios sin guardar en el editor. */
     get dirty() {
       return editor.dirty;

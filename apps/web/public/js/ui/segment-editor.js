@@ -7,7 +7,7 @@
 
 import { ApiError } from "../api/errors.js";
 import { getSegments, putSegments } from "../api/jobs.js";
-import { dirtyCount, discard, editsOf, issueOf, issuesOf, openEditor, renameSpeaker, saved, setText, setTime, speakerIdsOf, speakerNameOf, speakerOf } from "../domain/editor-state.js";
+import { applyFixes as applyStateFixes, canUndo as stateCanUndo, currentSegments, dirtyCount, discard, editsOf, issueOf, issuesOf, openEditor, renameSpeaker, saved, setText, setTime, speakerIdsOf, speakerNameOf, speakerOf, undo as stateUndo } from "../domain/editor-state.js";
 import { displayName, speakerColor } from "../domain/speakers.js";
 import { MAX_SPEAKER_CHARS } from "../domain/limits.js";
 import { formatTimestamp, parseTimestamp } from "../domain/subtitles.js";
@@ -58,9 +58,13 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
   let message = null;
   /** Campos de tiempo con un texto que no se pudo leer (`índice:campo`): bloquean guardar hasta corregirlos. @type {Set<string>} */
   const badTimes = new Set();
-  /** @typedef {{ row: HTMLElement, start: HTMLInputElement, end: HTMLInputElement, text: HTMLTextAreaElement, issue: HTMLElement, speaker: HTMLElement }} Row */
+  /** @typedef {{ row: HTMLElement, start: HTMLInputElement, end: HTMLInputElement, text: HTMLTextAreaElement, issue: HTMLElement, speaker: HTMLElement, marks: HTMLElement }} Row */
   /** @type {Map<number, Row>} */
   const rows = new Map();
+  /** Pinta las marcas de calidad de una fila (editor guiado, ADR 0027); sin él las filas no llevan marcas. @type {((index: number, container: HTMLElement) => void) | null} */
+  let marker = null;
+  /** Avisa de cualquier cambio del estado del editor (el editor guiado vuelve a medir). @type {() => void} */
+  let edited = () => {};
   /** Confirma el valor escrito en un campo de tiempo (lo mismo que al salir del campo). @type {WeakMap<EventTarget, () => void>} */
   const commits = new WeakMap();
 
@@ -79,6 +83,7 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     els.discard.disabled = saving || count === 0;
     els.conflict.hidden = !conflict;
     onChange();
+    edited();
   }
 
   /** Refleja en una fila lo que dice el estado (valor guardado o borrador) y sus avisos. */
@@ -117,6 +122,7 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
       if (problem === undefined) control.removeAttribute("aria-describedby");
       else control.setAttribute("aria-describedby", entry.issue.id);
     }
+    marker?.(index, entry.marks);
   }
 
   function mutate(/** @type {number} */ index, /** @type {(current: EditorState) => EditorState} */ change) {
@@ -177,7 +183,9 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
     issue.className = "seg__issue";
     issue.id = `seg-issue-${index}`;
     issue.hidden = true;
-    row.append(times, text, issue);
+    const marks = doc.createElement("div");
+    marks.className = "seg__marks";
+    row.append(times, text, issue, marks);
     row.addEventListener("keydown", (/** @type {KeyboardEvent} */ event) => {
       if (!((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s")) return;
       event.preventDefault();
@@ -185,7 +193,7 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
       if (event.target !== null) commits.get(event.target)?.();
       void persist();
     });
-    rows.set(index, { row, start, end, text, issue, speaker });
+    rows.set(index, { row, start, end, text, issue, speaker, marks });
     return row;
   }
 
@@ -392,6 +400,69 @@ export function createSegmentEditor({ doc, win, baseUrl, t, onChange, save = put
       refreshBar();
     },
     persist,
+    /** El trabajo abierto, o null. */
+    get jobId() {
+      return jobId;
+    },
+    /** Subtítulos tal como se ven ahora (guardado + borrador): start, end y text. */
+    currentSegments() {
+      return state === null ? [] : currentSegments(state);
+    },
+    /** Hay algo que el servidor rechazaría (rango, largo, línea en blanco o un tiempo ilegible): no se mide hasta corregirlo. */
+    get hasLocalIssues() {
+      return state !== null && (badTimes.size > 0 || Object.keys(issuesOf(state)).length > 0);
+    },
+    /** @param {(index: number, container: HTMLElement) => void} fn */
+    setMarker(fn) {
+      marker = fn;
+      for (const index of rows.keys()) paintRow(index);
+    },
+    /** @param {() => void} fn */
+    onEdited(fn) {
+      edited = fn;
+    },
+    repaintMarks() {
+      for (const [index, entry] of rows) marker?.(index, entry.marks);
+    },
+    /** Escribe arreglos como borradores (no guarda) en un solo paso de deshacer. @param {{ index: number, edit: { text?: string, start?: number, end?: number } }[]} fixes */
+    applyFixes(fixes) {
+      if (state === null) return;
+      const next = applyStateFixes(state, fixes);
+      if (next === state) return;
+      for (const { index, edit } of fixes) {
+        if (edit.start !== undefined) badTimes.delete(`${index}:start`);
+        if (edit.end !== undefined) badTimes.delete(`${index}:end`);
+      }
+      if (!conflict) message = null;
+      state = next;
+      for (const { index } of fixes) paintRow(index);
+      refreshBar();
+    },
+    /** Revierte el último arreglo. Devuelve los índices tocados (para devolver el foco). */
+    undo() {
+      if (state === null || !stateCanUndo(state)) return [];
+      const touched = (state.undo.at(-1) ?? []).map((change) => change.index);
+      if (!conflict) message = null;
+      state = stateUndo(state);
+      for (const index of touched) {
+        badTimes.delete(`${index}:start`);
+        badTimes.delete(`${index}:end`);
+        paintRow(index);
+      }
+      refreshBar();
+      return touched;
+    },
+    get canUndo() {
+      return state !== null && stateCanUndo(state);
+    },
+    /** Lleva el foco al texto de un subtítulo, pintando las filas que falten. @param {number} index */
+    focusSegment(index) {
+      if (state === null || index < 0 || index >= state.segments.length) return;
+      while (shown <= index) renderRows();
+      const entry = rows.get(index);
+      entry?.row.scrollIntoView?.({ block: "center" });
+      entry?.text.focus();
+    },
     /** Nombre legible del hablante de un subtítulo GUARDADO, o null si no tiene. @param {{ speaker?: string }} segment */
     speakerNameOf(segment) {
       return typeof segment.speaker === "string" && segment.speaker !== "" ? speakerLabel(segment.speaker) : null;

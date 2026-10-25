@@ -412,6 +412,27 @@
         </form>
         <p class="panel__detail" id="result-status" role="status" hidden></p>
         <button type="button" class="btn btn--secondary" id="result-retry" hidden data-i18n="action.retry">Reintentar</button>
+        <section class="guided" id="guided" hidden aria-labelledby="guided-title">
+          <h3 class="visually-hidden" id="guided-title" data-i18n="guided.title">Editor guiado de calidad</h3>
+          <div class="guided__head">
+            <p class="guided__status" id="guided-status" role="status" aria-live="polite"></p>
+            <button type="button" class="btn btn--secondary btn--small" id="guided-review" disabled data-i18n="guided.review">Revisar</button>
+          </div>
+          <ul class="guided__chips" id="guided-chips"></ul>
+          <div class="guided__tools">
+            <div class="field">
+              <label for="guided-profile" data-i18n="guided.profile">Norma</label>
+              <select id="guided-profile"></select>
+            </div>
+            <button type="button" class="btn btn--ghost btn--small" id="guided-prev" disabled data-i18n="guided.prev">Problema anterior</button>
+            <button type="button" class="btn btn--ghost btn--small" id="guided-next" disabled data-i18n="guided.next">Problema siguiente</button>
+            <button type="button" class="btn btn--secondary btn--small" id="guided-fix-all" disabled data-i18n="guided.fix.all">Arreglar todos</button>
+            <button type="button" class="btn btn--ghost btn--small" id="guided-undo" disabled data-i18n="guided.undo">Deshacer</button>
+            <button type="button" class="btn btn--ghost btn--small" id="guided-unignore" hidden></button>
+          </div>
+          <p class="panel__detail guided__map-label" id="guided-map-label" hidden data-i18n="guided.map">Mapa de problemas por momento del video</p>
+          <ol class="guided__map" id="guided-map" role="list" aria-labelledby="guided-map-label" hidden></ol>
+        </section>
         <div class="editor-bar" id="editor-bar" hidden>
           <p class="editor-bar__state" id="editor-state" role="status"></p>
           <div class="panel__actions">
