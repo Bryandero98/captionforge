@@ -245,6 +245,20 @@ export class JobsService {
     return toView(job);
   }
 
+  /**
+   * Crea un trabajo derivado (quemar, traducir, doblar). El `count()` previo es solo la respuesta rápida; quien garantiza que no haya dos
+   * activos de la misma clase por transcripción es el índice único parcial `Job_one_active_derived_per_parent`: si dos peticiones pasan
+   * el conteo a la vez, la segunda choca con él (P2002) y recibe el mismo 409.
+   */
+  private async createDerived(args: Prisma.JobCreateArgs, busyMessage: string): Promise<Job> {
+    try {
+      return await this.prisma.job.create(args);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new ConflictException(busyMessage);
+      throw error;
+    }
+  }
+
   /** Compensación al fallar el encolado, paso a paso: que falle uno (p. ej. la base también está caída)
    *  no impide los demás ni cambia la respuesta, que siempre es 503. */
   private async failEnqueue(id: string, error: unknown, objectsToDelete: string[]): Promise<never> {
@@ -375,7 +389,7 @@ export class JobsService {
       throw error;
     }
 
-    const job = await this.prisma.job.create({
+    const job = await this.createDerived({
       data: {
         id,
         tenantId,
@@ -389,7 +403,7 @@ export class JobsService {
         outputPrefix,
         options: options as unknown as Prisma.InputJsonValue,
       },
-    });
+    }, "Ya hay un quemado en curso para esta transcripción. Espera a que termine o cancélalo.");
     try {
       await this.queue.enqueueBurn(payload);
     } catch (error) {
@@ -458,7 +472,7 @@ export class JobsService {
     }
 
     // Job.options guarda el proveedor y los idiomas, jamás una clave: es lo que el canal interno compara con lo que pide el worker.
-    const job = await this.prisma.job.create({
+    const job = await this.createDerived({
       data: {
         id,
         tenantId,
@@ -472,7 +486,7 @@ export class JobsService {
         outputPrefix,
         options: payload.options as unknown as Prisma.InputJsonValue,
       },
-    });
+    }, "Ya hay una traducción en curso para esta transcripción. Espera a que termine o cancélala.");
     try {
       await this.queue.enqueueTranslate(payload);
     } catch (error) {
@@ -534,7 +548,7 @@ export class JobsService {
       throw error;
     }
 
-    const job = await this.prisma.job.create({
+    const job = await this.createDerived({
       data: {
         id,
         tenantId,
@@ -548,7 +562,7 @@ export class JobsService {
         outputPrefix,
         options: payload.options as unknown as Prisma.InputJsonValue,
       },
-    });
+    }, "Ya hay un doblaje en curso para esta transcripción. Espera a que termine o cancélalo.");
     try {
       await this.queue.enqueueDub(payload);
     } catch (error) {
