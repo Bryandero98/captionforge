@@ -2,7 +2,15 @@
 
 Rama: `feat/v1.3.0-ux-onboarding` (desde `main` en v1.2.0). Hoja de ruta: [`docs/ROADMAP.md`](../../docs/ROADMAP.md).
 Alcance de este documento: **solo las iniciativas 1 y 2**, arquitectura del cliente (JS vainilla con módulos ES, sin build) y ajustes mínimos de la API.
-Reglas: rojo → verde, una suite del API a la vez, commits por tarea, PR único solo cuando lo ordene el Tech Lead. Estado: **borrador para revisión técnica**, sin código escrito.
+Reglas: rojo → verde, una suite del API a la vez, commits por tarea, PR único solo cuando lo ordene el Tech Lead. Estado: **decisiones aprobadas por el Tech Lead (ver §0); T1–T6 hechas hasta el Checkpoint 2; la interfaz (T7–T11) espera su luz verde.**
+
+## 0. Decisiones aprobadas
+
+1. **Encadenado en el cliente** en la fase 1 (D4); el servidor lo asumirá en la fase 3.
+2. **Hablantes**: solo Podcast y Reunión, menos de 60 min, si el servidor los ofrece, siempre visibles en el resumen.
+3. **Modo**: la interfaz **siempre abre en Resultado rápido**; «Control total» se abre a mano cada vez. Por eso `mode` no está en las preferencias.
+4. **Nombres de perfil**: «Vertical (Shorts/Reels)», «Podcast», «Reunión», «Clip rápido», «Estándar» (ids `vertical`, `podcast`, `meeting`, `quick-clip`, `standard`).
+5. Dependabot se ignora; la rama BYOK quedó respaldada en `archive/byok-adapters-wip` (con la clave de prueba con forma real sustituida por una armada en ejecución, porque la protección de secretos del repositorio bloqueaba el push).
 
 ## 1. Punto de partida (verificado en el código)
 
@@ -47,14 +55,14 @@ ui/
 ### 3.1 Análisis de intención (iniciativa 1)
 
 **Hechos** (`facts`), todos locales: `kind` (`audio`|`video`, por MIME/extensión con `domain/media.js`), `durationSeconds`, `width`, `height`, `sizeBytes`.
-`probeMedia` crea un `<video>`/`<audio>` fuera del DOM con `preload="metadata"` y un `URL.createObjectURL(file)` que **siempre se revoca** (en `loadedmetadata`, `error` y tiempo agotado). No se decodifica ni se carga el archivo entero, así que un archivo de 4 GiB cuesta lo mismo que uno de 4 MiB.
+`probeMedia(file, kind, env)` crea un `<video>`/`<audio>` fuera del DOM con `preload="metadata"` y un `URL.createObjectURL(file)` que **siempre se revoca** (en `loadedmetadata`, `error` y tiempo agotado). No se decodifica ni se carga el archivo entero, así que un archivo de 4 GiB cuesta lo mismo que uno de 4 MiB.
 
 **Reglas** (en orden; el primer acierto gana; cada una devuelve su motivo traducible):
 
 | Perfil | Condición | Opciones que fija | Encadenado |
 |---|---|---|---|
-| `short-vertical` | video, vertical (`h ≥ 16/9·w` aprox.) y `duración ≤ verticalMaxSeconds` | `modelSize: small` | quemado `canvas: vertical`, plantilla `bold-pop` |
-| `podcast` | audio, o video sin imagen útil, de 5 min en adelante | `modelSize: small`, `diarize` solo si el servidor lo ofrece y `duración ≤ 60 min` | ninguno (un audio no se quema) |
+| `vertical` | video, vertical (`h ≥ 16/9·w` aprox.) y `duración ≤ verticalMaxSeconds` | `modelSize: small` | quemado `canvas: vertical`, plantilla `bold-pop` |
+| `podcast` | audio de 5 min en adelante | `modelSize: small`, `diarize` solo si el servidor lo ofrece y `duración ≤ 60 min` | ninguno (un audio no se quema) |
 | `meeting` | video horizontal de 20 min en adelante | `modelSize: small`, `diarize` si está disponible y `duración ≤ 60 min` | ninguno |
 | `quick-clip` | video horizontal de menos de 3 min | `modelSize: small` | quemado clásico, estilo `modern` |
 | `standard` (respaldo) | cualquier otro caso, incluida duración desconocida | los valores de hoy | ninguno |
@@ -105,10 +113,10 @@ Fallos: un 413 (`job_too_large`) o 409 se muestran como aviso junto al resultado
 ### 3.4 Preferencias en `localStorage` (`cf-prefs`)
 
 ```json
-{ "v": 1, "mode": "quick", "autoProfile": true,
+{ "v": 1, "autoProfile": true,
   "modelSize": "small", "sourceLanguage": "", "translateTo": "",
   "cleanAudio": false, "diarize": false,
-  "burnFormat": "classic", "burnTemplate": "bold-pop", "burnKaraoke": false, "autoBurn": false }
+  "burnFormat": "classic", "burnTemplate": "bold-pop", "burnKaraoke": false, "autoBurn": false }  // el modo NO se guarda: siempre arranca en rápido
 ```
 
 - **Se guarda** solo lo que la persona cambió explícitamente en «Control total» (no los valores sugeridos por un perfil), con un temporizador corto para no escribir a cada tecla.
@@ -129,12 +137,12 @@ Fallos: un 413 (`job_too_large`) o 409 se muestran como aviso junto al resultado
 
 | # | Tarea | Aceptación | Depende de | Tamaño |
 |---|---|---|---|---|
-| T1 | `domain/prefs.js` con lectura estricta y serialización | Pruebas: JSON hostil, versión ajena, claves desconocidas, valores fuera de enum, >2 KiB, almacenamiento que lanza | — | S |
-| T2 | `domain/profiles.js` + prueba de paridad con los enums de los esquemas | Cada perfil produce opciones válidas según `common.v1.json`/`burn-job.v1.json` (el test lee los JSON) | — | S |
-| T3 | `domain/intent.js` (tabla de reglas) | Pruebas de tabla: cada perfil, fronteras (3 min, 20 min, 60 min, tope vertical), duración desconocida, audio, lote | T2 | S |
-| T4 | `domain/media-probe.js` | Pruebas con elementos falsos: éxito, `error`, tiempo agotado, revocación de la URL siempre, archivo sin duración | — | S |
-| T5 | API: `capabilities.limits/burn` y `verticalMaxSeconds` configurable | Pruebas e2e de capacidades y de coherencia con `/burn`; compose actualizado | — | M |
-| T6 | Cliente de capacidades: lee `limits`/`burn` con valores por defecto | Pruebas con respuestas antiguas, raras y nuevas | T5 | S |
+| T1 ✅ | `domain/prefs.js` con lectura estricta y serialización | Pruebas: JSON hostil, versión ajena, claves desconocidas, valores fuera de enum, >2 KiB, almacenamiento que lanza | — | S |
+| T2 ✅ | `domain/profiles.js` + prueba de paridad con los enums de los esquemas | Cada perfil produce opciones válidas según `common.v1.json`/`burn-job.v1.json` (el test lee los JSON) | — | S |
+| T3 ✅ | `domain/intent.js` (tabla de reglas) | Pruebas de tabla: cada perfil, fronteras (3 min, 20 min, 60 min, tope vertical), duración desconocida, audio, lote | T2 | S |
+| T4 ✅ | `domain/media-probe.js` | Pruebas con elementos falsos: éxito, `error`, tiempo agotado, revocación de la URL siempre, archivo sin duración | — | S |
+| T5 ✅ | API: `capabilities.limits/burn` y `verticalMaxSeconds` configurable | Pruebas e2e de capacidades y de coherencia con `/burn`; compose actualizado | — | M |
+| T6 ✅ | Cliente de capacidades: lee `limits`/`burn` con valores por defecto | Pruebas con respuestas antiguas, raras y nuevas | T5 | S |
 | T7 | `ui/quick-mode.js` + marcado de `index.html` + estilos | Pruebas con DOM falso: valores seguros por defecto, resumen, chip, «Cambiar», paso a manual, lote mixto, capacidades apagadas | T1–T4, T6 | L |
 | T8 | `ui/follow-up.js` y cableado en `app.js` | Pruebas: encadena al completar, 409/413 no hacen bucle, nada si el usuario cerró o cambió de trabajo | T7 | M |
 | T9 | i18n en los 6 idiomas (≈35 claves `quick.*`, `profile.*`, `advanced.*`) y guía actualizada | La comprobación de idiomas pasa; revisión de longitudes en alemán | T7 | M |
@@ -156,9 +164,6 @@ Fallos: un 413 (`job_too_large`) o 409 se muestran como aviso junto al resultado
 | Regresión de pruebas existentes por mover los controles | Medio | Se mantienen los `id` y `#start`; las suites actuales (web, e2e de navegador) deben pasar sin editarse salvo lo estrictamente nuevo |
 | Dos valores del tope vertical divergen | Bajo | Configuración única + prueba de coherencia (D8) |
 
-## 7. Preguntas abiertas para el Tech Lead
+## 7. Preguntas abiertas
 
-1. **Encadenado**: ¿aprobamos la orquestación en el cliente para la fase 1 (D4) y trasladarla al servidor en la fase 3, o se prefiere adelantar el gancho de finalización del servidor y retrasar la entrega?
-2. **Diarización en perfiles**: es lenta en CPU. Propuesta: solo se sugiere para `podcast` y `meeting` hasta 60 min y nunca se activa sola sin mostrarla en el resumen. ¿Se acepta ese umbral?
-3. **Recordar el modo**: ¿quien abrió «Control total» lo ve abierto la próxima vez (propuesto) o siempre empezamos en rápido?
-4. **Nombres de perfiles** en los 6 idiomas (Short vertical, Podcast o entrevista, Reunión o clase, Clip rápido, Estándar): ¿se aprueban tal cual para traducirlos?
+Resueltas en §0. Quedan para la interfaz (T7 en adelante): textos exactos de los motivos (`intent.<code>`) en los 6 idiomas y la longitud del resumen en alemán.
