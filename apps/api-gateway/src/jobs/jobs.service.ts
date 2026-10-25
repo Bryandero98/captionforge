@@ -119,6 +119,12 @@ const MAX_SEGMENTS_BYTES = 32 * 1024 * 1024;
 const coded = (Exception: new (response: object) => Error, status: number, error: string, code: string, message: string): Error =>
   new Exception({ statusCode: status, error, code, message });
 const BURN_STYLES = ["modern", "tiktok", "youtube", "minimal"] as const;
+/** Plantillas de subtítulos dinámicos (.ass) y formas del lienzo; las mismas del esquema burn-job. */
+const BURN_TEMPLATES = ["bold-pop", "rounded-sweep", "clean-color"] as const;
+const BURN_CANVASES = ["source", "vertical"] as const;
+const BURN_OPTION_KEYS = ["style", "karaoke", "template", "canvas"];
+/** Tope de duración del video en 9:16 (decisión del Tech Lead): el worker también lo recorta con `-t`. */
+const VERTICAL_MAX_SECONDS = 600;
 
 /** Nombre de descarga: el del video original con la extensión del artefacto (sin su extensión de video). */
 export function downloadName(originalFilename: string, artifact: string, kind?: Job["kind"]): string {
@@ -349,6 +355,16 @@ export class JobsService {
     if (mediaKindOf(parent.contentType) === "audio") {
       throw coded(BadRequestException, 400, "Bad Request", "burn_not_available_for_audio", "Un audio no tiene imagen: no se pueden quemar subtítulos. Descarga el .srt.");
     }
+    const duration = (parent.result as { durationSeconds?: unknown } | null)?.durationSeconds;
+    if (options.canvas === "vertical" && typeof duration === "number" && duration > VERTICAL_MAX_SECONDS) {
+      throw coded(
+        PayloadTooLargeException,
+        413,
+        "Payload Too Large",
+        "job_too_large",
+        `El video dura ${Math.ceil(duration)} s y el formato vertical 9:16 admite hasta ${VERTICAL_MAX_SECONDS / 60} minutos. Quémalo con la forma original.`,
+      );
+    }
     const head = await this.storage.head(segmentsKey);
     if (!head) throw new ConflictException("Los subtítulos ya no están disponibles (caducaron).");
 
@@ -404,7 +420,7 @@ export class JobsService {
       throw new BadRequestException("Las opciones deben ser un objeto JSON.");
     }
     const given = value as Record<string, unknown>;
-    const unknown = Object.keys(given).filter((key) => key !== "style" && key !== "karaoke");
+    const unknown = Object.keys(given).filter((key) => !BURN_OPTION_KEYS.includes(key));
     if (unknown.length > 0) throw new BadRequestException(`Opciones desconocidas: ${unknown.join(", ")}.`);
     const style = given.style ?? "modern";
     const karaoke = given.karaoke ?? false;
@@ -412,7 +428,21 @@ export class JobsService {
       throw new BadRequestException(`style debe ser uno de: ${BURN_STYLES.join(", ")}.`);
     }
     if (typeof karaoke !== "boolean") throw new BadRequestException("karaoke debe ser verdadero o falso.");
-    return { style: style as BurnJob["options"]["style"], karaoke };
+    const options: BurnJob["options"] = { style: style as BurnJob["options"]["style"], karaoke };
+    // Plantilla y lienzo se eligen de una lista cerrada: nunca viajan al filtro de ffmpeg como texto del usuario.
+    if (given.template !== undefined) {
+      if (typeof given.template !== "string" || !(BURN_TEMPLATES as readonly string[]).includes(given.template)) {
+        throw new BadRequestException(`template debe ser uno de: ${BURN_TEMPLATES.join(", ")}.`);
+      }
+      options.template = given.template as NonNullable<BurnJob["options"]["template"]>;
+    }
+    if (given.canvas !== undefined) {
+      if (typeof given.canvas !== "string" || !(BURN_CANVASES as readonly string[]).includes(given.canvas)) {
+        throw new BadRequestException(`canvas debe ser uno de: ${BURN_CANVASES.join(", ")}.`);
+      }
+      options.canvas = given.canvas as NonNullable<BurnJob["options"]["canvas"]>;
+    }
+    return options;
   }
 
   /**
