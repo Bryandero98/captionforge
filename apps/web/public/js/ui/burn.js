@@ -7,14 +7,13 @@ import { ApiError } from "../api/errors.js";
 import { cancelJob, startBurn } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { trackingViewOf } from "../domain/job-state.js";
+import { BURN_STYLES, BURN_TEMPLATES } from "../domain/burn-options.js";
 import { canBurn } from "../domain/media.js";
 import { detailText, statusText } from "./job-text.js";
 import { downloadName } from "./results.js";
 import { createTracker } from "./tracker.js";
 
-export const BURN_STYLES = /** @type {const} */ (["modern", "tiktok", "youtube", "minimal"]);
-/** Plantillas de subtítulos dinámicos del formato vertical; las mismas del esquema burn-job. */
-export const BURN_TEMPLATES = /** @type {const} */ (["bold-pop", "rounded-sweep", "clean-color"]);
+export { BURN_STYLES, BURN_TEMPLATES };
 
 /**
  * @param {{
