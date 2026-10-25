@@ -1,22 +1,26 @@
 // Cableado de la interfaz de subida: eventos del DOM -> máquina de estados (domain/upload-state.js) -> DOM.
 // Todo texto entra con textContent: ningún dato (nombre de archivo, mensaje del servidor) se interpreta como HTML.
 
-import { getCapabilities } from "../api/capabilities.js";
+import { NO_CAPABILITIES, getCapabilities } from "../api/capabilities.js";
 import { ApiError } from "../api/errors.js";
 import { getJob, getQuality, getQualityProfiles, proposeQualityFix, putSegments } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
-import { precheckFile, uploadVideo } from "../api/upload.js";
+import { precheckFile, uploadVideo, videoMimeType } from "../api/upload.js";
 import { formatBytes, formatDuration } from "../domain/format.js";
 import { MAX_FILES, addFiles, currentOf, emptyBatch, markCancelled, markDone, markError, markUploading, removeItem, summaryOf } from "../domain/batch.js";
 import { trackingViewOf } from "../domain/job-state.js";
+import { isAudioMime } from "../domain/media.js";
+import { probeMedia } from "../domain/media-probe.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
 import { createAi } from "./ai.js";
 import { createBurn } from "./burn.js";
 import { createQuality } from "./quality.js";
+import { createFollowUp } from "./follow-up.js";
 import { createHistory } from "./history.js";
 import { detailText, statusText } from "./job-text.js";
 import { languageNames as languageNamesFor } from "./language-names.js";
+import { createQuickMode } from "./quick-mode.js";
 import { createResults } from "./results.js";
 import { createSpendConfirm } from "./spend-confirm.js";
 import { createTracker } from "./tracker.js";
@@ -90,6 +94,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     jobDetail: $("job-detail"),
     jobReconnect: $("job-reconnect"),
     announcer: $("announcer"),
+    chainProblem: $("quick-chain-problem"),
   };
 
   /** @type {string} */
@@ -103,6 +108,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let overflow = 0;
   /** @type {AbortController | null} */
   let controller = null;
+  /** Evita dos arranques mientras se espera la lectura de metadatos. */
+  let beginning = false;
   /** @type {number | undefined} */
   let countdown;
   /** Espera impuesta por el servidor (429/503): fecha límite, error al que pertenece y si sigue vigente. */
@@ -163,6 +170,42 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     onOpenParent: (parentId) => void openJob(parentId),
   });
 
+  // «Sube y olvídate» (ADR 0025): el navegador encadena el quemado al terminar la transcripción. Si se cierra la pestaña, se pierde el encadenado.
+  const followUp = createFollowUp({
+    baseUrl: config.baseUrl,
+    onStarted: (job, name) => {
+      history.add({ id: job.id, name, kind: "BURN", at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) });
+      burn?.adopt(job);
+      announce(t("quick.chain.started", { name }));
+    },
+    onProblem: ({ name }) => {
+      els.chainProblem.textContent = t("quick.chain.problem", { name });
+      els.chainProblem.hidden = false;
+    },
+    onPendingChange: () => quick.refresh(),
+  });
+  /** Qué ofrece el servidor (límites y plantillas); hasta que responde, lo mínimo de siempre. */
+  let currentCaps = NO_CAPABILITIES;
+  const probeEnv = {
+    createElement: (/** @type {"audio" | "video"} */ tag) => doc.createElement(tag),
+    createObjectURL: (/** @type {Blob} */ file) => globalThis.URL.createObjectURL(file),
+    revokeObjectURL: (/** @type {string} */ url) => globalThis.URL.revokeObjectURL(url),
+    setTimeout: (/** @type {() => void} */ fn, /** @type {number} */ ms) => win.setTimeout(fn, ms),
+    clearTimeout: (/** @type {number} */ id) => win.clearTimeout(id),
+  };
+  const quick = createQuickMode({
+    doc,
+    t: translate,
+    storage: safeStorage(win),
+    getCaps: () => currentCaps,
+    probe: (file, kind) => probeMedia(file, kind, probeEnv),
+    announce: (text) => announce(text),
+    pending: () => followUp.pending(),
+    languageName: (code) => languageNames().find((entry) => entry.code === code)?.label ?? code,
+  });
+  /** Los archivos de la cola, para que el modo rápido lea sus metadatos (solo los nuevos) y mantenga el resumen al día. */
+  const syncQuick = () => quick.track(batch.items.map((item) => ({ key: item.key, file: item.file, kind: isAudioMime(videoMimeType(/** @type {File} */ (item.file))) ? "audio" : "video" })));
+
   // Calidad de los subtítulos (ADR 0021): el informe y el arreglo los calcula el API; aquí solo se piden y se pintan.
   quality = createQuality({
     doc,
@@ -191,8 +234,17 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
    * cancela, la cola se detiene ahí y «Reintentar» lo retoma.
    */
   async function begin() {
+    if (currentOf(batch) === null || viewOf(state).busy || waiting || beginning) return;
+    beginning = true;
+    try {
+      await quick.settled(); // la lectura local de metadatos tiene su propio tiempo máximo
+    } finally {
+      beginning = false;
+    }
     const item = currentOf(batch);
     if (item === null || viewOf(state).busy || waiting) return;
+    const plan = quick.plan(item.key);
+    els.chainProblem.hidden = true;
     stopTracking();
     batch = markUploading(batch, item.key);
     const abort = new AbortController();
@@ -202,7 +254,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     try {
       const job = await uploader({
         file: /** @type {File} */ (item.file),
-        options: { modelSize: els.model.value, sourceLanguage: els.source.value, translateTo: els.translate.value, cleanAudio: els.clean.checked, diarize: els.diarize.checked && !els.diarize.disabled },
+        options: plan.options,
         baseUrl: config.baseUrl,
         maxBytes: config.maxBytes,
         signal: abort.signal,
@@ -214,6 +266,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
       batch = markDone(batch, item.key, job.id);
       dispatch({ type: "accepted", job });
       history.add({ id: job.id, name: item.file.name, kind: "TRANSCRIBE", at: Date.now() });
+      followUp.register(job.id, plan.followUp, item.file.name);
       void tracker.follow(job.id);
       accepted = true;
     } catch (error) {
@@ -298,6 +351,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     overflow = result.overflow;
     if (fresh && state.phase !== "idle") state = initialState; // archivos nuevos descartan el resultado anterior
     els.input.value = ""; // permite volver a elegir el mismo archivo
+    syncQuick();
     render();
     if (batch.items.length > 1) announce(t("batch.added", { count: batch.items.length }));
   }
@@ -307,6 +361,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     rejected = [];
     overflow = 0;
     els.input.value = "";
+    quick.reset();
   }
 
   /** Qué se dice de los archivos que no entraron en la cola. */
@@ -371,6 +426,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
           remove.addEventListener("click", () => {
             const index = batch.items.findIndex((candidate) => candidate.key === item.key);
             batch = removeItem(batch, item.key);
+            syncQuick();
             render();
             // El foco pasa a la fila que ocupa ahora ese sitio (o a la última); sin lista, al selector de archivos.
             const buttons = els.batchList.querySelectorAll("li button");
@@ -443,6 +499,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   }
 
   function renderJob() {
+    followUp.onJob(tracker.state.job); // si la transcripción acaba de completarse, pide el quemado encadenado
     const view = trackingViewOf(tracker.state);
     // Un quemado tiene su propio panel (ui/burn.js): el principal solo muestra transcripciones.
     const jobKind = tracker.state.job?.kind;
@@ -636,6 +693,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     // Región viva que solo cambia de contenido (ocultarla con `hidden` hace poco fiable el anuncio).
     els.langNotice.textContent = REVIEWED_LANGS.includes(lang) ? "" : t("lang.notice");
     fillSelects();
+    quick.refresh(); // nombres de perfil y resumen en el idioma nuevo; los <select> se acaban de reconstruir
     onTranslate(t); // la cuenta (ui/account.js) repinta lo que depende de los datos
   }
 
@@ -696,6 +754,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     rejected = [];
     overflow = 0;
     els.input.value = "";
+    syncQuick();
     if (currentOf(batch) === null) state = initialState;
     render();
     els.input.focus();
@@ -716,7 +775,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   // Salir de la página corta la subida: se avisa solo mientras hay una en curso.
   win.addEventListener("beforeunload", (/** @type {BeforeUnloadEvent} */ event) => {
-    if (!viewOf(state).busy && !results.dirty) return;
+    if (!viewOf(state).busy && !results.dirty && followUp.pending() === 0) return;
     event.preventDefault();
     event.returnValue = "";
   });
@@ -727,6 +786,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     els.diarize.disabled = !enabled;
     if (!enabled) els.diarize.checked = false;
     els.diarizeHint.hidden = enabled;
+    currentCaps = found;
+    quick.refresh();
   }
 
   translateStatic();
@@ -734,6 +795,15 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   void found.then(applyCapabilities);
 
   return { get state() { return state; }, dispatch, setLang };
+}
+
+/** @param {Window} win */
+function safeStorage(win) {
+  try {
+    return win.localStorage;
+  } catch {
+    return null; // datos del sitio bloqueados: las preferencias duran solo esta visita
+  }
 }
 
 /** @param {Window} win */

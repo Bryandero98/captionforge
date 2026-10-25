@@ -111,6 +111,16 @@ export function savePrefs(storage, prefs) {
   }
 }
 
+/** ¿Hay algo guardado? (la persona ya ajustó «Control total» alguna vez). @param {Pick<Storage, "getItem"> | null | undefined} storage */
+export function hasStoredPrefs(storage) {
+  try {
+    const raw = storage ? storage.getItem(PREFS_KEY) : null;
+    return typeof raw === "string" && raw !== "";
+  } catch {
+    return false;
+  }
+}
+
 /** Borra solo la clave de preferencias (las demás —clave de API, idioma, historial— no se tocan). @param {Pick<Storage, "removeItem"> | null | undefined} storage */
 export function clearPrefs(storage) {
   try {

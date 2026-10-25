@@ -47,7 +47,7 @@ export function planFor(entry, choice, caps) {
         if (known(facts?.durationSeconds) && known(max) && facts.durationSeconds > max) notes.push("vertical_too_long");
         else {
           const offered = Array.isArray(caps?.burn?.templates) ? caps.burn.templates : BURN_TEMPLATES;
-          const template = BURN_TEMPLATES.includes(/** @type {any} */ (c.burnTemplate)) && offered.includes(c.burnTemplate) ? c.burnTemplate : (BURN_TEMPLATES.find((name) => offered.includes(name)) ?? BURN_TEMPLATES[0]);
+          const template = BURN_TEMPLATES.includes(/** @type {any} */ (c.burnTemplate)) && offered.includes(/** @type {any} */ (c.burnTemplate)) ? c.burnTemplate : (BURN_TEMPLATES.find((name) => offered.includes(name)) ?? BURN_TEMPLATES[0]);
           followUp = { burn: { canvas: "vertical", template } };
         }
       } else {
