@@ -20,6 +20,10 @@ export interface BurnResult {
    * false si se pidió karaoke pero ningún segmento conservaba tiempos por palabra.
    */
   usedKaraoke: boolean;
+  /**
+   * Segmentos cuyo texto se editó y cuyos tiempos por palabra se repartieron de forma aproximada (alineación difflib).
+   */
+  approximateSegments?: number;
   artifacts: {
     /**
      * Clave dentro de jobs/<jobId>/. Solo [A-Za-z0-9_-] por segmento y un punto de extensión opcional en el último: no admite '..', barras iniciales ni rutas absolutas (sin lookahead, para que Pydantic y Ajv validen igual).

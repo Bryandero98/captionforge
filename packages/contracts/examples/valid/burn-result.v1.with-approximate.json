@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "jobId": "3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10",
+  "usedKaraoke": true,
+  "artifacts": {
+    "video": "jobs/3f1c2a9e-6b1d-4c7e-9a52-0d8f5e3b7a10/out/captioned.mp4"
+  },
+  "approximateSegments": 2
+}

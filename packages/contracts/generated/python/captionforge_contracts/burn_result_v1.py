@@ -190,4 +190,11 @@ class BurnResult(BaseModel):
             description='false si se pidió karaoke pero ningún segmento conservaba tiempos por palabra.'
         ),
     ]
+    approximateSegments: Annotated[
+        int | None,
+        Field(
+            description='Segmentos cuyo texto se editó y cuyos tiempos por palabra se repartieron de forma aproximada (alineación difflib).',
+            ge=0,
+        ),
+    ] = None
     artifacts: Artifacts
