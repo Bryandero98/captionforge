@@ -8,7 +8,7 @@ import { requestJson } from "./jobs.js";
 export const EXTERNAL_PROVIDERS = /** @type {const} */ (["openai", "elevenlabs"]);
 
 /** @typedef {typeof EXTERNAL_PROVIDERS[number]} ExternalProvider */
-/** @typedef {{ provider: ExternalProvider, last4: string, createdAt: string, rotatedAt: string | null }} ExternalKeyView */
+/** @typedef {{ provider: ExternalProvider, last4: string, createdAt: string, rotatedAt: string | null, baseUrlHost?: string | null, model?: string | null }} ExternalKeyView */
 /** @typedef {{ baseUrl: string, signal?: AbortSignal, fetchImpl?: typeof fetch }} Base */
 
 const root = (/** @type {string} */ baseUrl) => `${baseUrl.replace(/\/+$/, "")}/v1/workspaces/current/external-keys`;
@@ -26,10 +26,15 @@ export async function listExternalKeys({ baseUrl, signal, fetchImpl }) {
   return data.keys;
 }
 
-/** Guarda o reemplaza la clave de un proveedor. @param {Base & { provider: string, key: string }} options @returns {Promise<ExternalKeyView>} */
-export async function saveExternalKey({ baseUrl, provider, key, signal, fetchImpl }) {
+/**
+ * Guarda o reemplaza la clave de un proveedor. `endpoint` (URL base del servicio compatible) y `model` son opcionales y solo aplican a
+ * OpenAI (ADR 0022); vacíos no se envían, y un reemplazo sin ellos los borra en el servidor.
+ * @param {Base & { provider: string, key: string, endpoint?: string, model?: string }} options @returns {Promise<ExternalKeyView>}
+ */
+export async function saveExternalKey({ baseUrl, provider, key, endpoint, model, signal, fetchImpl }) {
   const name = assertProvider(provider);
-  return /** @type {ExternalKeyView} */ (await requestJson({ url: `${root(baseUrl)}/${name}`, method: "PUT", body: { key }, signal, fetchImpl }));
+  const body = { key, ...(endpoint?.trim() ? { baseUrl: endpoint.trim() } : {}), ...(model?.trim() ? { model: model.trim() } : {}) };
+  return /** @type {ExternalKeyView} */ (await requestJson({ url: `${root(baseUrl)}/${name}`, method: "PUT", body, signal, fetchImpl }));
 }
 
 /** @param {Base & { provider: string }} options */

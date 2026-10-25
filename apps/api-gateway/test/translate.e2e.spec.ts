@@ -84,10 +84,10 @@ beforeAll(async () => {
   tenantId = (await sharedTenant()).id;
   owner = new pg.Client({ connectionString: process.env.DATABASE_URL_OWNER });
   await owner.connect();
-  app = await createApp({ ...baseConfig, byok: { appSecret: APP_SECRET }, ai: { maxJobCharacters: 120, maxJobSegments: 5 } }, { logger: ["error"] });
+  app = await createApp({ ...baseConfig, byok: { ...baseConfig.byok, appSecret: APP_SECRET }, ai: { maxJobCharacters: 120, maxJobSegments: 5 } }, { logger: ["error"] });
   await app.listen(0, "127.0.0.1");
   base = await app.getUrl();
-  appNoByok = await createApp({ ...baseConfig, byok: { appSecret: undefined } }, { logger: ["error"] });
+  appNoByok = await createApp({ ...baseConfig, byok: { ...baseConfig.byok, appSecret: undefined } }, { logger: ["error"] });
   await appNoByok.listen(0, "127.0.0.1");
   baseNoByok = await appNoByok.getUrl();
   prisma = app.get(PrismaService);

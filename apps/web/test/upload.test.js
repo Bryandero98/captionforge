@@ -95,6 +95,30 @@ describe("el tipo del archivo", () => {
     });
   }
 
+  for (const [name, expected] of [
+    ["a.mp3", "audio/mpeg"],
+    ["a.WAV", "audio/wav"],
+    ["a.m4a", "audio/mp4"],
+    ["a.ogg", "audio/ogg"],
+    ["a.flac", "audio/flac"],
+  ]) {
+    it(`deduce ${expected} de la extensión de ${name} cuando el navegador no informa el tipo`, () => {
+      assert.equal(videoMimeType(fakeFile(name, { type: "" })), expected);
+      assert.equal(videoMimeType(fakeFile(name, { type: "application/octet-stream" })), expected);
+    });
+  }
+
+  for (const type of ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave", "audio/mp4", "audio/x-m4a", "audio/m4a", "audio/ogg", "audio/flac", "audio/x-flac"]) {
+    it(`el tipo de audio ${type} se conserva`, () => {
+      assert.equal(videoMimeType(fakeFile("pista.bin", { type })), type);
+    });
+  }
+
+  it("un .m4a que el navegador declara como video/mp4 se envía como audio: es lo que es", () => {
+    assert.equal(videoMimeType(fakeFile("nota.m4a", { type: "video/mp4" })), "audio/mp4");
+    assert.equal(videoMimeType(fakeFile("clase.mp4", { type: "video/mp4" })), "video/mp4");
+  });
+
   it("una extensión desconocida no se disfraza de video", () => {
     assert.equal(videoMimeType(fakeFile("notas.txt", { type: "text/plain" })), "text/plain");
   });
@@ -116,6 +140,16 @@ describe("comprobaciones antes de subir", () => {
     const error = precheckFile(fakeFile("a.mp4", { bytes: 1001 }), limits);
     assert.equal(error?.code, "too_large");
     assert.equal(error?.status, 0);
+  });
+
+  it("los cinco formatos de audio pasan la comprobación", () => {
+    for (const name of ["a.mp3", "a.wav", "a.m4a", "a.ogg", "a.flac"]) assert.equal(precheckFile(fakeFile(name, { type: "", bytes: 500 }), limits), null, name);
+  });
+
+  it("un audio que el API no acepta (AAC suelto, WMA) -> unsupported_type", () => {
+    for (const [name, type] of [["a.aac", "audio/aac"], ["a.wma", "audio/x-ms-wma"], ["a.weba", "audio/webm"]]) {
+      assert.equal(precheckFile(fakeFile(name, { type, bytes: 10 }), limits)?.code, "unsupported_type", name);
+    }
   });
 
   it("un tipo que el API rechazaría -> unsupported_type", () => {

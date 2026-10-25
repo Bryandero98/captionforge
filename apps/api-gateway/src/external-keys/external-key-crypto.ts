@@ -25,6 +25,8 @@ export interface KeyContext {
   tenantId: string;
   provider: ExternalProvider;
   keyVersion: number;
+  /** Qué se cifra. Sin él es la clave (AAD histórico, para no invalidar las ya guardadas); `base-url` es la URL base propia (ADR 0022). */
+  purpose?: "base-url";
 }
 
 /** Fallo al descifrar. El mensaje es genérico a propósito: nunca incluye el texto, el valor guardado ni el secreto. */
@@ -35,7 +37,8 @@ export class ExternalKeyDecryptError extends Error {
   }
 }
 
-const aad = (ctx: KeyContext): Buffer => Buffer.from(`${ctx.tenantId}|${ctx.provider}|${ctx.keyVersion}`, "utf8");
+const aad = (ctx: KeyContext): Buffer =>
+  Buffer.from(`${ctx.tenantId}|${ctx.provider}|${ctx.keyVersion}${ctx.purpose === undefined ? "" : `|${ctx.purpose}`}`, "utf8");
 
 /**
  * AES-256-GCM con la clave derivada de APP_SECRET por HKDF-SHA256 (el secreto crudo nunca es la clave). Cada cifrado usa un IV

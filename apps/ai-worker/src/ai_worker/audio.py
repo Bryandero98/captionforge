@@ -67,13 +67,24 @@ def join_wavs(parts: Sequence[Path], out: Path) -> None:
                     target.writeframes(chunk)
 
 
-async def has_audio_stream(video: Path) -> bool:
-    """¿Trae el video una pista de audio? (`ffmpeg -i` sin salida termina con error pero lista los flujos)."""
+async def _stream_lines(media: Path) -> list[str]:
+    """Líneas `Stream #...` de `ffmpeg -i` (sin salida termina con error, pero lista los flujos)."""
     process = await asyncio.create_subprocess_exec(
-        *with_ffmpeg_path(["ffmpeg", "-hide_banner", "-i", str(video)]),
+        *with_ffmpeg_path(["ffmpeg", "-hide_banner", "-i", str(media)]),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
         env=ffmpeg_env(),
     )
     _, stderr = await process.communicate()
-    return b" Audio:" in stderr
+    return [line for line in stderr.decode("utf-8", "replace").splitlines() if "Stream #" in line]
+
+
+async def has_audio_stream(video: Path) -> bool:
+    """¿Trae el archivo una pista de audio?"""
+    return any(" Audio:" in line for line in await _stream_lines(video))
+
+
+async def has_video_stream(media: Path) -> bool:
+    """¿Trae el archivo imagen en movimiento? Un audio con carátula (MP3, M4A o FLAC con portada) no cuenta: la portada es un
+    «video» de un solo fotograma marcado `attached pic`."""
+    return any(" Video:" in line and "attached pic" not in line for line in await _stream_lines(media))

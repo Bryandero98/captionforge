@@ -102,6 +102,10 @@ curl -OJ http://127.0.0.1:3000/v1/jobs/<id>/artifacts/srt
 
 Cada llamada necesita tu clave de API: añade `-H "X-API-Key: <clave>"` (la `DEFAULT_API_KEY` de tu `.env`; también sirve `Authorization: Bearer <clave>`). Un trabajo pertenece al tenant dueño de la clave: otra clave recibe `404`, nunca `403`.
 
+## Archivos de audio
+
+Además de video (MP4, MOV, MKV, WEBM, AVI), CaptionForge acepta archivos de **solo audio**: **MP3, WAV, M4A, OGG y FLAC**. Siguen el mismo flujo (transcripción → traducción opcional → doblaje opcional). Con un audio la aplicación muestra un reproductor `<audio>` estándar con el original, oculta el quemado de subtítulos (no hay imagen) y la mezcla del doblaje con video, y entrega el doblaje como pista **`.mp3`**. Ver el [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md).
+
 ## Idiomas compatibles
 
 Los dos motores funcionan en local, sin cuenta y sin costo por uso.
@@ -118,6 +122,32 @@ Lo que conviene saber de la traducción:
 - Todos los modelos de Argos van **desde o hacia el inglés**. Un par como español → alemán se traduce **pasando por el inglés** (dos pasos), por lo que suele ser menos preciso que un par que incluya el inglés.
 - El modelo de cada par se **descarga la primera vez que se usa** (hace falta internet una vez, unos cientos de MB por par) y después se reutiliza sin conexión.
 - La aplicación ofrece como destino todos los idiomas de transcripción, pero Argos solo cubre los 50 de arriba; con cualquier otro destino el trabajo termina con un error claro. Para otros idiomas o más calidad puedes usar un proveedor externo con tu propia clave (BYOK).
+
+## Multi-LLM: tu propia clave (cualquier servicio compatible con OpenAI)
+
+Traducir y doblar pueden usar **tu propia cuenta** en el servicio de IA que prefieras, no solo OpenAI. En la aplicación abre **Cuenta → Claves externas** (Dueño del espacio, servidor con `APP_SECRET`), elige un servicio en el menú desplegable y pega su clave: la URL base se rellena sola y se sugieren modelos compatibles. Sigues pudiendo escribir cualquier otro modelo o URL.
+
+| Servicio | URL base (se rellena sola) | Modelos sugeridos |
+|---|---|---|
+| OpenAI | *(la de siempre)* | `gpt-4o-mini`, `gpt-4o`, `gpt-4.1-mini` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat`, `deepseek-reasoner` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`, `gemini-2.5-pro` |
+| Anthropic Claude | `https://api.anthropic.com/v1` (capa de compatibilidad con OpenAI) | `claude-sonnet-4-5`, `claude-haiku-4-5` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini`, `google/gemini-2.5-flash` |
+| Abacus.AI (RouteLLM) | `https://routellm.abacus.ai/v1` | `route-llm` |
+| Ollama (local) | `http://localhost:11434/v1` | `llama3.2`, `qwen2.5`, `mistral` |
+| Otro | cualquier URL `https` de un servidor compatible con OpenAI | cualquier nombre de modelo |
+
+La clave se guarda cifrada y no se vuelve a mostrar (solo sus últimos 4 caracteres); el costo lo cobra tu proveedor, y la aplicación muestra el servidor y el modelo que se usarán antes de gastar nada. Si un servidor rechaza `response_format`, el worker reintenta una vez sin él y también acepta el JSON envuelto en un bloque de código.
+
+### Modelos locales (Ollama, vLLM) y `ALLOW_PRIVATE_BASE_URLS`
+
+CaptionForge **admite modelos locales como Ollama** por la misma interfaz compatible con OpenAI. Por seguridad (SSRF), de serie solo se aceptan servidores **públicos** por `https`. Para usar un modelo que corre en tu equipo o tu red, quien administra el servidor debe poner `ALLOW_PRIVATE_BASE_URLS=true` en el `.env` (lo leen el API y el worker; cualquier valor distinto de `true`/`1`/`false`/`0` detiene el arranque). Entonces aparece Ollama en el menú desplegable.
+
+- Si CaptionForge corre en Docker, `localhost` es el contenedor: para un Ollama en tu computadora usa `http://host.docker.internal:11434/v1`.
+- Los metadatos de nube (`169.254.x.x`), multicast y los rangos reservados o sin especificar siguen bloqueados aunque la bandera esté activa.
+- El worker resuelve el nombre en cada petición y envía la clave solo a una dirección permitida; el riesgo residual de DNS rebinding está documentado en el [ADR 0022](docs/adr/0022-url-base-propia-para-proveedores-de-ia.md).
 
 ## API
 

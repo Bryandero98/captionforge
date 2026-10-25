@@ -44,7 +44,9 @@ _QUOTA_WORDS = ("quota", "insufficient", "billing", "credit", "balance")
 def external_failure(code: str, *, rejected: bool = False) -> JobFailure:
     """Fallo con mensaje propio. `from None` en quien lo lanza: la cadena de httpx llevaría la petición con la clave."""
     message_key = "EXTERNAL_REJECTED" if rejected else code
-    return JobFailure(code, _MESSAGES[message_key])
+    failure = JobFailure(code, _MESSAGES[message_key])
+    failure.rejected = rejected  # type: ignore[attr-defined]  # el proveedor entendió la petición y no la acepta (4xx): reintentar igual no sirve
+    return failure
 
 
 def parse_json(response: httpx.Response) -> Any:
@@ -87,6 +89,7 @@ class ProviderHttp:
         connect_timeout: float = 10.0,
         read_timeout: float = 60.0,
         total_timeout: float = 300.0,
+        guard: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._base_url = base_url
         self._headers = dict(headers)  # contiene la clave: no se registra ni se reexpone
@@ -95,6 +98,8 @@ class ProviderHttp:
         self._clock = clock
         self._timeout = httpx.Timeout(connect=connect_timeout, read=read_timeout, write=30.0, pool=connect_timeout)
         self._total_timeout = total_timeout
+        #: Se espera ANTES de cada intento (también de los reintentos); si lanza, no sale ninguna petición y la clave no viaja (ADR 0022).
+        self._guard = guard
 
     def __repr__(self) -> str:
         return f"ProviderHttp(base_url={self._base_url!r})"
@@ -105,6 +110,8 @@ class ProviderHttp:
         code = "EXTERNAL_UNAVAILABLE"
         for attempt in range(MAX_RETRIES + 1):
             wait: float | None = None
+            if self._guard is not None:
+                await self._guard()
             try:
                 async with httpx.AsyncClient(
                     base_url=self._base_url,

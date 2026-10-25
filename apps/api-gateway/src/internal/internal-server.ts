@@ -141,15 +141,15 @@ export function startInternalServer(app: NestFastifyApplication, options: Intern
     const declared = typeof job.options === "object" && job.options !== null && !Array.isArray(job.options) ? (job.options as { provider?: unknown }).provider : undefined;
     if (declared !== provider) throw new HttpError(403, "provider_mismatch", "El trabajo no declara ese proveedor.");
 
-    let key: string;
+    let revealed: { key: string; baseUrl?: string; model?: string };
     try {
-      key = await keys.reveal(job.tenantId, provider);
+      revealed = await keys.reveal(job.tenantId, provider);
     } catch (error) {
       if (error instanceof ExternalKeyNotFoundError) throw new HttpError(404, "external_key_not_found", "El espacio no tiene una clave guardada para ese proveedor.");
       throw error;
     }
     logger.log(`Clave ${provider} entregada al worker: trabajo ${jobId}, espacio ${job.tenantId}`); // jamás el valor
-    send(response, 200, { key });
+    send(response, 200, revealed); // { key }, con baseUrl y model si el espacio los guardó (ADR 0022)
   };
 
   const server = http.createServer((request, response) => {

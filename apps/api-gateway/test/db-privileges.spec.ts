@@ -194,6 +194,12 @@ describe("tablas de tenencia y sesiones (ADR 0015 y 0016)", () => {
     );
     expect((await api.query(`SELECT provider, last4 FROM "TenantExternalKey" WHERE id = $1`, [row])).rows).toEqual([{ provider: "openai", last4: "abcd" }]);
     await api.query(`UPDATE "TenantExternalKey" SET ciphertext = 'v1.a.b.c', "keyVersion" = 1, last4 = 'wxyz', "rotatedAt" = now() WHERE id = $1`, [row]);
+    // URL base propia (ADR 0022): también la reemplaza (o la borra) cf_api, y el valor viaja cifrado igual que la clave.
+    await api.query(`UPDATE "TenantExternalKey" SET "baseUrlCiphertext" = 'v1.a.b.c', "baseUrlHost" = 'api.deepseek.com' WHERE id = $1`, [row]);
+    expect((await api.query(`SELECT "baseUrlHost" FROM "TenantExternalKey" WHERE id = $1`, [row])).rows).toEqual([{ baseUrlHost: "api.deepseek.com" }]);
+    await api.query(`UPDATE "TenantExternalKey" SET "baseUrlCiphertext" = NULL, "baseUrlHost" = NULL, model = 'deepseek-chat' WHERE id = $1`, [row]);
+    expect((await api.query(`SELECT model FROM "TenantExternalKey" WHERE id = $1`, [row])).rows).toEqual([{ model: "deepseek-chat" }]);
+    await api.query(`UPDATE "TenantExternalKey" SET model = NULL WHERE id = $1`, [row]);
     // createdBy es de auditoría: quien la guardó primero no se reescribe.
     for (const column of ["tenantId", "provider", "id", "createdBy", "createdAt"]) {
       const value = column === "provider" ? `'elevenlabs'` : column === "createdAt" ? "now()" : `'${randomUUID()}'`;

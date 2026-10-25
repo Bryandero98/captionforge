@@ -115,6 +115,41 @@ describe("ExternalKeyCipher", () => {
   });
 });
 
+describe("ExternalKeyCipher: URL base propia (ADR 0022)", () => {
+  const URL_BASE = "https://api.deepseek.com/v1";
+
+  it("la URL cifrada con su propósito descifra solo con ese propósito", () => {
+    const cipher = new ExternalKeyCipher(SECRET);
+    const ctx = context();
+    const stored = cipher.encrypt(URL_BASE, { ...ctx, purpose: "base-url" });
+    expect(cipher.decrypt(stored, { ...ctx, purpose: "base-url" })).toBe(URL_BASE);
+    expect(() => cipher.decrypt(stored, ctx)).toThrow(ExternalKeyDecryptError);
+  });
+
+  it("un cifrado de la clave no se puede hacer pasar por la URL, ni al revés (cambiar una columna por otra)", () => {
+    const cipher = new ExternalKeyCipher(SECRET);
+    const ctx = context();
+    const key = cipher.encrypt(PLAIN, ctx);
+    expect(() => cipher.decrypt(key, { ...ctx, purpose: "base-url" })).toThrow(ExternalKeyDecryptError);
+  });
+
+  it("la URL cifrada no descifra en otro espacio, otro proveedor ni otra versión", () => {
+    const cipher = new ExternalKeyCipher(SECRET);
+    const ctx = context();
+    const stored = cipher.encrypt(URL_BASE, { ...ctx, purpose: "base-url" });
+    expect(() => cipher.decrypt(stored, { ...ctx, tenantId: randomUUID(), purpose: "base-url" })).toThrow(ExternalKeyDecryptError);
+    expect(() => cipher.decrypt(stored, { ...ctx, provider: "elevenlabs", purpose: "base-url" })).toThrow(ExternalKeyDecryptError);
+    expect(() => cipher.decrypt(stored, { ...ctx, keyVersion: 2, purpose: "base-url" })).toThrow(ExternalKeyDecryptError);
+  });
+
+  it("el cifrado de la clave sin propósito no cambia: las claves ya guardadas siguen descifrando", () => {
+    const cipher = new ExternalKeyCipher(SECRET);
+    const ctx = context();
+    // AAD histórico: tenantId|provider|keyVersion (sin propósito).
+    expect(cipher.decrypt(cipher.encrypt(PLAIN, ctx), { ...ctx })).toBe(PLAIN);
+  });
+});
+
 describe("keyHint", () => {
   it("devuelve solo los últimos 4 caracteres", () => {
     expect(keyHint("sk-canario-1234567890abcdefghij")).toBe("ghij");

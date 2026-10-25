@@ -3,10 +3,10 @@
 
 import { EXTERNAL_PROVIDERS } from "./external-keys.js";
 
-/** @typedef {{ diarization: { enabled: boolean }, byok: { enabled: boolean, providers: readonly string[] } }} Capabilities */
+/** @typedef {{ diarization: { enabled: boolean }, byok: { enabled: boolean, providers: readonly string[], allowPrivateBaseUrls: boolean } }} Capabilities */
 
 /** @type {Capabilities} */
-export const NO_CAPABILITIES = Object.freeze({ diarization: Object.freeze({ enabled: false }), byok: Object.freeze({ enabled: false, providers: Object.freeze([]) }) });
+export const NO_CAPABILITIES = Object.freeze({ diarization: Object.freeze({ enabled: false }), byok: Object.freeze({ enabled: false, providers: Object.freeze([]), allowPrivateBaseUrls: false }) });
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -22,10 +22,10 @@ export async function getCapabilities({ baseUrl, signal, fetchImpl = (...args) =
   try {
     const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/v1/capabilities`, { cache: "no-store", headers: { Accept: "application/json" }, signal: timeout.signal });
     if (!response.ok || !(response.headers.get("content-type") ?? "").includes("application/json")) return NO_CAPABILITIES;
-    const data = /** @type {{ diarization?: { enabled?: unknown } | null, byok?: { enabled?: unknown, providers?: unknown } | null } | null} */ (await response.json());
+    const data = /** @type {{ diarization?: { enabled?: unknown } | null, byok?: { enabled?: unknown, providers?: unknown, allowPrivateBaseUrls?: unknown } | null } | null} */ (await response.json());
     const byokOn = data?.byok?.enabled === true && Array.isArray(data.byok.providers);
     const providers = byokOn ? [...new Set(/** @type {unknown[]} */ (data?.byok?.providers))].filter((name) => typeof name === "string" && EXTERNAL_PROVIDERS.includes(/** @type {any} */ (name))) : [];
-    return { diarization: { enabled: data?.diarization?.enabled === true }, byok: { enabled: byokOn, providers: /** @type {string[]} */ (providers) } };
+    return { diarization: { enabled: data?.diarization?.enabled === true }, byok: { enabled: byokOn, providers: /** @type {string[]} */ (providers), allowPrivateBaseUrls: byokOn && data?.byok?.allowPrivateBaseUrls === true } };
   } catch {
     return NO_CAPABILITIES;
   } finally {

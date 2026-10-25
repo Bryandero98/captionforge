@@ -1,7 +1,7 @@
 // Errores del API como valores con código estable: la interfaz decide el texto por `code`, nunca por el
 // mensaje del servidor (que viene en español y puede cambiar). El `detail` del servidor se muestra solo como apoyo.
 
-/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"role_forbidden"|"gone"|"not_found"|"too_slow"|"conflict"|"last_owner"|"invite_limit"|"last_membership"|"invalid_key_format"|"same_language"|"byok_disabled"|"external_key_missing"|"job_too_large"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
+/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"role_forbidden"|"gone"|"not_found"|"too_slow"|"conflict"|"last_owner"|"invite_limit"|"last_membership"|"invalid_key_format"|"invalid_base_url"|"invalid_model"|"same_language"|"burn_not_available_for_audio"|"mix_not_available_for_audio"|"byok_disabled"|"external_key_missing"|"job_too_large"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
 
 /** @type {Record<number, ErrorCode>} */
 const CODE_BY_STATUS = {
@@ -32,7 +32,11 @@ const CONFLICT_CODES = new Set(["last_owner", "invite_limit", "last_membership"]
  */
 const BODY_CODE_STATUSES = {
   invalid_key_format: [400],
+  invalid_base_url: [400],
+  invalid_model: [400],
   same_language: [400],
+  burn_not_available_for_audio: [400],
+  mix_not_available_for_audio: [400],
   byok_disabled: [404, 409],
   external_key_missing: [409],
   job_too_large: [413],

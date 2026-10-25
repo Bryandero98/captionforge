@@ -6,11 +6,13 @@
 //  - Los errores salen por su código estable, traducidos; nunca el texto del servidor ni el de un proveedor.
 //  - Todo texto entra con textContent.
 
+import { getAiConfig } from "../api/ai-config.js";
 import { fetchArtifact as defaultFetchArtifact, saveBlobAs } from "../api/download.js";
 import { ApiError } from "../api/errors.js";
 import { cancelJob, startDub as defaultStartDub, startTranslate as defaultStartTranslate } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { NO_CAPABILITIES } from "../api/capabilities.js";
+import { DUB_MIXES_FOR } from "../domain/media.js";
 import { formatCount } from "../domain/spend.js";
 import { segmentsToSrtWithSpeakers } from "../domain/speakers.js";
 import { segmentsToVtt } from "../domain/subtitles.js";
@@ -18,7 +20,6 @@ import { createAiPanel } from "./ai-panel.js";
 import { languageNames } from "./language-names.js";
 import { downloadName } from "./results.js";
 
-const DUB_MIXES = /** @type {const} */ (["none", "replace", "duck"]);
 const DEFAULT_MIX = "replace";
 const OPENAI_DEFAULT_VOICE = "alloy";
 const EXTERNAL_TRANSLATE = "openai";
@@ -39,7 +40,8 @@ function translatedSegments(data) {
  *   context: () => { job: import("../api/sse.js").JobView, hasWords?: boolean, dirty: boolean, characters: number, language: string | null } | null,
  *   canLaunch: boolean,
  *   capabilities: () => Promise<import("../api/capabilities.js").Capabilities>,
- *   spend: { ask: (spend: { provider: string, characters: number }) => Promise<boolean>, cancel?: () => void },
+ *   spend: { ask: (spend: { provider: string, characters: number, model?: string, host?: string }) => Promise<boolean>, cancel?: () => void },
+ *   aiConfig?: () => Promise<import("../api/ai-config.js").AiConfig>,
  *   onStarted: (job: import("../api/sse.js").JobView, parentName: string, kind: "TRANSLATE" | "DUB") => void,
  *   onOpenParent: (parentId: string) => void,
  *   follower?: typeof followJob, cancel?: typeof cancelJob,
@@ -50,6 +52,7 @@ function translatedSegments(data) {
  */
 export function createAi({
   doc, win, baseUrl, t: initialT, lang, announce, context, canLaunch, capabilities, spend, onStarted, onOpenParent,
+  aiConfig = () => getAiConfig({ baseUrl }),
   follower = followJob, cancel = cancelJob, startTranslate = defaultStartTranslate, startDub = defaultStartDub,
   fetchArtifact = defaultFetchArtifact, save = (file) => saveBlobAs({ doc, win, ...file }),
 }) {
@@ -70,6 +73,8 @@ export function createAi({
 
   let t = initialT;
   let caps = NO_CAPABILITIES;
+  /** Servidor y modelo propios de la clave de OpenAI del espacio (ADR 0022), o null si usa los de siempre. @type {import("../api/ai-config.js").OpenAiConfig | null} */
+  let customAi = null;
   /** Traducciones terminadas en esta sesión, por transcripción: se pueden doblar en lugar del original. @type {Map<string, { id: string, language: string }>} */
   const translations = new Map();
   /** @type {string | null} */
@@ -80,6 +85,8 @@ export function createAi({
   let startingDub = false;
   /** La voz de OpenAI se propone una sola vez: si la persona la borra para escribir otra, no reaparece. */
   let voiceSeeded = false;
+  /** La salida del doblaje está fija en «solo la pista de voz» porque el archivo abierto es un audio. */
+  let mixLocked = false;
   let epoch = 0;
 
   const translatePanel = createAiPanel({ doc, prefix: "translate", baseUrl, t: () => t, announce, onOpenParent, follower, cancel, onChange: () => onTranslateChange() });
@@ -112,7 +119,13 @@ export function createAi({
 
   function fillDub(/** @type {NonNullable<ReturnType<typeof context>>} */ ctx) {
     fill(dub.provider, dubProviders().map((value) => ({ value, label: providerName(value) })));
-    fill(dub.mix, DUB_MIXES.map((value) => ({ value, label: t(`dub.mix.${value}`) })), DEFAULT_MIX);
+    // Un audio no tiene imagen donde mezclar: solo la pista de voz, y el menú queda desactivado. Al volver a un video se recupera lo habitual.
+    const mixes = DUB_MIXES_FOR(ctx.job);
+    const locked = mixes.length === 1;
+    if (mixLocked && !locked) dub.mix.value = DEFAULT_MIX;
+    fill(dub.mix, mixes.map((value) => ({ value, label: t(`dub.mix.${value}`) })), DEFAULT_MIX);
+    dub.mix.disabled = locked;
+    mixLocked = locked;
     const translation = translations.get(ctx.job.id);
     const languageLabel = translation === undefined ? "" : (languageNames(lang()).find(({ code }) => code === translation.language)?.label ?? translation.language);
     fill(dub.source, [{ value: "", label: t("dub.source.original") }, ...(translation === undefined ? [] : [{ value: translation.id, label: t("dub.source.translation", { language: languageLabel }) }])]);
@@ -141,9 +154,31 @@ export function createAi({
     onDubChange();
   }
 
+  /** Frases con el servidor y el modelo propios, para la estimación y la confirmación (vacío si usa los de siempre). */
+  function customParts() {
+    return [...(customAi?.baseUrlHost ? [t("spend.custom.host", { host: customAi.baseUrlHost })] : []), ...(customAi?.model ? [t("spend.custom.model", { model: customAi.model })] : [])];
+  }
+
+  function customSpend() {
+    return { ...(customAi?.model ? { model: customAi.model } : {}), ...(customAi?.baseUrlHost ? { host: customAi.baseUrlHost } : {}) };
+  }
+
+  /** Vuelve a leer la configuración de IA del espacio. Si no se puede leer, se sigue sin modelo ni servidor propios. */
+  async function refreshAiConfig() {
+    try {
+      customAi = (await aiConfig()).openai;
+    } catch {
+      customAi = null;
+    }
+    const ctx = context();
+    if (ctx !== null) refreshTranslateState(ctx);
+  }
+
   function refreshTranslateState(/** @type {NonNullable<ReturnType<typeof context>>} */ ctx) {
     const external = tr.provider.value === EXTERNAL_TRANSLATE;
-    tr.estimate.textContent = external ? t("translate.estimate.external", { characters: formatCount(ctx.characters, lang()), provider: providerName(tr.provider.value) }) : t("translate.estimate.local");
+    tr.estimate.textContent = external
+      ? [t("translate.estimate.external", { characters: formatCount(ctx.characters, lang()), provider: providerName(tr.provider.value) }), ...customParts()].join(" ")
+      : t("translate.estimate.local");
     const blocked = ctx.dirty ? t("translate.hint.dirty") : translatePanel.busy() ? t("translate.hint.busy") : translateProblem;
     tr.hint.textContent = blocked ?? "";
     tr.hint.hidden = blocked === null;
@@ -218,7 +253,11 @@ export function createAi({
     /** @type {import("../api/sse.js").JobView | null} */
     let job = null;
     try {
-      if (provider === EXTERNAL_TRANSLATE && !(await spend.ask({ provider, characters: ctx.characters }))) return;
+      if (provider === EXTERNAL_TRANSLATE) {
+        await refreshAiConfig(); // lo vigente en este momento: la clave pudo cambiar desde que se abrió la página
+        if (mine !== epoch) return;
+        if (!(await spend.ask({ provider, characters: ctx.characters, ...customSpend() }))) return;
+      }
       if (mine !== epoch) return;
       refreshTranslateState(ctx);
       job = await startTranslate({ baseUrl, jobId: ctx.job.id, provider: /** @type {"argos" | "openai"} */ (provider), targetLanguage: tr.target.value });
@@ -331,6 +370,10 @@ export function createAi({
     void submitDub();
   });
   for (const select of [tr.provider, tr.target]) select.addEventListener("change", () => refreshForm());
+  // Al elegir el motor externo se vuelve a leer qué servidor y modelo tiene la clave: pudo cambiarse desde el panel de claves.
+  tr.provider.addEventListener("change", () => {
+    if (tr.provider.value === EXTERNAL_TRANSLATE) void refreshAiConfig();
+  });
   dub.provider.addEventListener("change", () => {
     // La voz de un proveedor no sirve para el otro: se propone la de OpenAI o se deja vacía para pegar el ID de ElevenLabs.
     dub.voice.value = dub.provider.value === "openai" ? OPENAI_DEFAULT_VOICE : "";
@@ -362,6 +405,7 @@ export function createAi({
     (found) => {
       caps = found;
       refreshForm();
+      if (found.byok.enabled) void refreshAiConfig();
     },
     () => {},
   );
@@ -371,6 +415,7 @@ export function createAi({
 
   return {
     refreshForm,
+    refreshAiConfig,
     /** Repinta los textos que dependen del idioma. @param {typeof initialT} [next] */
     refresh(next) {
       if (next !== undefined) t = next;

@@ -18,7 +18,7 @@ placeholder changes).
 ## Step by step
 
 1. **Choose your videos.** Drag up to 20 onto the dotted area or press "Choose a file". Formats: MP4, MOV, MKV, WEBM
-   and AVI. Files that cannot be used are skipped and the reason is shown.
+   and AVI, or audio: MP3, WAV, M4A, OGG and FLAC (see "Audio"). Files that cannot be used are skipped and the reason is shown.
 2. **Set the options.** *Model*: Base is the fastest, Medium the most accurate. *Audio language*: leave it on
    "Auto-detect" unless you know it. *Translate to*: optional, to get the captions in another language.
    *Clean up background noise* (off by default): turn it on when music or loud noise covers the voice. It takes longer,
@@ -47,6 +47,19 @@ placeholder changes).
    "Dub with a synthetic voice" create separate jobs. Translating works without an external account; dubbing needs a
    provider key saved by the Owner. See the next sections.
 
+## Audio: podcasts, voice notes and recordings
+
+You can also upload **audio with no video**: MP3, WAV, M4A, OGG and FLAC. It is transcribed just like a video and, in addition:
+
+- An **audio player** with the original file appears so you can listen while you fix the captions. If the original has already
+  expired, the player does not appear and everything else keeps working.
+- **There is no "Burn the captions into the video"**: audio has no picture. Download the `.srt` or the `.vtt`.
+- **Translate** works the same (local engine or OpenAI with your key): you get the translated text.
+- **Dub** delivers only the **voice track as an `.mp3`** in the chosen language (it is translated first, then dubbed). The output
+  menu is fixed to "Voice track only (.mp3)": there is no video to mix into.
+
+So the same audio can become translated text (translate) or come back as audio in another language (dub).
+
 ## External keys (Owner only)
 
 "Dub" and translating with OpenAI use **your own account** at OpenAI or ElevenLabs (BYOK, *bring your own key*). CaptionForge
@@ -71,6 +84,31 @@ Good to know:
 - Never paste a key into a chat, an issue or a commit. If it leaks, revoke it in your provider's dashboard and paste another.
 - If the server does not have the feature on (no `APP_SECRET`), there is no panel and "Dub" is blocked. Whoever runs the
   server turns it on following the [`APP_SECRET` runbook](runbook-app-secret.md).
+
+### Other OpenAI-compatible AI services: DeepSeek, Groq, OpenRouter, local models
+
+The OpenAI row has two optional fields, **Base URL (compatible API)** and **Model**. With them, translation uses another service
+that speaks the same protocol as OpenAI, with your own key for that service (ADR [0022](adr/0022-url-base-propia-para-proveedores-de-ia.md)).
+
+| Service | Base URL | Example model |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| Gemini (compatible layer) | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| Ollama on your machine* | `http://localhost:11434/v1` | `llama3.1:8b` |
+
+Check each service's documentation for the current URL and model names; the table shows examples. Left empty, OpenAI is used
+with its default model (`gpt-4o-mini`).
+
+- The **URL is never shown again**: it is stored encrypted and the list only shows the server ("Server: api.deepseek.com"). When
+  you replace the key you must enter it again; a replacement without a URL goes back to OpenAI. The model is shown and offered again.
+- Only **public servers over https** are accepted. The worker resolves DNS before every request and, if the name points to a
+  private network, cancels the job **without sending the key**.
+- \* To use a local model (Ollama, vLLM) whoever runs the server sets `ALLOW_PRIVATE_BASE_URLS=true` in `.env` (off by default).
+  Local and private addresses are then accepted, also over http. Cloud metadata addresses (`169.254.x.x`) stay blocked always.
+  From Docker, an Ollama on your machine is reached at `http://host.docker.internal:11434/v1`.
+- The spend confirmation and the "Translate" estimate show the server and model you configured.
 
 ## Subtitle quality
 

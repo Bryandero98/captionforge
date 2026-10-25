@@ -16,6 +16,7 @@ from captionforge.srt import segments_from_dicts, segments_to_ass, segments_to_s
 from captionforge_contracts import BurnJob, BurnResult
 
 from .config import WorkerConfig
+from .audio import has_video_stream
 from .errors import JobCancelled, JobFailure
 from .progress import Progress
 from .storage import EtagMismatch, Storage
@@ -71,6 +72,9 @@ class BurnRunner:
         video = job_dir / "input.bin"
         await asyncio.to_thread(self._storage.download, payload.input.bucket, payload.input.objectKey, video)
         self._check(cancel)
+        if not await has_video_stream(video):
+            # El API ya lo rechaza para un audio; esto cubre un trabajo que llegue por otro camino.
+            raise JobFailure("BURN_NEEDS_VIDEO", "Un archivo de audio no tiene imagen: no se pueden quemar subtítulos.")
 
         # 3. Archivo de subtítulos. El karaoke solo se usa si algún segmento conserva tiempos por
         #    palabra (la traducción o editar el texto los descarta): usedKaraoke lo informa.

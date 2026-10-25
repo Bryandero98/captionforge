@@ -43,7 +43,7 @@ async function start(appSecret: string | undefined, rateLimitPerMinute = 10_000)
   const config = {
     ...baseConfig,
     reaper: { ...baseConfig.reaper, intervalMs: 0 },
-    byok: { appSecret },
+    byok: { ...baseConfig.byok, appSecret },
     security: { ...baseConfig.security, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0 },
   };
   const app = await createApp(config, { logger: ["error"] });
@@ -124,6 +124,66 @@ describe("autenticación con WORKER_INTERNAL_TOKEN", () => {
 
   it("la autenticación va ANTES de mirar el trabajo: un id inexistente sin token es 401, no 404", async () => {
     expect((await ask(internal, randomUUID(), { provider: "openai" }, {})).status).toBe(401);
+  });
+});
+
+describe("URL base propia (ADR 0022)", () => {
+  const insertWithUrl = async (tenantId: string, key: string, urlCiphertext: string, host: string): Promise<void> => {
+    await owner.query(
+      `INSERT INTO "TenantExternalKey" (id, "tenantId", provider, ciphertext, "keyVersion", last4, "baseUrlCiphertext", "baseUrlHost") VALUES ($1, $2, 'openai', $3, 1, $4, $5, $6)`,
+      [randomUUID(), tenantId, cipher.encrypt(key, { tenantId, provider: "openai", keyVersion: 1 }), key.slice(-4), urlCiphertext, host],
+    );
+  };
+
+  it("entrega { key, baseUrl } cuando el espacio guardó una URL, descifrada y normalizada", async () => {
+    const tenant = await createTestTenant("interno-url");
+    try {
+      const url = "https://api.deepseek.com/v1";
+      await insertWithUrl(tenant.id, KEY_A, cipher.encrypt(url, { tenantId: tenant.id, provider: "openai", keyVersion: 1, purpose: "base-url" }), "api.deepseek.com");
+      const jobId = await insertJob(tenant.id, "TRANSLATE", "RUNNING", { provider: "openai" });
+      const response = await ask(internal, jobId, { provider: "openai" });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ key: KEY_A, baseUrl: url });
+    } finally {
+      await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenant.id]);
+    }
+  });
+
+  it("entrega también el modelo guardado, con o sin URL base", async () => {
+    const tenant = await createTestTenant("interno-modelo");
+    try {
+      await owner.query(
+        `INSERT INTO "TenantExternalKey" (id, "tenantId", provider, ciphertext, "keyVersion", last4, model) VALUES ($1, $2, 'openai', $3, 1, $4, 'deepseek-chat')`,
+        [randomUUID(), tenant.id, cipher.encrypt(KEY_A, { tenantId: tenant.id, provider: "openai", keyVersion: 1 }), KEY_A.slice(-4)],
+      );
+      const jobId = await insertJob(tenant.id, "TRANSLATE", "RUNNING", { provider: "openai" });
+      const response = await ask(internal, jobId, { provider: "openai" });
+      expect(await response.json()).toEqual({ key: KEY_A, model: "deepseek-chat" });
+    } finally {
+      await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenant.id]);
+    }
+  });
+
+  it("sin URL guardada la respuesta es { key } y nada más (el worker usa el host fijo)", async () => {
+    const jobId = await insertJob(tenantA.id, "TRANSLATE", "RUNNING", { provider: "openai" });
+    const response = await ask(internal, jobId, { provider: "openai" });
+    expect(await response.json()).toEqual({ key: KEY_A });
+  });
+
+  it("una URL cifrada copiada de otro espacio no se entrega: error genérico, sin la clave ni la URL", async () => {
+    const victim = await createTestTenant("interno-url-copiada");
+    try {
+      const stolen = cipher.encrypt("https://ajeno.example.com/v1", { tenantId: tenantA.id, provider: "openai", keyVersion: 1, purpose: "base-url" });
+      await insertWithUrl(victim.id, KEY_B, stolen, "ajeno.example.com");
+      const jobId = await insertJob(victim.id, "TRANSLATE", "RUNNING", { provider: "openai" });
+      const response = await ask(internal, jobId, { provider: "openai" });
+      expect(response.status).toBe(500);
+      const text = await response.text();
+      expect(text).not.toContain(KEY_B);
+      expect(text).not.toContain("ajeno.example.com");
+    } finally {
+      await owner.query(`DELETE FROM "TenantExternalKey" WHERE "tenantId" = $1`, [victim.id]);
+    }
   });
 });
 

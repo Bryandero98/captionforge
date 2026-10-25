@@ -112,7 +112,7 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
         ...baseConfig,
         reaper: { ...baseConfig.reaper, intervalMs: 0 },
         auth: { ...baseConfig.auth, localMode: false, publicUrl: sessionBase, providers: { github: provider.config } },
-        byok: { appSecret: APP_SECRET },
+        byok: { ...baseConfig.byok, appSecret: APP_SECRET },
         security: { ...baseConfig.security, webApiKey: undefined, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0 },
       },
       { logger: ["error"] },
@@ -126,7 +126,7 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
       {
         ...baseConfig,
         reaper: { ...baseConfig.reaper, intervalMs: 0 },
-        byok: { appSecret: APP_SECRET }, // aunque el servidor tenga APP_SECRET, el modo local no ofrece BYOK en la interfaz
+        byok: { ...baseConfig.byok, appSecret: APP_SECRET }, // aunque el servidor tenga APP_SECRET, el modo local no ofrece BYOK en la interfaz
         security: { ...baseConfig.security, webApiKey: tenant.apiKey, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0 },
       },
       { logger: ["error"] },
@@ -173,7 +173,7 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
     expect(await text(page, "#extkeys-list")).toContain("Sin clave");
 
     // Los campos son password, sin autocompletado, y nacen vacíos.
-    const attrs = await page.$$eval("#extkeys-list input", (inputs) => inputs.map((input) => [input.getAttribute("type"), input.getAttribute("autocomplete"), (input as unknown as { value: string }).value]));
+    const attrs = await page.$$eval('#extkeys-list input[data-field="key"]', (inputs) => inputs.map((input) => [input.getAttribute("type"), input.getAttribute("autocomplete"), (input as unknown as { value: string }).value]));
     expect(attrs).toEqual([["password", "off", ""], ["password", "off", ""]]);
 
     // Guardar con el campo vacío no manda nada y lo explica.
@@ -210,6 +210,47 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
     expect(dump).not.toContain(FIRST);
     expect(dump).not.toContain(SECOND);
 
+    // Menú de servicios + URL base y modelo propios (ADR 0022): solo la fila de OpenAI los tiene, y se ve el servidor (nunca la URL completa).
+    const value = (selector: string) => page.$eval(selector, (input) => (input as unknown as { value: string }).value);
+    expect(await page.$$eval('#extkeys-list input[data-field="baseUrl"], #extkeys-list input[data-field="model"], #extkeys-list select[data-field="preset"]', (inputs) => inputs.map((input) => input.getAttribute("data-provider")))).toEqual(["openai", "openai", "openai"]);
+    expect(await text(page, "#extkeys-help-openai")).toMatch(/DeepSeek.*Groq/s);
+    expect(await page.$$eval('[data-field="preset"] option', (options) => options.map((option) => option.getAttribute("value")))).toEqual(["openai", "deepseek", "gemini", "anthropic", "groq", "openrouter", "abacus", "custom"]); // Ollama no: el servidor de la prueba no admite direcciones locales
+    await page.select('[data-field="preset"][data-provider="openai"]', "deepseek");
+    expect(await value('[data-field="baseUrl"][data-provider="openai"]')).toBe("https://api.deepseek.com/v1");
+    expect(await value('[data-field="model"][data-provider="openai"]')).toBe("deepseek-chat");
+    expect(await page.$$eval("#extkeys-models-openai option", (options) => options.map((option) => option.getAttribute("value")))).toEqual(["deepseek-chat", "deepseek-reasoner"]);
+    expect(await page.$eval('[data-field="model"][data-provider="openai"]', (input) => input.getAttribute("list"))).toBe("extkeys-models-openai");
+    await page.type('[data-field="key"][data-provider="openai"]', SECOND);
+    await press(page, '[data-action="save"][data-provider="openai"]');
+    await listMatches(page, "api\\.deepseek\\.com");
+    const custom = await owner.query<{ baseUrlHost: string | null; baseUrlCiphertext: string | null; model: string | null }>(`SELECT "baseUrlHost", "baseUrlCiphertext", model FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId]);
+    expect(custom.rows[0]!.baseUrlHost).toBe("api.deepseek.com");
+    expect(custom.rows[0]!.model).toBe("deepseek-chat");
+    expect(custom.rows[0]!.baseUrlCiphertext).not.toContain("deepseek");
+    const state = await text(page, "#extkeys-state-openai");
+    expect(state).toContain("deepseek-chat");
+    expect(state).not.toContain("/v1");
+    // Con un servidor conocido guardado, el menú vuelve a mostrarlo con su URL y su modelo: se reemplaza la clave sin retocar nada.
+    expect(await value('[data-field="preset"][data-provider="openai"]')).toBe("deepseek");
+    expect(await value('[data-field="baseUrl"][data-provider="openai"]')).toBe("https://api.deepseek.com/v1");
+    expect(await value('[data-field="model"][data-provider="openai"]')).toBe("deepseek-chat");
+    // Una URL base inválida se rechaza con texto propio y no cambia lo guardado.
+    await page.$eval('[data-field="baseUrl"][data-provider="openai"]', (input) => ((input as unknown as { value: string }).value = ""));
+    await page.type('[data-field="key"][data-provider="openai"]', SECOND);
+    await page.type('[data-field="baseUrl"][data-provider="openai"]', "http://127.0.0.1:11434/v1");
+    expect(await value('[data-field="preset"][data-provider="openai"]')).toBe("custom"); // una URL a mano que no es de un servicio conocido pasa a «otro»
+    await press(page, '[data-action="save"][data-provider="openai"]');
+    await page.waitForFunction(() => ((globalThis as unknown as { document: { getElementById(id: string): { textContent: string } } }).document.getElementById("extkeys-problem").textContent ?? "").includes("URL base"), { timeout: 15_000 });
+    expect(await text(page, "#extkeys-problem")).not.toContain("127.0.0.1");
+    expect((await owner.query(`SELECT "baseUrlHost" FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId])).rows[0]!.baseUrlHost).toBe("api.deepseek.com");
+    // Volver a «OpenAI» en el menú vacía la URL y el modelo sugerido: un reemplazo es completo.
+    await page.select('[data-field="preset"][data-provider="openai"]', "openai");
+    expect(await value('[data-field="baseUrl"][data-provider="openai"]')).toBe("");
+    expect(await value('[data-field="model"][data-provider="openai"]')).toBe("");
+    await press(page, '[data-action="save"][data-provider="openai"]');
+    await page.waitForFunction(() => !((globalThis as unknown as { document: { getElementById(id: string): { textContent: string } } }).document.getElementById("extkeys-state-openai").textContent ?? "").includes("api.deepseek.com"), { timeout: 15_000 });
+    expect((await owner.query(`SELECT "baseUrlHost", "baseUrlCiphertext", model FROM "TenantExternalKey" WHERE "tenantId" = $1`, [tenantId])).rows[0]).toEqual({ baseUrlHost: null, baseUrlCiphertext: null, model: null });
+
     // Borrar pide una segunda pulsación.
     await press(page, '[data-action="delete"][data-provider="openai"]');
     expect(await stored(tenantId)).toHaveLength(1);
@@ -220,7 +261,7 @@ describe.skipIf(browserPath === undefined)("claves externas en un navegador real
 
     expect(problems).toEqual([]);
     // Lo único que falla es lo que la prueba provoca a propósito (formato inválido) la comprobación de sesión previa al inicio y el web-config.json opcional.
-    expect(failures.filter((entry) => !entry.startsWith("GET /v1/me ") && !entry.startsWith("GET /v1/capabilities ") && !entry.startsWith("GET /web-config.json "))).toEqual(["PUT /v1/workspaces/current/external-keys/openai 400"]);
+    expect(failures.filter((entry) => !entry.startsWith("GET /v1/me ") && !entry.startsWith("GET /v1/capabilities ") && !entry.startsWith("GET /web-config.json "))).toEqual(["PUT /v1/workspaces/current/external-keys/openai 400", "PUT /v1/workspaces/current/external-keys/openai 400"]);
   }, 120_000);
 
   it("en modo local el panel no existe y la página no consulta las claves aunque el servidor tenga APP_SECRET", async () => {

@@ -132,7 +132,7 @@ describe("lista de proveedores", () => {
       assert.equal(input.value, "");
       assert.ok(input.getAttribute("id"), "necesita id para su <label>");
     }
-    const labels = walk(list).filter((node) => node.getAttribute("for"));
+    const labels = walk(list).filter((node) => node.getAttribute("for")?.startsWith("extkeys-input-"));
     assert.deepEqual(labels.map((label) => label.getAttribute("for")).sort(), inputs.map((input) => input.getAttribute("id")).sort());
   });
 

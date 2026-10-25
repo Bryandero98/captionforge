@@ -26,12 +26,12 @@ const dubDone = (extra = {}) => jobView("DUB", "COMPLETED", { result: { provider
 
 const options = (select) => select.children.map((option) => option.value);
 
-function setup({ capabilities = ON, context = ctx(), canLaunch = true, spendAnswer = true, feed = [], start = {}, cancel } = {}) {
+function setup({ capabilities = ON, context = ctx(), canLaunch = true, spendAnswer = true, feed = [], start = {}, cancel, aiConfig = { openai: null }, aiConfigError = null } = {}) {
   const elements = Object.fromEntries([...TRANSLATE_IDS, ...DUB_IDS].map((id) => [id, new FakeElement(id)]));
   for (const id of ["translate-form", "dub-form", "translate-panel", "dub-panel", "translate-dl-srt", "translate-dl-vtt", "dub-dl-audio", "dub-dl-video", "dub-overflow", "translate-cancel", "dub-cancel", "translate-reconnect", "dub-reconnect", "translate-open-parent", "dub-open-parent", "translate-hint", "dub-hint"]) elements[id].hidden = true;
   elements["translate-provider"].value = "argos";
   const doc = { documentElement: { lang: "es" }, activeElement: null, body: new FakeElement(), getElementById: (id) => elements[id] ?? null, createElement: () => new FakeElement() };
-  const state = { context, asked: [], followed: [], started: [], translateCalls: [], dubCalls: [], saved: [], cancelled: [], spendCancelled: 0, artifactCalls: [], feed, translated: [{ start: 0, end: 2, text: " Hello world" }, { start: 2, end: 4, text: "Second" }] };
+  const state = { context, aiConfig, aiConfigCalls: 0, asked: [], followed: [], started: [], translateCalls: [], dubCalls: [], saved: [], cancelled: [], spendCancelled: 0, artifactCalls: [], feed, translated: [{ start: 0, end: 2, text: " Hello world" }, { start: 2, end: 4, text: "Second" }] };
   const spend = { ask: async (spendRequest) => (state.asked.push(spendRequest), spendAnswer), cancel: () => (state.spendCancelled += 1) };
   const follower = async ({ jobId, onJob }) => {
     state.followed.push(jobId);
@@ -47,6 +47,11 @@ function setup({ capabilities = ON, context = ctx(), canLaunch = true, spendAnsw
     context: () => state.context,
     canLaunch,
     capabilities: async () => capabilities,
+    aiConfig: async () => {
+      state.aiConfigCalls += 1;
+      if (aiConfigError !== null) throw aiConfigError;
+      return state.aiConfig;
+    },
     spend,
     follower,
     onStarted: (job, parentName, kind) => state.started.push({ job, parentName, kind }),
@@ -286,6 +291,33 @@ describe("doblar: opciones y bloqueos", () => {
     assert.match(el("dub-voice-hint").textContent, /ElevenLabs/);
   });
 
+  it("con un audio solo existe la pista de voz y la mezcla queda desactivada", async () => {
+    const { el } = await ready({ context: ctx({ job: { id: PARENT, originalFilename: "podcast.mp3", mediaKind: "audio" } }) });
+    assert.deepEqual(options(el("dub-mix")), ["none"]);
+    assert.equal(el("dub-mix").value, "none");
+    assert.equal(el("dub-mix").disabled, true);
+  });
+
+  it("con un audio el doblaje se pide siempre sin mezcla", async () => {
+    const { el, state } = await ready({ context: ctx({ job: { id: PARENT, originalFilename: "podcast.mp3", mediaKind: "audio" } }), feed: [jobView("DUB", "QUEUED")] });
+    el("dub-form").fire("submit");
+    await flush();
+    assert.deepEqual(state.dubCalls, [{ baseUrl: "", jobId: PARENT, provider: "openai", voice: "alloy", mix: "none" }]);
+  });
+
+  it("al pasar de un audio a un video las tres salidas vuelven (y a la inversa)", async () => {
+    const { el, state, ai } = await ready();
+    assert.deepEqual(options(el("dub-mix")), ["none", "replace", "duck"]);
+    state.context = ctx({ job: { id: PARENT, originalFilename: "podcast.mp3", mediaKind: "audio" } });
+    ai.refreshForm();
+    assert.deepEqual(options(el("dub-mix")), ["none"]);
+    state.context = ctx({ job: { id: PARENT, originalFilename: "clase.mp4", mediaKind: "video" } });
+    ai.refreshForm();
+    assert.deepEqual(options(el("dub-mix")), ["none", "replace", "duck"]);
+    assert.equal(el("dub-mix").disabled, false);
+    assert.equal(el("dub-mix").value, "replace");
+  });
+
   it("las tres salidas están disponibles y por defecto se mezcla en el video", async () => {
     const { el } = await ready();
     assert.deepEqual(options(el("dub-mix")), ["none", "replace", "duck"]);
@@ -449,5 +481,95 @@ describe("abrir desde el historial", () => {
     ai.adopt(translateDone());
     el("translate-open-parent").fire("click");
     assert.deepEqual(state.started, [{ openParent: PARENT }]);
+  });
+});
+
+const DEEPSEEK = { openai: { model: "deepseek-chat", baseUrlHost: "api.deepseek.com" } };
+const MODEL_ONLY = { openai: { model: "gpt-4.1-mini", baseUrlHost: null } };
+const HOST_ONLY = { openai: { model: null, baseUrlHost: "api.groq.com" } };
+
+describe("modelo y servidor propios en la estimación y en la confirmación de gasto (ADR 0022)", () => {
+  it("sin configuración propia la estimación y la confirmación son las de siempre", async () => {
+    const { el, state } = await ready({ aiConfig: { openai: null } });
+    el("translate-provider").value = "openai";
+    el("translate-provider").fire("change");
+    assert.doesNotMatch(el("translate-estimate").textContent, /Modelo|Servidor/);
+    el("translate-form").fire("submit");
+    await flush();
+    assert.deepEqual(state.asked, [{ provider: "openai", characters: 12500 }]);
+  });
+
+  it("con modelo y servidor propios la estimación los nombra y la confirmación los recibe", async () => {
+    const { el, state } = await ready({ aiConfig: DEEPSEEK });
+    el("translate-provider").value = "openai";
+    el("translate-provider").fire("change");
+    const estimate = el("translate-estimate").textContent;
+    assert.match(estimate, /12[.\s\u00a0]?500 caracteres/);
+    assert.match(estimate, /deepseek-chat/);
+    assert.match(estimate, /api\.deepseek\.com/);
+    el("translate-form").fire("submit");
+    await flush();
+    assert.deepEqual(state.asked, [{ provider: "openai", characters: 12500, model: "deepseek-chat", host: "api.deepseek.com" }]);
+    assert.equal(state.translateCalls.length, 1);
+  });
+
+  it("solo el modelo, o solo el servidor, también se muestran", async () => {
+    const onlyModel = await ready({ aiConfig: MODEL_ONLY });
+    onlyModel.el("translate-provider").value = "openai";
+    onlyModel.el("translate-provider").fire("change");
+    assert.match(onlyModel.el("translate-estimate").textContent, /gpt-4\.1-mini/);
+    assert.doesNotMatch(onlyModel.el("translate-estimate").textContent, /Servidor/);
+    onlyModel.el("translate-form").fire("submit");
+    await flush();
+    assert.deepEqual(onlyModel.state.asked, [{ provider: "openai", characters: 12500, model: "gpt-4.1-mini" }]);
+
+    const onlyHost = await ready({ aiConfig: HOST_ONLY });
+    onlyHost.el("translate-provider").value = "openai";
+    onlyHost.el("translate-provider").fire("change");
+    assert.match(onlyHost.el("translate-estimate").textContent, /api\.groq\.com/);
+    onlyHost.el("translate-form").fire("submit");
+    await flush();
+    assert.deepEqual(onlyHost.state.asked, [{ provider: "openai", characters: 12500, host: "api.groq.com" }]);
+  });
+
+  it("el motor local no muestra modelo ni servidor aunque estén configurados", async () => {
+    const { el } = await ready({ aiConfig: DEEPSEEK });
+    el("translate-provider").value = "argos";
+    el("translate-provider").fire("change");
+    assert.doesNotMatch(el("translate-estimate").textContent, /deepseek/);
+  });
+
+  it("doblar con OpenAI no menciona el modelo de traducción (la voz tiene el suyo)", async () => {
+    const { el, state } = await ready({ aiConfig: DEEPSEEK });
+    el("dub-provider").value = "openai";
+    el("dub-voice").value = "alloy";
+    el("dub-form").fire("submit");
+    await flush();
+    assert.deepEqual(state.asked[0], { provider: "openai", characters: 12500 });
+    assert.doesNotMatch(el("dub-estimate").textContent, /deepseek/);
+  });
+
+  it("si la configuración no se puede leer, todo sigue funcionando sin modelo", async () => {
+    const { el, state } = await ready({ aiConfigError: new Error("sin red") });
+    el("translate-provider").value = "openai";
+    el("translate-provider").fire("change");
+    assert.doesNotMatch(el("translate-estimate").textContent, /Modelo|Servidor/);
+    el("translate-form").fire("submit");
+    await flush();
+    assert.deepEqual(state.asked, [{ provider: "openai", characters: 12500 }]);
+  });
+
+  it("sin BYOK no se consulta la configuración", async () => {
+    const { state } = await ready({ capabilities: OFF });
+    assert.equal(state.aiConfigCalls, 0);
+  });
+
+  it("refreshAiConfig vuelve a leerla tras guardar una clave y cambia la estimación", async () => {
+    const made = await ready({ aiConfig: { openai: null } });
+    made.state.aiConfig = DEEPSEEK;
+    await made.ai.refreshAiConfig();
+    made.el("translate-provider").value = "openai";
+    made.el("translate-provider").fire("change");
+    assert.match(made.el("translate-estimate").textContent, /deepseek-chat/);
   });
 });

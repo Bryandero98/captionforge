@@ -17,7 +17,7 @@ export function createSpendConfirm({ doc, t: initialT }) {
   const els = { dialog: $("spend-confirm"), title: $("spend-confirm-title"), body: $("spend-confirm-body"), yes: $("spend-confirm-yes"), no: $("spend-confirm-no") };
 
   let t = initialT;
-  /** @type {{ provider: string, characters: number } | null} */
+  /** @type {{ provider: string, characters: number, model?: string, host?: string } | null} */
   let pending = null;
   /** @type {((accepted: boolean) => void) | null} */
   let resolve = null;
@@ -28,7 +28,7 @@ export function createSpendConfirm({ doc, t: initialT }) {
     els.title.textContent = t("spend.title");
     els.yes.textContent = t("spend.confirm");
     els.no.textContent = t("spend.cancel");
-    els.body.textContent = pending === null ? "" : t("spend.body", { provider: t(`extkeys.provider.${pending.provider}`), characters: formatCount(pending.characters, doc.documentElement.lang || "es"), tokens: formatCount(estimateTokens(pending.characters), doc.documentElement.lang || "es") });
+    els.body.textContent = pending === null ? "" : [t("spend.body", { provider: t(`extkeys.provider.${pending.provider}`), characters: formatCount(pending.characters, doc.documentElement.lang || "es"), tokens: formatCount(estimateTokens(pending.characters), doc.documentElement.lang || "es") }), ...(pending.host ? [t("spend.custom.host", { host: pending.host })] : []), ...(pending.model ? [t("spend.custom.model", { model: pending.model })] : [])].join(" ");
   }
 
   function open() {
@@ -67,7 +67,7 @@ export function createSpendConfirm({ doc, t: initialT }) {
   return {
     /**
      * Pregunta y espera la respuesta. Una pregunta nueva rechaza la anterior: nunca hay dos a la vez.
-     * @param {{ provider: string, characters: number }} spend
+     * @param {{ provider: string, characters: number, model?: string, host?: string }} spend
      * @returns {Promise<boolean>}
      */
     ask(spend) {

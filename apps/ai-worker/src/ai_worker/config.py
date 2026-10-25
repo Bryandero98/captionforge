@@ -67,6 +67,8 @@ class WorkerConfig:
     # Canal interno del API (ADR 0020): de ahí se pide la clave externa de cada trabajo TRANSLATE/DUB. Ambos o ninguno.
     api_internal_url: str | None = None
     worker_internal_token: str | None = field(default=None, repr=False)
+    # ADR 0022: permite URL base propias de la red local o privada (Ollama, vLLM). Apagada por defecto; los metadatos de nube nunca.
+    allow_private_base_urls: bool = False
 
     @property
     def redis_connection(self) -> dict[str, object]:
@@ -93,6 +95,15 @@ class WorkerConfig:
             if value <= 0:
                 raise ConfigError(f"{name} debe ser positivo (recibido {raw!r})")
             return value
+
+        def flag(name: str) -> bool:
+            """Bandera de seguridad: solo true/1 la encienden y false/0/vacío la apagan; otra cosa es un error (no se adivina)."""
+            value = (env.get(name) or "").strip().lower()
+            if value in ("", "false", "0"):
+                return False
+            if value in ("true", "1"):
+                return True
+            raise ConfigError(f"{name} debe ser true o false (recibido {env.get(name)!r})")
 
         internal_url = (env.get("API_INTERNAL_URL") or "").strip() or None
         internal_token = env.get("WORKER_INTERNAL_TOKEN") or None
@@ -132,4 +143,5 @@ class WorkerConfig:
             hf_token=resolve_hf_token(env),
             api_internal_url=internal_url,
             worker_internal_token=internal_token,
+            allow_private_base_urls=flag("ALLOW_PRIVATE_BASE_URLS"),
         )

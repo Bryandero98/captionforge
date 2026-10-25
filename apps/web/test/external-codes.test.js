@@ -12,6 +12,8 @@ describe("errorFromResponse: códigos estables de claves externas, traducir y do
   const cases = [
     [400, "invalid_key_format", "invalid_key_format"],
     [400, "same_language", "same_language"],
+    [400, "burn_not_available_for_audio", "burn_not_available_for_audio"],
+    [400, "mix_not_available_for_audio", "mix_not_available_for_audio"],
     [404, "byok_disabled", "byok_disabled"],
     [409, "byok_disabled", "byok_disabled"],
     [409, "external_key_missing", "external_key_missing"],
@@ -44,13 +46,13 @@ describe("getCapabilities: claves propias (BYOK)", () => {
   it("lee si están activadas y qué proveedores admite", async () => {
     const fetchImpl = async () => json({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"] } });
     const found = await getCapabilities({ baseUrl: "", fetchImpl });
-    assert.deepEqual(found.byok, { enabled: true, providers: ["openai", "elevenlabs"] });
+    assert.deepEqual(found.byok, { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false });
   });
 
   it("un servidor sin `byok` (o con forma rara) la deja apagada", async () => {
     for (const payload of [{ diarization: { enabled: true } }, { byok: null }, { byok: { enabled: "true", providers: ["openai"] } }, { byok: { enabled: true, providers: "openai" } }]) {
       const found = await getCapabilities({ baseUrl: "", fetchImpl: async () => json(payload) });
-      assert.deepEqual(found.byok, { enabled: false, providers: [] }, JSON.stringify(payload));
+      assert.deepEqual(found.byok, { enabled: false, providers: [], allowPrivateBaseUrls: false }, JSON.stringify(payload));
     }
   });
 
@@ -65,7 +67,7 @@ describe("getCapabilities: claves propias (BYOK)", () => {
   });
 
   it("sin respuesta, BYOK apagada", () => {
-    assert.deepEqual(NO_CAPABILITIES.byok, { enabled: false, providers: [] });
+    assert.deepEqual(NO_CAPABILITIES.byok, { enabled: false, providers: [], allowPrivateBaseUrls: false });
   });
 });
 

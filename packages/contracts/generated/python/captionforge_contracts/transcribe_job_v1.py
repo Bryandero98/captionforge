@@ -15,6 +15,17 @@ class ContentType(StrEnum):
     video_x_matroska = 'video/x-matroska'
     video_webm = 'video/webm'
     video_x_msvideo = 'video/x-msvideo'
+    audio_mpeg = 'audio/mpeg'
+    audio_mp3 = 'audio/mp3'
+    audio_wav = 'audio/wav'
+    audio_x_wav = 'audio/x-wav'
+    audio_wave = 'audio/wave'
+    audio_mp4 = 'audio/mp4'
+    audio_x_m4a = 'audio/x-m4a'
+    audio_m4a = 'audio/m4a'
+    audio_ogg = 'audio/ogg'
+    audio_flac = 'audio/flac'
+    audio_x_flac = 'audio/x-flac'
 
 
 class ObjectRef(BaseModel):

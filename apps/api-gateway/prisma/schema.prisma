@@ -200,17 +200,23 @@ model Invitation {
 /// es `v1.<iv>.<etiqueta>.<datos>` (AES-256-GCM con AAD tenantId|provider|keyVersion): el valor en claro NUNCA se guarda. `cf_worker` no
 /// tiene ningún permiso sobre esta tabla: el worker pide la clave al API por el canal interno.
 model TenantExternalKey {
-  id         String           @id @db.Uuid
-  tenantId   String           @db.Uuid
-  provider   ExternalProvider
-  ciphertext String
-  keyVersion Int              @default(1)
+  id                String           @id @db.Uuid
+  tenantId          String           @db.Uuid
+  provider          ExternalProvider
+  ciphertext        String
+  keyVersion        Int              @default(1)
   /// Últimos 4 caracteres para reconocerla en la interfaz; vacío si la clave es corta.
-  last4      String
+  last4             String
+  /// URL base propia del proveedor (ADR 0022), cifrada como la clave; nula = el host fijo del proveedor.
+  baseUrlCiphertext String?
+  /// Solo el host de esa URL, para mostrarlo en la interfaz.
+  baseUrlHost       String?
+  /// Modelo que se pide al proveedor (texto plano); nulo = el modelo por defecto del proveedor.
+  model             String?
   /// Quién la pegó (solo auditoría): la clave es del espacio y no se revoca si esa persona deja de ser Dueño.
-  createdBy  String?          @db.Uuid
-  createdAt  DateTime         @default(now())
-  rotatedAt  DateTime?
+  createdBy         String?          @db.Uuid
+  createdAt         DateTime         @default(now())
+  rotatedAt         DateTime?
 
   tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   creator User?  @relation("ExternalKeyCreator", fields: [createdBy], references: [id], onDelete: SetNull)

@@ -12,13 +12,16 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
 from .errors import JobFailure
-from .external_key import ExternalKeyClient, ExternalKeyError
+from .external_key import ExternalCredential, ExternalKeyClient, ExternalKeyError
+from .net_guard import Resolver, assert_url_allowed, system_resolver
 from .provider_http import ProviderHttp, external_failure, parse_json
 from .redaction import Secret
 
@@ -74,8 +77,12 @@ class OpenAITranslator:
     """Traduce por lotes con la API de chat de OpenAI. El texto del video es DATO, no instrucciones: la respuesta solo se acepta si es
     un JSON con exactamente una cadena por entrada; cualquier otra cosa es un fallo controlado, nunca texto libre que llegue al usuario."""
 
-    def __init__(self, http: ProviderHttp) -> None:
+    def __init__(self, http: ProviderHttp, *, path: str = "/v1/chat/completions", model: str = OPENAI_TRANSLATE_MODEL, lenient: bool = False) -> None:
         self._http = http
+        self._path = path
+        self._model = model
+        #: Servidor compatible con OpenAI que no es OpenAI (ADR 0022): algunos no admiten `response_format`; se reintenta una vez sin él.
+        self._lenient = lenient
 
     async def translate(self, texts: list[str], source: str, target: str) -> list[str]:
         system = (
@@ -84,15 +91,20 @@ class OpenAITranslator:
             'Responde SOLO con un objeto JSON {"translations": [...]} con exactamente una traducción por texto, en el mismo orden.'
         )
         user = json.dumps({"source": source, "target": target, "texts": texts}, ensure_ascii=False)
-        response = await self._http.post_json(
-            "/v1/chat/completions",
-            {
-                "model": OPENAI_TRANSLATE_MODEL,
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            },
-        )
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        }
+        try:
+            response = await self._http.post_json(self._path, payload)
+        except JobFailure as failure:
+            if not (self._lenient and getattr(failure, "rejected", False)):
+                raise
+            # El servidor entendió la petición y no acepta `response_format`: se pide igual, solo con la instrucción de responder en JSON.
+            del payload["response_format"]
+            response = await self._http.post_json(self._path, payload)
         return _read_translations(parse_json(response), len(texts))
 
 
@@ -134,10 +146,14 @@ class ElevenLabsVoice:
         return _read_audio(response)
 
 
+_FENCE = re.compile(r"^\s*```[A-Za-z]*\s*\n(.*?)\n?```\s*$", re.DOTALL)
+
+
 def _read_translations(body: Any, expected: int) -> list[str]:
     try:
         content = body["choices"][0]["message"]["content"]
-        translations = json.loads(content)["translations"]
+        fenced = _FENCE.match(content)  # algunos modelos envuelven el JSON en un bloque de código
+        translations = json.loads(fenced.group(1) if fenced else content)["translations"]
     except (KeyError, IndexError, TypeError, ValueError):
         raise external_failure("EXTERNAL_UNAVAILABLE") from None
     if not isinstance(translations, list) or len(translations) != expected or not all(isinstance(item, str) for item in translations):
@@ -158,7 +174,11 @@ class Adapters:
         base_urls: Mapping[str, str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        allow_private_base_urls: bool = False,
+        resolve: Resolver = system_resolver,
     ) -> None:
+        self._allow_private = allow_private_base_urls
+        self._resolve = resolve
         self._external_keys = external_keys
         self._translators = dict(translators or {})
         self._voices = dict(voices or {})
@@ -178,8 +198,37 @@ class Adapters:
             code, message = _KEY_REASONS.get(error.reason, ("INTERNAL", "El worker no pudo obtener la clave del espacio."))
             raise JobFailure(code, message) from None
 
-    def _http(self, provider: str, headers: Mapping[str, str]) -> ProviderHttp:
-        return ProviderHttp(self._base_urls[provider], headers, transport=self._transport, sleep=self._sleep)
+    @contextlib.asynccontextmanager
+    async def _credential(self, provider: str, job_id: str) -> AsyncIterator[ExternalCredential]:
+        """Como `_secret`, pero con la URL base y el modelo del espacio si los guardó (ADR 0022)."""
+        if self._external_keys is None:
+            raise JobFailure("EXTERNAL_KEY_MISSING", "Este worker no tiene canal para pedir claves externas.")
+        try:
+            async with self._external_keys.lease_credential(job_id, provider) as credential:
+                yield credential
+        except ExternalKeyError as error:
+            code, message = _KEY_REASONS.get(error.reason, ("INTERNAL", "El worker no pudo obtener la clave del espacio."))
+            raise JobFailure(code, message) from None
+
+    def _http(self, provider: str, headers: Mapping[str, str], *, guard: Callable[[], Awaitable[None]] | None = None) -> ProviderHttp:
+        return ProviderHttp(self._base_urls[provider], headers, transport=self._transport, sleep=self._sleep, guard=guard)
+
+    def _openai_translator(self, credential: ExternalCredential) -> OpenAITranslator:
+        """OpenAI o un servidor compatible. Con URL base propia: ese host y esa ruta, con el DNS vigilado antes de CADA petición."""
+        headers = {"authorization": f"Bearer {credential.secret.reveal()}"}
+        model = credential.model or OPENAI_TRANSLATE_MODEL
+        if credential.base_url is None:
+            return OpenAITranslator(self._http("openai", headers), model=model)  # host fijo de OpenAI: no se resuelve ni se vigila
+        url = credential.base_url
+        parts = urlsplit(url)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        path = f"{parts.path.rstrip('/')}/chat/completions"
+
+        async def guard() -> None:
+            await assert_url_allowed(url, allow_private=self._allow_private, resolve=self._resolve)
+
+        http = ProviderHttp(origin, headers, transport=self._transport, sleep=self._sleep, guard=guard)
+        return OpenAITranslator(http, path=path, model=model, lenient=True)
 
     @contextlib.asynccontextmanager
     async def translator(self, provider: str, job_id: str) -> AsyncIterator[Translator]:
@@ -191,8 +240,8 @@ class Adapters:
             yield ArgosTranslator()
             return
         if provider == "openai":
-            async with self._secret(provider, job_id) as secret:
-                yield OpenAITranslator(self._http(provider, {"authorization": f"Bearer {secret.reveal()}"}))
+            async with self._credential(provider, job_id) as credential:
+                yield self._openai_translator(credential)
             return
         raise JobFailure("INTERNAL", "El proveedor de traducción no está disponible en este worker.")
 

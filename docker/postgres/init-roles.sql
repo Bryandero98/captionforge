@@ -147,6 +147,13 @@ BEGIN
     REVOKE ALL ON "TenantExternalKey" FROM cf_api, cf_worker;
     GRANT SELECT, INSERT, DELETE ON "TenantExternalKey" TO cf_api;
     GRANT UPDATE ("ciphertext", "keyVersion", "last4", "rotatedAt") ON "TenantExternalKey" TO cf_api;
+    -- URL base propia (ADR 0022): las columnas llegan con una migración; si todavía no se aplicó, no hay nada que conceder.
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'TenantExternalKey' AND column_name = 'baseUrlCiphertext') THEN
+      GRANT UPDATE ("baseUrlCiphertext", "baseUrlHost") ON "TenantExternalKey" TO cf_api;
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'TenantExternalKey' AND column_name = 'model') THEN
+      GRANT UPDATE ("model") ON "TenantExternalKey" TO cf_api;
+    END IF;
   END IF;
 END
 $$;

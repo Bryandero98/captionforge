@@ -18,7 +18,7 @@ ningún marcador `{x}`).
 ## Paso a paso
 
 1. **Elige tus videos.** Arrastra hasta 20 a la zona punteada o pulsa «Elige un archivo». Formatos: MP4, MOV, MKV, WEBM
-   y AVI. Los archivos que no sirven se descartan y se explica por qué.
+   y AVI, o audio: MP3, WAV, M4A, OGG y FLAC (ver «Audio»). Los archivos que no sirven se descartan y se explica por qué.
 2. **Ajusta las opciones.** *Modelo*: Base es el más rápido y Medium el más preciso. *Idioma del audio*: déjalo en
    «Autodetectar» salvo que lo sepas. *Traducir a*: opcional, para obtener los subtítulos en otro idioma.
    *Limpiar ruido de fondo* (desactivado por defecto): actívalo si hay música o ruido fuerte sobre la voz. Tarda más, porque
@@ -46,6 +46,19 @@ ningún marcador `{x}`).
    «Doblar con voz sintética» crean trabajos aparte. Traducir funciona sin cuenta externa; doblar necesita la clave de un
    proveedor guardada por el Dueño. Ver las secciones siguientes.
 
+## Audio: podcasts, notas de voz y grabaciones
+
+También puedes subir **audio sin video**: MP3, WAV, M4A, OGG y FLAC. Se transcribe igual que un video y, además:
+
+- Aparece un **reproductor de audio** con el archivo original para que lo escuches mientras corriges los subtítulos. Si ese original
+  ya caducó, el reproductor no aparece y todo lo demás sigue funcionando.
+- **No hay «Poner los subtítulos en el video»**: un audio no tiene imagen. Descarga el `.srt` o el `.vtt`.
+- **Traducir** funciona igual (motor local u OpenAI con tu clave): obtienes el texto traducido.
+- **Doblar** entrega solo la **pista de voz en `.mp3`** en el idioma elegido (primero se traduce, luego se dobla). El menú de salida
+  queda fijo en «Solo la pista de voz (.mp3)»: no hay video con el que mezclar.
+
+Con esto, un mismo audio puede ir a texto traducido (traducir) o volver como audio en otro idioma (doblar).
+
 ## Claves externas (solo el Dueño)
 
 «Doblar» y la traducción con OpenAI usan **tu propia cuenta** de OpenAI o ElevenLabs (BYOK, *bring your own key*). CaptionForge
@@ -70,6 +83,31 @@ Qué hay que saber:
 - Nunca pegues una clave en un chat, un issue o un commit. Si se filtra, revócala en el panel de tu proveedor y pega otra.
 - Si el servidor no tiene activada la función (no hay `APP_SECRET`), no hay panel y «Doblar» queda bloqueado. Quien administra el
   servidor la activa según el [runbook de `APP_SECRET`](runbook-app-secret.md).
+
+### Otras IA compatibles con OpenAI: DeepSeek, Groq, OpenRouter, modelos locales
+
+La fila de OpenAI tiene dos campos opcionales, **URL base (API compatible)** y **Modelo**. Con ellos la traducción usa otro
+servicio que hable el mismo protocolo que OpenAI, con tu propia clave de ese servicio (ADR [0022](adr/0022-url-base-propia-para-proveedores-de-ia.md)).
+
+| Servicio | URL base | Modelo de ejemplo |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| Gemini (capa compatible) | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| Ollama en tu equipo* | `http://localhost:11434/v1` | `llama3.1:8b` |
+
+Revisa en la documentación de cada servicio la URL y los nombres de modelo vigentes; los de la tabla son ejemplos.
+Vacíos, se usa OpenAI con su modelo por defecto (`gpt-4o-mini`).
+
+- La **URL no se vuelve a mostrar**: queda cifrada y la lista solo enseña el servidor («Servidor: api.deepseek.com»). Al
+  reemplazar la clave hay que volver a escribirla; un reemplazo sin URL vuelve a OpenAI. El modelo sí se ve y se propone de nuevo.
+- Solo se aceptan servidores **públicos por https**. El worker resuelve el DNS antes de cada petición y, si el nombre apunta a una
+  red privada, cancela el trabajo **sin enviar la clave**.
+- \* Para usar un modelo local (Ollama, vLLM) quien administra el servidor pone `ALLOW_PRIVATE_BASE_URLS=true` en el `.env`
+  (por defecto está apagada). Entonces se aceptan direcciones locales y privadas, también por http. Los metadatos de nube
+  (`169.254.x.x`) siguen bloqueados siempre. Desde Docker, un Ollama en tu equipo se alcanza con `http://host.docker.internal:11434/v1`.
+- La confirmación de gasto y la estimación de «Traducir» muestran el servidor y el modelo que configuraste.
 
 ## Calidad de los subtítulos
 

@@ -74,7 +74,7 @@ class AiWorker:
             else None
         )
         # Proveedores de traducción y voz (ADR 0020); los externos piden su clave al API justo antes de usarla.
-        self.adapters = adapters or Adapters(self.external_keys)
+        self.adapters = adapters or Adapters(self.external_keys, allow_private_base_urls=config.allow_private_base_urls)
         self.translator = TranslateRunner(config, self.storage, self.adapters)
         self.dubber = DubRunner(config, self.storage, self.adapters)
         self._workers: list[Worker] = []

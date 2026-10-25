@@ -1,4 +1,4 @@
-// Subida de un video a POST /v1/jobs/transcribe con XMLHttpRequest.
+// Subida de un video o audio a POST /v1/jobs/transcribe con XMLHttpRequest.
 // Por qué XHR y no fetch: fetch no informa del progreso de la subida y XHR sí (xhr.upload.onprogress).
 //
 // Lo que hay que saber del API (apps/api-gateway):
@@ -10,6 +10,7 @@
 //    es la defensa real del tamaño.
 
 import { authHeaders } from "./auth.js";
+import { AUDIO_MIME_TYPES, isAudioMime } from "../domain/media.js";
 import { ApiError, errorFromResponse } from "./errors.js";
 
 /** Extensión -> tipo que el API acepta. */
@@ -19,9 +20,15 @@ const MIME_BY_EXTENSION = {
   mkv: "video/x-matroska",
   webm: "video/webm",
   avi: "video/x-msvideo",
+  // Audio puro (Issue #14): se transcribe y se dobla igual, sin imagen.
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  ogg: "audio/ogg",
+  flac: "audio/flac",
 };
 
-export const ALLOWED_MIME_TYPES = new Set(Object.values(MIME_BY_EXTENSION));
+export const ALLOWED_MIME_TYPES = new Set([...Object.values(MIME_BY_EXTENSION), ...AUDIO_MIME_TYPES]);
 export const MODEL_SIZES = ["base", "small", "medium"];
 export const DEFAULT_MAX_BYTES = 4 * 1024 ** 3;
 
@@ -29,10 +36,14 @@ const LANGUAGE_CODE = /^[a-z]{2,3}$/;
 
 /** El tipo que se envía: el del navegador si el API lo acepta; si no, el que corresponde a la extensión. */
 export function videoMimeType(/** @type {File} */ file) {
-  if (ALLOWED_MIME_TYPES.has(file.type)) return file.type;
   const dot = file.name.lastIndexOf(".");
   const extension = dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "";
-  return /** @type {Record<string, string>} */ (MIME_BY_EXTENSION)[extension] ?? file.type;
+  const byExtension = /** @type {Record<string, string>} */ (MIME_BY_EXTENSION)[extension];
+  if (ALLOWED_MIME_TYPES.has(file.type)) {
+    // Un .m4a o .mp3 que el navegador declara como video/mp4 es audio: se envía como tal para que el trabajo quede como audio.
+    return byExtension !== undefined && isAudioMime(byExtension) && !isAudioMime(file.type) ? byExtension : file.type;
+  }
+  return byExtension ?? file.type;
 }
 
 /**

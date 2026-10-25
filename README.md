@@ -102,6 +102,10 @@ curl -OJ http://127.0.0.1:3000/v1/jobs/<id>/artifacts/srt
 
 Every call needs your API key: add `-H "X-API-Key: <key>"` (the `DEFAULT_API_KEY` in your `.env`; `Authorization: Bearer <key>` also works). A job belongs to the tenant that owns the key: another key gets `404` for it, never `403`.
 
+## Audio files
+
+Besides video (MP4, MOV, MKV, WEBM, AVI), CaptionForge accepts **audio-only** files: **MP3, WAV, M4A, OGG and FLAC**. They go through the same pipeline (transcription → optional translation → optional dubbing). For an audio file the app shows a standard `<audio>` player with the original, hides subtitle burning (there is no picture) and the video mix of the dub, and delivers the dub as an **`.mp3`** track. See [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md).
+
 ## Supported languages
 
 Both engines run locally, with no account and no cost per use.
@@ -118,6 +122,32 @@ Things to know about translation:
 - Every Argos model goes **to or from English**. A pair such as Spanish → German is translated **through English** (two steps), so it is usually less accurate than a pair that includes English.
 - The model of each pair is **downloaded the first time it is used** (internet needed once, a few hundred MB per pair) and then reused offline.
 - The app lists every transcription language as a translation target, but Argos only covers the 50 above; for any other target the job ends with a clear error. For other languages or higher quality you can use an external provider with your own key (BYOK).
+
+## Multi-LLM: bring your own key (any OpenAI-compatible service)
+
+Translation and dubbing can run on **your own account** at the AI service you prefer, not only OpenAI. In the app, open **Account → External keys** (workspace owner, server with `APP_SECRET` set), pick a service from the drop-down and paste its key: the base URL is filled in and compatible models are suggested. You can still type any other model name or URL.
+
+| Service | Base URL (filled in for you) | Suggested models |
+|---|---|---|
+| OpenAI | *(default)* | `gpt-4o-mini`, `gpt-4o`, `gpt-4.1-mini` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat`, `deepseek-reasoner` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`, `gemini-2.5-pro` |
+| Anthropic Claude | `https://api.anthropic.com/v1` (OpenAI-compatibility layer) | `claude-sonnet-4-5`, `claude-haiku-4-5` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini`, `google/gemini-2.5-flash` |
+| Abacus.AI (RouteLLM) | `https://routellm.abacus.ai/v1` | `route-llm` |
+| Ollama (local) | `http://localhost:11434/v1` | `llama3.2`, `qwen2.5`, `mistral` |
+| Other | any `https` URL of an OpenAI-compatible server | any model name |
+
+The key is stored encrypted and is never shown again (only its last 4 characters); the cost is billed by your provider, and the app shows the server and model that will be used before it spends anything. If a server rejects `response_format`, the worker retries once without it and also accepts JSON wrapped in a code block.
+
+### Local models (Ollama, vLLM) and `ALLOW_PRIVATE_BASE_URLS`
+
+CaptionForge **supports local models such as Ollama** through the same OpenAI-compatible interface. For safety (SSRF), by default only **public** servers over `https` are accepted. To use a model running on your own machine or network, the person administering the server must set `ALLOW_PRIVATE_BASE_URLS=true` in `.env` (read by both the API and the worker; any value other than `true`/`1`/`false`/`0` stops the start-up). The Ollama entry then appears in the drop-down.
+
+- When CaptionForge itself runs in Docker, `localhost` is the container: reach an Ollama on your computer with `http://host.docker.internal:11434/v1`.
+- Cloud metadata addresses (`169.254.x.x`), multicast, reserved and unspecified ranges stay blocked even with the flag on.
+- The worker resolves the name on every request and sends the key only to an allowed address; a documented residual DNS-rebinding risk is described in [ADR 0022](docs/adr/0022-url-base-propia-para-proveedores-de-ia.md).
 
 ## API
 
