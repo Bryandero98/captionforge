@@ -246,7 +246,7 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
 
   function errorText(/** @type {unknown} */ error) {
     const code = error instanceof ApiError ? error.code : "";
-    return code === "invalid_ai_config" || code === "ai_unavailable" ? t(`assistant.err.${code}`) : t("assistant.err.generic");
+    return code === "invalid_ai_config" || code === "ai_unavailable" || code === "ai_timeout" ? t(`assistant.err.${code}`) : t("assistant.err.generic");
   }
 
   async function submit() {

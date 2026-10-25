@@ -622,6 +622,7 @@ const fr = {
   "assistant.action.dismissed": "Ignorée.",
   "assistant.action.failed": "Impossible de l'appliquer : génère ou ouvre d'abord des sous-titres, ou vérifie les options.",
   "assistant.action.audio": "Un audio n'a pas d'image : impossible de créer une vidéo avec sous-titres.",
+  "assistant.err.ai_timeout": "Ton IA a mis trop de temps à répondre. Essaie un modèle plus rapide dans « Mon IA ».",
 };
 
 export default fr;

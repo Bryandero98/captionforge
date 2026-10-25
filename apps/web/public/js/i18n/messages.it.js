@@ -622,6 +622,7 @@ const it = {
   "assistant.action.dismissed": "Scartata.",
   "assistant.action.failed": "Impossibile applicarla: prima genera o apri dei sottotitoli, oppure controlla le opzioni.",
   "assistant.action.audio": "Un audio non ha immagine: non si può creare un video con sottotitoli.",
+  "assistant.err.ai_timeout": "La tua IA ci ha messo troppo a rispondere. Prova un modello più veloce in «La mia IA».",
 };
 
 export default it;

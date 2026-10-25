@@ -622,6 +622,7 @@ const de = {
   "assistant.action.dismissed": "Verworfen.",
   "assistant.action.failed": "Konnte nicht angewendet werden: Erzeuge oder öffne zuerst Untertitel oder prüfe die Optionen.",
   "assistant.action.audio": "Ein Audio hat kein Bild: Ein Video mit Untertiteln kann nicht erstellt werden.",
+  "assistant.err.ai_timeout": "Deine KI hat zu lange gebraucht. Probiere unter „Meine KI“ ein schnelleres Modell.",
 };
 
 export default de;

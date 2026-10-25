@@ -622,6 +622,7 @@ const pt = {
   "assistant.action.dismissed": "Descartada.",
   "assistant.action.failed": "Não foi possível aplicar: primeiro gere ou abra umas legendas, ou revise as opções.",
   "assistant.action.audio": "Um áudio não tem imagem: não dá para criar um vídeo com legendas.",
+  "assistant.err.ai_timeout": "Sua IA demorou demais para responder. Tente um modelo mais rápido em «Minha IA».",
 };
 
 export default pt;

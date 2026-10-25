@@ -1,4 +1,4 @@
-import { BadGatewayException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { BadGatewayException, GatewayTimeoutException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { JobsService } from "../jobs/jobs.service.js";
@@ -42,6 +42,9 @@ export class AssistantService {
     } catch (error) {
       // Nunca se repite el mensaje original: podría llevar texto del proveedor. Solo qué falló, en general.
       this.logger.warn(`El asistente no obtuvo respuesta de la IA (${(error as Error).name}).`);
+      if ((error as Error).name === "AiTimeoutError") {
+        throw new GatewayTimeoutException({ statusCode: 504, error: "Gateway Timeout", code: "ai_timeout", message: "La IA tardó demasiado: prueba un modelo más rápido." });
+      }
       throw new BadGatewayException({ statusCode: 502, error: "Bad Gateway", code: "ai_unavailable", message: "La IA no respondió. Revisa tu clave, el modelo y tu saldo, e inténtalo de nuevo." });
     }
   }

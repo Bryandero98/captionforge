@@ -74,7 +74,7 @@ export function createPinnedTransport(allowPrivate: boolean): ChatTransport {
           });
         },
       );
-      req.on("timeout", () => req.destroy(new Error("La IA tardó demasiado en responder.")));
+      req.on("timeout", () => req.destroy(Object.assign(new Error("La IA tardó demasiado en responder."), { name: "AiTimeoutError" })));
       req.on("error", reject);
       req.end(payload);
     });

@@ -122,5 +122,6 @@ describe("sendChat", () => {
     const fail = (status, code) => async () => new Response(JSON.stringify({ code, message: "x" }), { status, headers: { "content-type": "application/json" } });
     await assert.rejects(sendChat({ baseUrl: "http://x", messages: [], ai: { key: "k" }, fetchImpl: fail(400, "invalid_ai_config") }), (e) => e.code === "invalid_ai_config");
     await assert.rejects(sendChat({ baseUrl: "http://x", messages: [], ai: { key: "k" }, fetchImpl: fail(502, "ai_unavailable") }), (e) => e.code === "ai_unavailable");
+    await assert.rejects(sendChat({ baseUrl: "http://x", messages: [], ai: { key: "k" }, fetchImpl: fail(504, "ai_timeout") }), (e) => e.code === "ai_timeout");
   });
 });

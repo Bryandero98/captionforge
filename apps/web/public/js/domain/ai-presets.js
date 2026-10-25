@@ -14,7 +14,7 @@
 export const AI_PRESETS = Object.freeze([
   { id: "openai", name: "OpenAI", baseUrl: "", models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"] },
   { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", models: ["deepseek-chat", "deepseek-reasoner"] },
-  { id: "gemini", name: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"] },
+  { id: "gemini", name: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", models: ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-pro-latest"] },
   { id: "anthropic", name: "Anthropic Claude", baseUrl: "https://api.anthropic.com/v1", models: ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-1"] },
   { id: "groq", name: "Groq", baseUrl: "https://api.groq.com/openai/v1", models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"] },
   { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", models: ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4.5", "google/gemini-2.5-flash"] },

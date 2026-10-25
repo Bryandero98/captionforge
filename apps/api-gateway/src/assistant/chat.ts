@@ -189,7 +189,7 @@ export function buildChatRequest(input: { key: string; baseUrl?: string; model?:
     body: {
       model: input.model ?? DEFAULT_CHAT_MODEL,
       temperature: 0.3,
-      max_tokens: 700,
+      max_tokens: 1500,
       messages: [{ role: "system", content: systemPrompt(input.job) }, ...input.messages],
       tools: ASSISTANT_TOOLS,
       tool_choice: "auto",

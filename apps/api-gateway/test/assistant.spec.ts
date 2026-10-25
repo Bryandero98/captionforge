@@ -214,6 +214,22 @@ describe("AssistantService", () => {
     expect(posted).toHaveLength(0);
   });
 
+  it("si la IA tarda demasiado, devuelve 504 con un código propio para sugerir un modelo más rápido", async () => {
+    const { service } = make({
+      post: async () => {
+        const error = new Error("tiempo agotado");
+        error.name = "AiTimeoutError";
+        throw error;
+      },
+    });
+    const error = await service.chat("t1", { messages: chat, ai: AI }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 504, response: { code: "ai_timeout" } });
+  });
+
+  it("pide respuestas con holgura: los modelos que razonan gastan parte del tope y se cortaban", () => {
+    expect(buildChatRequest({ key: "k", messages: [{ role: "user", content: "x" }], job: null }).body.max_tokens).toBeGreaterThanOrEqual(1500);
+  });
+
   it("si la IA falla, devuelve 502 sin repetir la clave ni el cuerpo del proveedor", async () => {
     const { service } = make({ post: async () => { throw new Error("HTTP 401 sk-secreta-1234567890abcd invalid"); } });
     const error = await service.chat("t1", { messages: chat, ai: AI }).catch((e: unknown) => e);

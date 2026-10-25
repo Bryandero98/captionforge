@@ -635,6 +635,7 @@ export const messages = {
     "assistant.action.dismissed": "Descartada.",
     "assistant.action.failed": "No se pudo aplicar: primero genera o abre unos subtítulos, o revisa las opciones.",
     "assistant.action.audio": "Un audio no tiene imagen: no se puede crear un video con subtítulos.",
+    "assistant.err.ai_timeout": "Tu IA tardó demasiado en responder. Prueba un modelo más rápido en «Mi IA».",
   },
 
   en: {
@@ -1259,5 +1260,6 @@ export const messages = {
     "assistant.action.dismissed": "Dismissed.",
     "assistant.action.failed": "Could not apply it: first generate or open some captions, or check the options.",
     "assistant.action.audio": "An audio has no picture: a video with captions cannot be created.",
+    "assistant.err.ai_timeout": "Your AI took too long to answer. Try a faster model under “My AI”.",
   },
 };
