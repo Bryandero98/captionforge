@@ -13,6 +13,11 @@
       "description": "false si se pidió karaoke pero ningún segmento conservaba tiempos por palabra.",
       "type": "boolean"
     },
+    "approximateSegments": {
+      "description": "Segmentos cuyo texto se editó y cuyos tiempos por palabra se repartieron de forma aproximada (alineación difflib).",
+      "type": "integer",
+      "minimum": 0
+    },
     "artifacts": {
       "type": "object",
       "additionalProperties": false,

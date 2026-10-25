@@ -29,6 +29,14 @@ export interface BurnJob {
   options: {
     style: "modern" | "tiktok" | "youtube" | "minimal";
     karaoke: boolean;
+    /**
+     * Plantilla de subtítulos dinámicos (.ass). Sin ella se usa el preset `style` como hasta ahora.
+     */
+    template?: "bold-pop" | "rounded-sweep" | "clean-color";
+    /**
+     * `source` conserva la forma del video; `vertical` lo compone en 1080x1920 (9:16) con fondo desenfocado. Sin valor: `source`.
+     */
+    canvas?: "source" | "vertical";
   };
 }
 export interface ObjectRef {

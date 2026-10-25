@@ -131,14 +131,17 @@ function asSegments(value) {
 
 /**
  * Pide quemar los subtítulos actuales sobre el video; devuelve el trabajo de quemado (se sigue con followJob).
- * @param {{ baseUrl: string, jobId: string, style?: string, karaoke?: boolean, signal?: AbortSignal, fetchImpl?: typeof fetch }} options
+ * `template` y `canvas` (Issue #13, parte 2) piden subtítulos dinámicos; `canvas: "vertical"` compone el video en 9:16.
+ * @param {{ baseUrl: string, jobId: string, style?: string, karaoke?: boolean, template?: string, canvas?: string, signal?: AbortSignal, fetchImpl?: typeof fetch }} options
  */
-export async function startBurn({ baseUrl, jobId, style, karaoke, signal, fetchImpl }) {
+export async function startBurn({ baseUrl, jobId, style, karaoke, template, canvas, signal, fetchImpl }) {
   assertJobId(jobId);
   /** @type {Record<string, unknown>} */
   const body = {};
   if (style !== undefined) body.style = style;
   if (karaoke !== undefined) body.karaoke = karaoke;
+  if (template !== undefined) body.template = template;
+  if (canvas !== undefined) body.canvas = canvas;
   return asJobView(await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/burn`, method: "POST", body, signal, fetchImpl }));
 }
 

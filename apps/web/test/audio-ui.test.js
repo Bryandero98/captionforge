@@ -184,7 +184,7 @@ describe("reproductor del audio original", () => {
   });
 });
 
-const BURN_IDS = ["burn-form", "burn-style", "burn-karaoke", "burn-hint", "burn-start", "burn-panel", "burn-status", "burn-bar", "burn-bar-fill", "burn-detail", "burn-video", "burn-download", "burn-cancel", "burn-open-parent", "burn-reconnect"];
+const BURN_IDS = ["burn-form", "burn-format", "burn-classic", "burn-vertical", "burn-template", "burn-notice", "burn-style", "burn-karaoke", "burn-hint", "burn-start", "burn-panel", "burn-status", "burn-bar", "burn-bar-fill", "burn-detail", "burn-video", "burn-download", "burn-cancel", "burn-open-parent", "burn-reconnect"];
 
 function burnSetup(context) {
   const elements = Object.fromEntries(BURN_IDS.map((id) => [id, new FakeElement(id)]));

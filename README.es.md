@@ -15,6 +15,8 @@ de trabajos huérfanos. Sus límites conocidos se declaran, no se esconden.
   **traducción** a cualquier idioma con [argos-translate](https://github.com/argosopentech/argos-translate)
   y **subtítulos quemados** con [ffmpeg](https://ffmpeg.org/) en cuatro estilos (Moderno, TikTok en
   negrita, YouTube clásico y Mínimo), con resaltado opcional palabra por palabra (karaoke).
+- **Exportación a Shorts / Reels / TikTok**: el formato *Vertical Shorts 9:16* genera el video en 1080x1920 sobre su propio fondo desenfocado, con plantillas animadas
+  de subtítulos palabra por palabra (impacto, barrido redondeado, color limpio) y las fuentes Montserrat y Nunito incluidas. Hasta 10 minutos por video. Ver el [ADR 0024](docs/adr/0024-subtitulos-ass-y-formato-vertical.md).
 - **Salida** en `.srt` (y `.vtt` y `.ass` en el paquete local), o el video con los subtítulos quemados.
 - **Editable**: corrige el texto y ajusta los tiempos antes de quemar; una edición desactualizada se
   rechaza (`409`) en lugar de pisar en silencio la de otra persona.
@@ -167,7 +169,7 @@ Todo cuelga de `/v1/jobs`. El worker escribe el estado del trabajo en PostgreSQL
 | `GET /v1/quality/profiles` | Normas de calidad de subtítulos (`netflix`, `netflix-es`, `bbc`, `accessible`, `shorts`) con sus límites y cuánto se verificó cada una |
 | `GET /v1/jobs/:id/quality` | Informe de calidad de los subtítulos contra una norma (`?profile=`): caracteres por segundo y por línea, duración, separación y solapes |
 | `POST /v1/jobs/:id/quality/fix` | Propone un arreglo solo de tiempos de final y saltos de línea (nunca el texto); se aplica con `PUT …/segments` y el mismo `etag` |
-| `POST /v1/jobs/:id/burn` | Quema los subtítulos actuales: `{ "style": "modern", "karaoke": false }`. `202` |
+| `POST /v1/jobs/:id/burn` | Quema los subtítulos actuales: `{ "style": "modern", "karaoke": false }`, o para 9:16 `{ "template": "bold-pop", "canvas": "vertical" }` (`template`: `bold-pop`, `rounded-sweep`, `clean-color`; `canvas`: `source`, `vertical`; el vertical admite hasta 10 minutos, `413 job_too_large`). `202` |
 | `GET /v1/jobs/:id/artifacts/:name` | `srt`, `segments`, `waveform` (transcripción) o `video` (quemado); admite `Range` |
 
 ## Arquitectura

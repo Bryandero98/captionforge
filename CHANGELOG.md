@@ -8,6 +8,34 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
+## [1.2.0] - 2026-10-24
+
+Subtítulos dinámicos y formato vertical para Shorts, Reels y TikTok, con dos parches de seguridad. Issue #13 (parte 2), PR #35 y PR #36.
+
+### Issue #13: subtítulos dinámicos ASS y formato vertical 9:16
+
+[ADR 0024](docs/adr/0024-subtitulos-ass-y-formato-vertical.md) · [ADR 0022](docs/adr/0022-url-base-propia-para-proveedores-de-ia.md)
+
+#### Añadido
+
+- **Renderizado vertical 1080×1920 (9:16)**: el video queda centrado sobre su propio fondo desenfocado, en un solo pase de ffmpeg (`libx264 veryfast`,
+  CRF 21). Una entrada ya vertical rellena el lienzo sin fondo. Tope de 10 minutos (`413 job_too_large` antes de encolar).
+- **Tres plantillas de subtítulos dinámicos** con resaltado palabra por palabra (`bold-pop`, `rounded-sweep`, `clean-color`), generadas por un compilador `.ass`
+  puro y paginado, con el texto escapado frente a la inyección de etiquetas.
+- **Texto editado o traducido**: los tiempos se alinean con `difflib` y se reparten; el resultado informa `approximateSegments` y la interfaz muestra un aviso.
+- **Fuentes integradas** Montserrat ExtraBold y Nunito ExtraBold (SIL OFL 1.1) en la imagen del worker, con `SHA256SUMS` verificado en la CI,
+  `THIRD_PARTY_NOTICES.md` y comprobación en la imagen de que libass las resuelve de verdad.
+- **Interfaz**: selector «Formato» (Clásico 16:9 / Vertical Shorts 9:16) con plantillas, en los 6 idiomas, y la guía de usuario actualizada.
+- Contrato `burn-job` con `options.template` y `options.canvas` opcionales; `burn-result` con `approximateSegments`. Sin ellos, el quemado no cambia.
+
+### Seguridad
+
+- **Condición de carrera en trabajos derivados** (PR #35): un índice único parcial en PostgreSQL impide dos quemados, traducciones o doblajes activos de la misma
+  transcripción; la violación se traduce a `409`. Antes, peticiones simultáneas podían pasar la comprobación previa y crear duplicados.
+- **TOCTOU / DNS rebinding en las URL base propias** (ADR 0022): `assert_url_allowed` devuelve un `ResolvedTarget` inmutable y un transporte de httpx con la conexión TCP
+  fijada a esa IP (`PinnedAsyncTransport`) conserva el Host, el SNI y la verificación del certificado del nombre original, sin `verify=False`. Se resuelve y se
+  valida antes de cada intento, las redirecciones no se siguen y `httpx` / `httpcore` quedan acotados a un rango estrecho.
+
 ## [1.1.0] - 2026-10-24
 
 Multi-LLM con URL base propia y soporte de audio puro. Issue #14, PR #33.

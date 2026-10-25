@@ -696,11 +696,11 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
   }
 
   /** El worker termina el quemado: sube un «video» a S3 y deja el trabajo COMPLETED con su resultado. */
-  async function workerFinishesBurn(burnId: string) {
+  async function workerFinishesBurn(burnId: string, extra: Record<string, unknown> = {}) {
     const job = await prisma.job.findUniqueOrThrow({ where: { id: burnId } });
     const key = `${job.outputPrefix}captioned.mp4`;
     await storage.putBuffer(key, Buffer.alloc(4096, 7), "video/mp4");
-    const result = { schemaVersion: 1, jobId: burnId, usedKaraoke: false, artifacts: { video: key } };
+    const result = { schemaVersion: 1, jobId: burnId, usedKaraoke: false, ...extra, artifacts: { video: key } };
     await prisma.job.update({ where: { id: burnId }, data: { status: "COMPLETED", stage: "burning", percent: 100, result, finishedAt: new Date() } });
   }
 
@@ -810,6 +810,33 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await session.detach();
     expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(false);
     expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(2);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("quemado 9:16: el formato vertical manda plantilla y lienzo, y avisa si los tiempos son aproximados", async () => {
+    const base = await startApi();
+    const { page, spy, jobId } = await openEditorFor(base, "vertical.mp4");
+    // Por defecto es «Clásico 16:9»: estilo y karaoke visibles, plantilla oculta.
+    expect(await text(page, "#burn-format")).toContain("Clásico 16:9");
+    expect(await isVisible(page, "#burn-classic")).toBe(true);
+    expect(await isVisible(page, "#burn-vertical")).toBe(false);
+    await page.select("#burn-format", "vertical");
+    expect(await text(page, "#burn-format")).toContain("Vertical Shorts 9:16");
+    expect(await isVisible(page, "#burn-classic")).toBe(false);
+    expect(await isVisible(page, "#burn-vertical")).toBe(true);
+    expect(await text(page, "#burn-vertical-hint")).toContain("10 minutos");
+    await page.select("#burn-template", "rounded-sweep");
+    await page.click("#burn-start");
+    await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 15_000 });
+    const burn = await burnJobOf(jobId);
+    expect(burn.options).toMatchObject({ template: "rounded-sweep", canvas: "vertical" });
+
+    expect(await isVisible(page, "#burn-notice")).toBe(false);
+    await workerFinishesBurn(burn.id, { usedKaraoke: true, approximateSegments: 2 });
+    await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("Video listo"), { timeout: 10_000 });
+    await page.waitForFunction(() => document.querySelector("#burn-notice")?.getAttribute("hidden") === null, { timeout: 10_000 });
+    expect(await text(page, "#burn-notice")).toContain("2 subtítulos");
     expect(spy.problems).toEqual([]);
     await page.close();
   }, 90_000);

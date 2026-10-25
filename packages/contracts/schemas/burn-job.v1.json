@@ -22,7 +22,15 @@
       "required": ["style", "karaoke"],
       "properties": {
         "style": { "$ref": "common.v1.json#/$defs/StylePreset" },
-        "karaoke": { "type": "boolean" }
+        "karaoke": { "type": "boolean" },
+        "template": {
+          "description": "Plantilla de subtítulos dinámicos (.ass). Sin ella se usa el preset `style` como hasta ahora.",
+          "enum": ["bold-pop", "rounded-sweep", "clean-color"]
+        },
+        "canvas": {
+          "description": "`source` conserva la forma del video; `vertical` lo compone en 1080x1920 (9:16) con fondo desenfocado. Sin valor: `source`.",
+          "enum": ["source", "vertical"]
+        }
       }
     }
   }

@@ -132,3 +132,56 @@ def test_the_subtitles_are_actually_rendered_into_the_picture(config, storage, n
     shown = read_object(storage, run_burn(config, storage, with_text)["artifacts"]["video"])
     hidden = read_object(storage, run_burn(config, storage, without_text)["artifacts"]["video"])
     assert _frame(shown, 0.3, tmp_path) != _frame(hidden, 0.3, tmp_path)
+
+
+# ---------------------------------------------------------------------------------------------- plantillas y 9:16 (Issue #13, parte 2)
+
+
+def _probe(video: bytes, tmp_path: Path):  # noqa: ANN202
+    import subprocess
+
+    from captionforge.ffmpeg_locator import ffmpeg_env, with_ffmpeg_path
+
+    from ai_worker.vertical import parse_geometry
+
+    source = tmp_path / "salida.mp4"
+    source.write_bytes(video)
+    info = subprocess.run(with_ffmpeg_path(["ffmpeg", "-hide_banner", "-i", str(source)]), capture_output=True, text=True, env=ffmpeg_env(), check=False)
+    return parse_geometry(info.stderr), " Audio:" in info.stderr
+
+
+@pytest.mark.parametrize("template", ["bold-pop", "rounded-sweep", "clean-color"])
+def test_every_template_burns_a_vertical_video_with_audio(config, storage, new_burn_job, tmp_path, template) -> None:  # noqa: ANN001
+    _, payload, _ = new_burn_job(template=template, canvas="vertical")
+    result = run_burn(config, storage, payload)
+
+    BurnResult.model_validate_json(json.dumps(result), strict=True)
+    geometry, has_audio = _probe(read_object(storage, result["artifacts"]["video"]), tmp_path)
+    assert geometry is not None and (geometry.width, geometry.height) == (1080, 1920)
+    assert has_audio
+    assert result["usedKaraoke"] is True and result["approximateSegments"] == 0
+    assert not (Path(config.work_dir) / payload["jobId"]).exists()
+
+
+def test_a_template_on_the_source_canvas_keeps_the_original_shape(config, storage, new_burn_job, tmp_path) -> None:  # noqa: ANN001
+    _, payload, _ = new_burn_job(template="clean-color", canvas="source")
+    geometry, _ = _probe(read_object(storage, run_burn(config, storage, payload)["artifacts"]["video"]), tmp_path)
+    assert geometry is not None and geometry.width > geometry.height, "el clip de prueba es horizontal y debe seguir siéndolo"
+
+
+def test_vertical_without_a_template_uses_the_default_one(config, storage, new_burn_job, tmp_path) -> None:  # noqa: ANN001
+    _, payload, _ = new_burn_job(canvas="vertical")
+    geometry, _ = _probe(read_object(storage, run_burn(config, storage, payload)["artifacts"]["video"]), tmp_path)
+    assert geometry is not None and (geometry.width, geometry.height) == (1080, 1920)
+
+
+def test_edited_text_is_reported_as_approximate(config, storage, new_burn_job) -> None:  # noqa: ANN001
+    # Dos segmentos sin tiempos por palabra (texto editado o traducido): el reparto es aproximado y se dice.
+    _, payload, _ = new_burn_job(template="bold-pop", segments=sample_segments(words=False)[:2])
+    result = run_burn(config, storage, payload)
+    assert result["approximateSegments"] == 2 and result["usedKaraoke"] is True
+
+
+def test_without_template_or_vertical_canvas_the_result_is_unchanged(config, storage, new_burn_job) -> None:  # noqa: ANN001
+    _, payload, _ = new_burn_job(style="youtube")
+    assert "approximateSegments" not in run_burn(config, storage, payload)

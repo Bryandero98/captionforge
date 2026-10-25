@@ -3,10 +3,21 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum, StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
+
+
+class Template(Enum):
+    bold_pop = 'bold-pop'
+    rounded_sweep = 'rounded-sweep'
+    clean_color = 'clean-color'
+
+
+class Canvas(Enum):
+    source = 'source'
+    vertical = 'vertical'
 
 
 class ObjectRef(BaseModel):
@@ -141,6 +152,18 @@ class Options(BaseModel):
     )
     style: StylePreset
     karaoke: bool
+    template: Annotated[
+        Template | None,
+        Field(
+            description='Plantilla de subtítulos dinámicos (.ass). Sin ella se usa el preset `style` como hasta ahora.'
+        ),
+    ] = None
+    canvas: Annotated[
+        Canvas | None,
+        Field(
+            description='`source` conserva la forma del video; `vertical` lo compone en 1080x1920 (9:16) con fondo desenfocado. Sin valor: `source`.'
+        ),
+    ] = None
 
 
 class BurnJob(BaseModel):

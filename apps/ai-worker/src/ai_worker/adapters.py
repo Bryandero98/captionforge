@@ -21,7 +21,7 @@ import httpx
 
 from .errors import JobFailure
 from .external_key import ExternalCredential, ExternalKeyClient, ExternalKeyError
-from .net_guard import Resolver, assert_url_allowed, system_resolver
+from .net_guard import ResolvedTarget, Resolver, assert_url_allowed, system_resolver
 from .provider_http import ProviderHttp, external_failure, parse_json
 from .redaction import Secret
 
@@ -210,8 +210,8 @@ class Adapters:
             code, message = _KEY_REASONS.get(error.reason, ("INTERNAL", "El worker no pudo obtener la clave del espacio."))
             raise JobFailure(code, message) from None
 
-    def _http(self, provider: str, headers: Mapping[str, str], *, guard: Callable[[], Awaitable[None]] | None = None) -> ProviderHttp:
-        return ProviderHttp(self._base_urls[provider], headers, transport=self._transport, sleep=self._sleep, guard=guard)
+    def _http(self, provider: str, headers: Mapping[str, str]) -> ProviderHttp:
+        return ProviderHttp(self._base_urls[provider], headers, transport=self._transport, sleep=self._sleep)
 
     def _openai_translator(self, credential: ExternalCredential) -> OpenAITranslator:
         """OpenAI o un servidor compatible. Con URL base propia: ese host y esa ruta, con el DNS vigilado antes de CADA petición."""
@@ -224,10 +224,10 @@ class Adapters:
         origin = f"{parts.scheme}://{parts.netloc}"
         path = f"{parts.path.rstrip('/')}/chat/completions"
 
-        async def guard() -> None:
-            await assert_url_allowed(url, allow_private=self._allow_private, resolve=self._resolve)
+        async def target() -> ResolvedTarget:
+            return await assert_url_allowed(url, allow_private=self._allow_private, resolve=self._resolve)
 
-        http = ProviderHttp(origin, headers, transport=self._transport, sleep=self._sleep, guard=guard)
+        http = ProviderHttp(origin, headers, transport=self._transport, sleep=self._sleep, target=target)
         return OpenAITranslator(http, path=path, model=model, lenient=True)
 
     @contextlib.asynccontextmanager

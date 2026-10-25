@@ -13,6 +13,8 @@ import { downloadName } from "./results.js";
 import { createTracker } from "./tracker.js";
 
 export const BURN_STYLES = /** @type {const} */ (["modern", "tiktok", "youtube", "minimal"]);
+/** Plantillas de subtítulos dinámicos del formato vertical; las mismas del esquema burn-job. */
+export const BURN_TEMPLATES = /** @type {const} */ (["bold-pop", "rounded-sweep", "clean-color"]);
 
 /**
  * @param {{
@@ -34,6 +36,10 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   };
   const els = {
     form: $("burn-form"),
+    format: $("burn-format"),
+    classic: $("burn-classic"),
+    vertical: $("burn-vertical"),
+    template: $("burn-template"),
     style: $("burn-style"),
     karaoke: $("burn-karaoke"),
     hint: $("burn-hint"),
@@ -43,6 +49,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     bar: $("burn-bar"),
     barFill: $("burn-bar-fill"),
     detail: $("burn-detail"),
+    notice: $("burn-notice"),
     video: $("burn-video"),
     download: $("burn-download"),
     cancel: $("burn-cancel"),
@@ -73,6 +80,38 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
       ...BURN_STYLES.map((style) => Object.assign(doc.createElement("option"), { value: style, textContent: t(`burn.style.${style}`) })),
     );
     els.style.value = keep;
+  }
+
+  function fillTemplates() {
+    const keep = els.template.value || BURN_TEMPLATES[0];
+    els.template.replaceChildren(
+      ...BURN_TEMPLATES.map((name) => Object.assign(doc.createElement("option"), { value: name, textContent: t(`burn.template.${name}`) })),
+    );
+    els.template.value = keep;
+  }
+
+  function fillFormats() {
+    const keep = els.format.value === "vertical" ? "vertical" : "classic";
+    els.format.replaceChildren(
+      ...["classic", "vertical"].map((name) => Object.assign(doc.createElement("option"), { value: name, textContent: t(`burn.format.${name}`) })),
+    );
+    els.format.value = keep;
+  }
+
+  /** «Vertical Shorts 9:16» es lo único que no es el formato clásico: cualquier otro valor se trata como clásico. */
+  const isVertical = () => els.format.value === "vertical";
+
+  /** Muestra solo las opciones del formato elegido: estilo y karaoke (clásico) o plantilla (vertical). */
+  function showFormat() {
+    els.classic.hidden = isVertical();
+    els.vertical.hidden = !isVertical();
+  }
+
+  /** Aviso cuando el resaltado palabra por palabra de algún subtítulo es un reparto aproximado (texto editado o traducido). */
+  function showNotice(/** @type {Record<string, unknown> | null | undefined} */ result, /** @type {boolean} */ completed) {
+    const count = completed && result ? Number(result.approximateSegments) : 0;
+    els.notice.hidden = !(Number.isFinite(count) && count > 0);
+    els.notice.textContent = els.notice.hidden ? "" : t("burn.approximate", { count });
   }
 
   /** Hay un quemado vivo. Con la conexión perdida (que no sea un 404) puede seguir en el servidor: se cuenta como vivo. */
@@ -148,6 +187,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     // Un audio no tiene imagen donde quemar subtítulos: el formulario no existe (el servidor también lo rechaza).
     els.form.hidden = ctx === null || !canBurn(ctx.job);
     if (ctx === null || !canBurn(ctx.job)) return;
+    showFormat();
     els.karaoke.disabled = !ctx.hasWords;
     if (!ctx.hasWords) els.karaoke.checked = false;
     const blocked = ctx.dirty ? t("burn.hint.dirty") : burning() ? t("burn.hint.busy") : startProblem;
@@ -159,6 +199,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   function renderPanel() {
     const view = trackingViewOf(tracker.state);
     els.panel.hidden = view.kind === "none";
+    showNotice(/** @type {Record<string, unknown> | null | undefined} */ (tracker.state.job?.result), view.kind === "completed");
     if (view.kind === "none") {
       clearVideo();
       refreshForm();
@@ -215,12 +256,16 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     /** @type {import("../api/sse.js").JobView | null} */
     let job = null;
     try {
-      job = await start({ baseUrl, jobId: ctx.job.id, style: els.style.value, karaoke: els.karaoke.checked && !els.karaoke.disabled });
+      job = await start(
+        isVertical()
+          ? { baseUrl, jobId: ctx.job.id, canvas: "vertical", template: BURN_TEMPLATES.find((name) => name === els.template.value) ?? BURN_TEMPLATES[0] }
+          : { baseUrl, jobId: ctx.job.id, style: els.style.value, karaoke: els.karaoke.checked && !els.karaoke.disabled },
+      );
     } catch (error) {
       if (mine !== epoch) return;
       if (!(error instanceof ApiError)) console.error(error);
       const code = error instanceof ApiError ? error.code : "network";
-      startProblem = code === "conflict" ? t("burn.error.conflict") : t(`error.${code}`, { seconds: error instanceof ApiError ? (error.retryAfter ?? 10) : 10 });
+      startProblem = code === "conflict" ? t("burn.error.conflict") : code === "job_too_large" && isVertical() ? t("burn.error.toolong") : t(`error.${code}`, { seconds: error instanceof ApiError ? (error.retryAfter ?? 10) : 10 });
       announce(startProblem);
     }
     if (mine === epoch) starting = false;
@@ -243,6 +288,10 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     }
   }
 
+  els.format.addEventListener("change", () => {
+    showFormat();
+    refreshForm();
+  });
   els.form.addEventListener("submit", (/** @type {Event} */ event) => {
     event.preventDefault();
     void submit();
@@ -283,6 +332,9 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   });
 
   fillStyles();
+  fillTemplates();
+  fillFormats();
+  showFormat();
   renderPanel();
 
   return {
@@ -290,6 +342,8 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     /** Repinta los textos que dependen del idioma. */
     refresh() {
       fillStyles();
+      fillTemplates();
+      fillFormats();
       renderPanel();
     },
     /** Muestra un quemado ya existente (abierto desde el historial) y lo sigue si sigue en curso. @param {import("../api/sse.js").JobView} job */

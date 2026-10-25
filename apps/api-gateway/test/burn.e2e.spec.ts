@@ -48,7 +48,7 @@ const json = (body: unknown): RequestInit => ({
 });
 
 /** Crea una transcripción como lo haría el API y la deja COMPLETED como lo haría el worker. */
-async function completedTranscription(segments: unknown[] = SEGMENTS): Promise<{ id: string; segmentsKey: string; etag: string }> {
+async function completedTranscription(segments: unknown[] = SEGMENTS, durationSeconds = 6): Promise<{ id: string; segmentsKey: string; etag: string }> {
   const data = new FormData();
   data.append("file", new File([new Uint8Array(2048).fill(7)], "entrevista.mp4", { type: "video/mp4" }));
   const response = await fetch(`${base}/v1/jobs/transcribe`, { method: "POST", body: data });
@@ -66,7 +66,7 @@ async function completedTranscription(segments: unknown[] = SEGMENTS): Promise<{
     jobId: id,
     detectedLanguage: "es",
     device: "cpu",
-    durationSeconds: 6,
+    durationSeconds,
     segmentCount: segments.length,
     artifacts: {
       srt: srtKey,
@@ -243,6 +243,38 @@ describe("POST /v1/jobs/:id/burn", () => {
     expect(job.options).toEqual({ style: "modern", karaoke: false });
   });
 
+  it("acepta la plantilla y el lienzo 9:16 y los lleva hasta el payload del worker", async () => {
+    const { id } = await completedTranscription();
+    const response = await fetch(`${base}/v1/jobs/${id}/burn`, json({ template: "rounded-sweep", canvas: "vertical" }));
+    expect(response.status).toBe(202);
+    const job = (await response.json()) as { id: string; options: unknown };
+    created.push(job.id);
+    expect(job.options).toEqual({ style: "modern", karaoke: false, template: "rounded-sweep", canvas: "vertical" });
+    const queued = await burnQueue.getJob(job.id);
+    assertContract("burn-job.v1", queued!.data);
+    expect((queued!.data as { options: unknown }).options).toEqual(job.options);
+  });
+
+  it("413 job_too_large si el 9:16 pasa de 10 minutos, antes de crear nada ni encolar; el quemado normal no tiene ese tope", async () => {
+    const { id } = await completedTranscription(SEGMENTS, 601);
+    const before = await prisma.job.count({ where: { kind: "BURN", parentJobId: id } });
+    const response = await fetch(`${base}/v1/jobs/${id}/burn`, json({ canvas: "vertical" }));
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ code: "job_too_large" });
+    expect(await prisma.job.count({ where: { kind: "BURN", parentJobId: id } })).toBe(before);
+
+    const normal = await fetch(`${base}/v1/jobs/${id}/burn`, json({ canvas: "source", template: "bold-pop" }));
+    expect(normal.status).toBe(202);
+    created.push(((await normal.json()) as { id: string }).id);
+  });
+
+  it("justo en el tope de 10 minutos (600 s) sí se acepta", async () => {
+    const { id } = await completedTranscription(SEGMENTS, 600);
+    const response = await fetch(`${base}/v1/jobs/${id}/burn`, json({ canvas: "vertical" }));
+    expect(response.status).toBe(202);
+    created.push(((await response.json()) as { id: string }).id);
+  });
+
   it("el quemado lleva el etag de los subtítulos YA editados", async () => {
     const { id, etag } = await completedTranscription();
     await put(`/v1/jobs/${id}/segments`, { segments: [{ index: 0, text: "Corregido" }] });
@@ -258,6 +290,10 @@ describe("POST /v1/jobs/:id/burn", () => {
     ["estilo desconocido", { style: "neon" }],
     ["karaoke no booleano", { karaoke: "si" }],
     ["opción desconocida", { fuente: "Arial" }],
+    ["plantilla desconocida", { template: "neon" }],
+    ["plantilla con un fragmento de filtro", { template: "bold-pop,drawtext=text=x" }],
+    ["lienzo desconocido", { canvas: "square" }],
+    ["lienzo no texto", { canvas: true }],
     ["opciones no objeto", [1]],
   ])("400: %s", async (_name, body) => {
     const { id } = await completedTranscription();

@@ -33,7 +33,7 @@ def env(name: str) -> str:
 
 @pytest.fixture(scope="session")
 def config(tmp_path_factory: pytest.TempPathFactory) -> WorkerConfig:
-    base = WorkerConfig.from_env({**os.environ, "WORK_DIR": str(tmp_path_factory.mktemp("work"))})
+    base = WorkerConfig.from_env({**os.environ, "WORK_DIR": str(tmp_path_factory.mktemp("work")), "FONTS_DIR": str(REPO / "apps" / "ai-worker" / "fonts")})
     return base
 
 
@@ -116,6 +116,8 @@ def new_burn_job(api_db, storage: Storage, config: WorkerConfig, new_job, tmp_pa
         raw_segments: bytes | None = None,
         karaoke: bool = False,
         style: str = "modern",
+        template: str | None = None,
+        canvas: str | None = None,
         upload_video: bool = True,
         upload_segments: bool = True,
     ) -> tuple[str, dict, str]:
@@ -130,6 +132,10 @@ def new_burn_job(api_db, storage: Storage, config: WorkerConfig, new_job, tmp_pa
             etag = storage.upload_file(path, segments_key, "application/json")
         output_prefix = f"jobs/{burn_id}/out/"
         options = {"style": style, "karaoke": karaoke}
+        if template is not None:
+            options["template"] = template
+        if canvas is not None:
+            options["canvas"] = canvas
         api_db.execute(
             """INSERT INTO "Job" (id, "tenantId", kind, "parentJobId", "inputBucket", "inputKey", "originalFilename", "contentType",
                  "sizeBytes", "outputPrefix", options, "updatedAt")

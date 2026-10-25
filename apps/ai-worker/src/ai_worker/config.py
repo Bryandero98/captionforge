@@ -52,6 +52,9 @@ class WorkerConfig:
     shutdown_grace_seconds: float = 45.0
     ffmpeg_stall_timeout: float = 300.0
     ffmpeg_total_timeout: float = 6 * 3600.0
+    # Subtítulos dinámicos (.ass): carpeta de las fuentes empaquetadas (la imagen las instala ahí) y tope de duración de la salida 9:16.
+    fonts_dir: str = "/usr/share/fonts/truetype/captionforge"
+    vertical_max_seconds: int = 600
     # Separación de voz (subproceso): sin ninguna señal de vida en este tiempo se da por colgada y se continúa con el audio original.
     separation_stall_timeout: float = 300.0
     separation_total_timeout: float = 3600.0
@@ -134,6 +137,8 @@ class WorkerConfig:
             shutdown_grace_seconds=number("SHUTDOWN_GRACE_SECONDS", 45.0),
             ffmpeg_stall_timeout=number("FFMPEG_STALL_TIMEOUT_SECONDS", 300.0),
             ffmpeg_total_timeout=number("FFMPEG_TOTAL_TIMEOUT_SECONDS", 6 * 3600.0),
+            fonts_dir=env.get("FONTS_DIR", "") or "/usr/share/fonts/truetype/captionforge",
+            vertical_max_seconds=int(number("VERTICAL_MAX_SECONDS", 600, integer=True)),
             separation_stall_timeout=number("SEPARATION_STALL_TIMEOUT_SECONDS", 300.0),
             separation_total_timeout=number("SEPARATION_TOTAL_TIMEOUT_SECONDS", 3600.0),
             diarization_stall_timeout=number("DIARIZATION_STALL_TIMEOUT_SECONDS", 600.0),
