@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AssistantService } from "../src/assistant/assistant.service.js";
-import { buildChatRequest, chooseAddress, parseChatReply, sanitizeMessages, MAX_MESSAGES } from "../src/assistant/chat.js";
+import { buildChatRequest, chooseAddress, parseAiCredentials, parseChatReply, sanitizeMessages, MAX_MESSAGES } from "../src/assistant/chat.js";
 import { loadConfig } from "../src/config/config.js";
 
 describe("sanitizeMessages", () => {
@@ -66,6 +66,39 @@ describe("buildChatRequest", () => {
   });
 });
 
+describe("parseAiCredentials (la clave viaja en cada mensaje y no se guarda)", () => {
+  const rejected = expect.objectContaining({ response: expect.objectContaining({ code: "invalid_ai_config" }) });
+
+  it("acepta clave de OpenAI sin URL base", () => {
+    expect(parseAiCredentials({ key: "sk-abcdefghijklmnopqrstuvwxyz" }, false)).toEqual({ key: "sk-abcdefghijklmnopqrstuvwxyz" });
+  });
+
+  it("con URL base propia acepta la clave de cualquier servicio compatible y normaliza la URL y el modelo", () => {
+    expect(parseAiCredentials({ key: "ds-12345678", baseUrl: "https://api.deepseek.com/v1/", model: "deepseek-chat" }, false)).toEqual({
+      key: "ds-12345678",
+      baseUrl: "https://api.deepseek.com/v1",
+      model: "deepseek-chat",
+    });
+  });
+
+  it("rechaza lo que falta o no es válido con un código claro, sin repetir lo recibido", () => {
+    for (const bad of [undefined, null, "sk-x", {}, { key: "" }, { key: "corta" }, { key: "has space inside-key-1234" }]) {
+      expect(() => parseAiCredentials(bad, false), JSON.stringify(bad)).toThrowError(rejected);
+    }
+    expect(() => parseAiCredentials({ key: "ds-12345678", baseUrl: "http://10.0.0.1/v1" }, false)).toThrowError(rejected);
+    expect(() => parseAiCredentials({ key: "ds-12345678", baseUrl: "https://api.deepseek.com/v1", model: "mal modelo!" }, false)).toThrowError(rejected);
+    try {
+      parseAiCredentials({ key: "ds-12345678", baseUrl: "http://secreto.interno/v1" }, false);
+    } catch (error) {
+      expect(JSON.stringify(error)).not.toContain("secreto.interno");
+    }
+  });
+
+  it("la red privada solo con ALLOW_PRIVATE_BASE_URLS (Ollama)", () => {
+    expect(parseAiCredentials({ key: "ollama-key-1", baseUrl: "http://192.168.1.20:11434/v1" }, true).baseUrl).toBe("http://192.168.1.20:11434/v1");
+  });
+});
+
 describe("parseChatReply", () => {
   it("extrae el texto de la primera opción", () => {
     expect(parseChatReply({ choices: [{ message: { content: " Hola " } }] })).toBe("Hola");
@@ -93,11 +126,11 @@ describe("chooseAddress (IP fijada en la conexión)", () => {
 
 describe("AssistantService", () => {
   const config = loadConfig();
-  const make = (opts: { localMode?: boolean; reveal?: () => Promise<{ key: string; baseUrl?: string; model?: string }>; post?: (r: unknown) => Promise<unknown>; job?: unknown } = {}) => {
+  const AI = { key: "sk-secreta-1234567890abcd", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" };
+  const make = (opts: { localMode?: boolean; post?: (r: unknown) => Promise<unknown>; job?: unknown } = {}) => {
     const posted: unknown[] = [];
     const service = new AssistantService(
       { ...config, auth: { ...config.auth, localMode: opts.localMode ?? true } },
-      { reveal: opts.reveal ?? (async () => ({ key: "sk-secreta" })), has: async () => true } as never,
       { get: async () => opts.job ?? { status: "completed", mediaKind: "video" } } as never,
       async (request: unknown) => {
         posted.push(request);
@@ -110,31 +143,26 @@ describe("AssistantService", () => {
 
   it("responde con el texto de la IA y manda la clave solo en la cabecera", async () => {
     const { service, posted } = make();
-    const out = await service.chat("t1", { messages: chat, jobId: undefined });
+    const out = await service.chat("t1", { messages: chat, jobId: undefined, ai: AI });
     expect(out).toEqual({ reply: "Usa «Traducirlos»." });
+    expect((posted[0] as { url: string }).url).toBe("https://api.deepseek.com/v1/chat/completions");
     expect(JSON.stringify((posted[0] as { body: unknown }).body)).not.toContain("sk-secreta");
   });
 
   it("con LOCAL_MODE=false responde 404", async () => {
     const { service } = make({ localMode: false });
-    await expect(service.chat("t1", { messages: chat })).rejects.toThrow(/no encontrad/i);
+    await expect(service.chat("t1", { messages: chat, ai: AI })).rejects.toThrow(/no encontrad/i);
   });
 
-  it("sin clave de IA guardada responde con un código claro, sin llamar a nadie", async () => {
-    const { service, posted } = make({
-      reveal: async () => {
-        const error = new Error("no key");
-        error.name = "ExternalKeyNotFoundError";
-        throw error;
-      },
-    });
-    await expect(service.chat("t1", { messages: chat })).rejects.toMatchObject({ response: { code: "no_ai_key" } });
+  it("sin la configuración de IA responde con un código claro, sin llamar a nadie", async () => {
+    const { service, posted } = make();
+    await expect(service.chat("t1", { messages: chat })).rejects.toMatchObject({ response: { code: "invalid_ai_config" } });
     expect(posted).toHaveLength(0);
   });
 
   it("si la IA falla, devuelve 502 sin repetir la clave ni el cuerpo del proveedor", async () => {
-    const { service } = make({ post: async () => { throw new Error("HTTP 401 sk-secreta invalid"); } });
-    const error = await service.chat("t1", { messages: chat }).catch((e: unknown) => e);
+    const { service } = make({ post: async () => { throw new Error("HTTP 401 sk-secreta-1234567890abcd invalid"); } });
+    const error = await service.chat("t1", { messages: chat, ai: AI }).catch((e: unknown) => e);
     expect(JSON.stringify(error)).not.toContain("sk-secreta");
     expect(error).toMatchObject({ status: 502 });
   });

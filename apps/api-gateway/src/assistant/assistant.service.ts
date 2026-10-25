@@ -1,16 +1,15 @@
-import { BadGatewayException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { BadGatewayException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
-import { ExternalKeysService } from "../external-keys/external-keys.service.js";
 import { JobsService } from "../jobs/jobs.service.js";
-import { buildChatRequest, type JobContext, parseChatReply, sanitizeMessages } from "./chat.js";
+import { buildChatRequest, type JobContext, parseAiCredentials, parseChatReply, sanitizeMessages } from "./chat.js";
 import { type ChatTransport, createPinnedTransport } from "./pinned-https.js";
 
 export const CHAT_TRANSPORT = Symbol("CHAT_TRANSPORT");
 
 /**
- * Asistente de la interfaz (v1.3.1, ADR 0028). Solo en modo local. Usa la clave de IA que la persona ya guardó en «Claves externas»
- * (la descifra solo para esta llamada y solo viaja en la cabecera, hacia un host validado y con la IP fijada). El asistente solo conversa.
+ * Asistente de la interfaz (v1.3.1, ADR 0028). Solo en modo local. Usa la IA de la persona (clave, URL base y modelo) que el navegador manda en cada
+ * mensaje: no se guarda ni se registra, solo viaja en la cabecera hacia un host validado y con la IP fijada. El asistente solo conversa.
  */
 @Injectable()
 export class AssistantService {
@@ -19,26 +18,17 @@ export class AssistantService {
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    private readonly keys: ExternalKeysService,
     private readonly jobs: JobsService,
     @Optional() @Inject(CHAT_TRANSPORT) transport?: ChatTransport,
   ) {
     this.transport = transport ?? createPinnedTransport(config.byok.allowPrivateBaseUrls);
   }
 
-  async chat(tenantId: string, input: { messages: unknown; jobId?: string }): Promise<{ reply: string }> {
+  async chat(tenantId: string, input: { messages: unknown; jobId?: string; ai?: unknown }): Promise<{ reply: string }> {
     if (!this.config.auth.localMode) throw new NotFoundException("No encontrado.");
     const messages = sanitizeMessages(input.messages);
 
-    let credential: Awaited<ReturnType<ExternalKeysService["reveal"]>>;
-    try {
-      credential = await this.keys.reveal(tenantId, "openai");
-    } catch (error) {
-      if ((error as { name?: string }).name === "ExternalKeyNotFoundError") {
-        throw new ConflictException({ statusCode: 409, error: "Conflict", code: "no_ai_key", message: "Guarda antes tu clave de IA en «Claves externas»." });
-      }
-      throw error;
-    }
+    const credential = parseAiCredentials(input.ai, this.config.byok.allowPrivateBaseUrls);
 
     let job: JobContext | null = null;
     if (input.jobId !== undefined) {

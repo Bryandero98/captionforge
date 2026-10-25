@@ -12,7 +12,7 @@ import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
 const LIMITS_AND_BURN = { limits: { verticalMaxSeconds: 600 }, burn: { templates: ["bold-pop", "rounded-sweep", "clean-color"] } };
-// El asistente (ADR 0028) solo está disponible con modo local Y claves externas; estas pruebas fijan los dos casos.
+// El asistente (ADR 0028) solo se anuncia en modo local, haya o no claves externas.
 const ASSISTANT_OFF = { assistant: { enabled: false } };
 const ASSISTANT_ON = { assistant: { enabled: true } };
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
@@ -54,7 +54,7 @@ describe("GET /v1/capabilities", () => {
       const { base } = await start(enabled);
       const response = await fetch(`${base}/v1/capabilities`);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN, ...ASSISTANT_OFF });
+      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN, ...ASSISTANT_ON });
     }
   });
 

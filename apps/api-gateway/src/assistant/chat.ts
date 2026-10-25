@@ -4,7 +4,8 @@
 
 import { BadRequestException } from "@nestjs/common";
 
-import { classifyAddress } from "../external-keys/base-url.js";
+import { classifyAddress, parseBaseUrl } from "../external-keys/base-url.js";
+import { normalizeExternalKey, normalizeModelName } from "../external-keys/external-key-format.js";
 
 export const MAX_MESSAGES = 20;
 export const MAX_MESSAGE_CHARS = 4000;
@@ -34,6 +35,31 @@ export function sanitizeMessages(raw: unknown): ChatMessage[] {
   let trimmed = messages.slice(-MAX_MESSAGES);
   while (trimmed[0]?.role === "assistant") trimmed = trimmed.slice(1);
   return trimmed;
+}
+
+export interface AiCredentials {
+  key: string;
+  baseUrl?: string;
+  model?: string;
+}
+
+const invalidAi = (message: string): BadRequestException => new BadRequestException({ statusCode: 400, error: "Bad Request", code: "invalid_ai_config", message });
+
+/**
+ * La IA de la persona llega en cada mensaje (clave, URL base y modelo) y NO se guarda: en modo local no hay sesión de Dueño para usar
+ * «Claves externas». Mismas reglas de formato y de URL que las claves externas (ADR 0022). Los mensajes de error no repiten lo recibido.
+ */
+export function parseAiCredentials(raw: unknown, allowPrivate: boolean): AiCredentials {
+  const input = typeof raw === "object" && raw !== null ? (raw as { key?: unknown; baseUrl?: unknown; model?: unknown }) : {};
+  const hasBase = typeof input.baseUrl === "string" && input.baseUrl.trim() !== "";
+  const base = hasBase ? parseBaseUrl(input.baseUrl, { allowPrivate }) : undefined;
+  if (hasBase && base === undefined) throw invalidAi("La dirección de la IA no es válida: debe ser https de un servidor público.");
+  const key = normalizeExternalKey("openai", input.key, { custom: base !== undefined });
+  if (key === undefined) throw invalidAi("La clave de la IA falta o no tiene un formato válido.");
+  const hasModel = typeof input.model === "string" && input.model.trim() !== "";
+  const model = hasModel ? normalizeModelName(input.model) : undefined;
+  if (hasModel && model === undefined) throw invalidAi("El nombre del modelo no es válido.");
+  return { key, ...(base === undefined ? {} : { baseUrl: base.url }), ...(model === undefined ? {} : { model }) };
 }
 
 export interface JobContext {
