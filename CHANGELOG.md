@@ -8,6 +8,10 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
+## [1.1.0] - 2026-10-24
+
+Multi-LLM con URL base propia y soporte de audio puro. Issue #14, PR #33.
+
 ### Issue #14: Multi-LLM con URL base propia y audio puro
 
 [ADR 0022](docs/adr/0022-url-base-propia-para-proveedores-de-ia.md) · [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md)
@@ -20,6 +24,26 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 - **Audio puro** como entrada (MP3, WAV, M4A, OGG y FLAC): `mediaKind` en el trabajo, reproductor `<audio>` del original
   (`GET /v1/jobs/:id/artifacts/source`, solo audio), doblaje a pista `.mp3`. Quemar subtítulos y mezclar el doblaje sobre un audio se
   rechazan (`burn_not_available_for_audio`, `mix_not_available_for_audio`; en el worker `BURN_NEEDS_VIDEO`, `MIX_NEEDS_VIDEO`).
+
+## [1.0.1] - 2026-10-24
+
+Ajustes tras las primeras pruebas de uso. PR #31.
+
+### Añadido
+
+- Puerto configurable con `CF_PORT` (`.env.example`, compose, `start.sh` y `start.bat`), con validación y pruebas; el README explica cómo
+  cambiarlo.
+- Consumo sugerido en la guía, en «Claves externas» y en la confirmación de gasto, en los 6 idiomas: 15, 30, 45 y 60 s equivalen a
+  200, 400, 600 y 800 caracteres (≈ 50, 100, 150 y 200 tokens).
+- El README lista los idiomas compatibles de transcripción (Whisper) y de traducción (Argos).
+
+### Corregido
+
+- `GET /v1/jobs` tiene un tope propio en el servicio (máximo 100 por página): nunca consulta sin límite.
+
+### Interno
+
+- Las pruebas de puerto y de documentación se ejecutan en la CI.
 
 ## [1.0.0] - 2026-10-23
 
