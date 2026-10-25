@@ -185,3 +185,35 @@ describe("POST /v1/jobs/:id/quality/fix", () => {
     expect((await put(`/v1/jobs/${id}/segments`, { segments: fix.edits, etag: fix.etag })).status).toBe(409);
   });
 });
+
+describe("POST /v1/jobs/:id/quality/check", () => {
+  const post = (path: string, body: unknown): Promise<Response> =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  it("mide lo enviado (no lo guardado), propone el arreglo y no toca los subtítulos", async () => {
+    const { id, etag } = await completedTranscription();
+    const long = "Esta es una frase bastante larga que no cabe en una sola línea de subtítulo";
+    const response = await post(`/v1/jobs/${id}/quality/check`, { profile: "netflix", segments: [{ start: 0, end: 6, text: long }] });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { summary: { segments: number }; issues: { rule: string }[]; fixes: { segment: number; edit: { text?: string } }[] };
+    expect(body.summary.segments).toBe(1);
+    expect(body.issues.map((issue) => issue.rule)).toContain("cpl");
+    expect(body.fixes[0]).toMatchObject({ segment: 0 });
+    expect(body.fixes[0]!.edit.text).toContain("\n");
+    const after = (await (await get(`/v1/jobs/${id}/segments`)).json()) as { etag: string };
+    expect(after.etag).toBe(etag);
+  });
+
+  it("400 con cuerpo o perfil inválido; 404 si el trabajo no existe; 409 si no terminó", async () => {
+    const { id } = await completedTranscription();
+    expect((await post(`/v1/jobs/${id}/quality/check`, { profile: "inventado", segments: [] })).status).toBe(400);
+    expect((await post(`/v1/jobs/${id}/quality/check`, { profile: "netflix", segments: [{ start: 0, end: 1 }] })).status).toBe(400);
+    expect((await post(`/v1/jobs/00000000-0000-4000-8000-000000000000/quality/check`, { profile: "netflix", segments: [] })).status).toBe(404);
+
+    const data = new FormData();
+    data.append("file", new File([new Uint8Array(64).fill(1)], "a.mp4", { type: "video/mp4" }));
+    const pending = (await (await fetch(`${base}/v1/jobs/transcribe`, { method: "POST", body: data })).json()) as { id: string };
+    created.push(pending.id);
+    expect((await post(`/v1/jobs/${pending.id}/quality/check`, { profile: "netflix", segments: [] })).status).toBe(409);
+  });
+});

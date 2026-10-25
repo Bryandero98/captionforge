@@ -234,4 +234,36 @@ export async function proposeQualityFix({ baseUrl, jobId, profile, signal, fetch
   return /** @type {QualityFix} */ (data);
 }
 
+/** @typedef {{ segment: number, rules: string[], kinds: ("line_break" | "timing")[], edit: { text?: string, start?: number, end?: number } }} QualityCheckFix */
+/** @typedef {{ profile: string, summary: QualitySummary, issues: QualityIssue[], fixes: QualityCheckFix[] }} QualityCheck */
+
+/** @param {unknown} value */
+function isCheckFix(value) {
+  const fix = /** @type {Record<string, any>} */ (value);
+  if (!isRecord(value) || !Number.isInteger(fix.segment) || !Array.isArray(fix.rules) || !fix.rules.every((rule) => typeof rule === "string")) return false;
+  if (!Array.isArray(fix.kinds) || !fix.kinds.every((kind) => kind === "line_break" || kind === "timing") || !isRecord(fix.edit)) return false;
+  return (
+    (fix.edit.text === undefined || typeof fix.edit.text === "string") &&
+    (fix.edit.start === undefined || Number.isFinite(fix.edit.start)) &&
+    (fix.edit.end === undefined || Number.isFinite(fix.edit.end))
+  );
+}
+
+/**
+ * Mide subtítulos SIN guardar (editor guiado) y trae, por subtítulo, la edición que lo arregla. No lee ni escribe lo guardado.
+ * Solo se mandan `start`, `end` y `text`.
+ * @param {{ baseUrl: string, jobId: string, profile: string, segments: { start: number, end: number, text: string }[], signal?: AbortSignal, fetchImpl?: typeof fetch }} options
+ * @returns {Promise<QualityCheck>}
+ */
+export async function checkQuality({ baseUrl, jobId, profile, segments, signal, fetchImpl }) {
+  assertJobId(jobId);
+  assertProfileId(profile);
+  const body = { profile, segments: segments.map(({ start, end, text }) => ({ start, end, text })) };
+  const data = /** @type {Record<string, unknown>} */ (await requestJson({ url: `${root(baseUrl)}/v1/jobs/${jobId}/quality/check`, method: "POST", body, signal, fetchImpl }));
+  if (!isRecord(data) || !isSummary(data.summary) || !Array.isArray(data.issues) || !data.issues.every(isIssue) || !Array.isArray(data.fixes) || !data.fixes.every(isCheckFix)) {
+    throw badResponse("Medición de calidad con una forma inesperada.");
+  }
+  return /** @type {QualityCheck} */ (data);
+}
+
 export { isTerminalStatus };

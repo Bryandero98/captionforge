@@ -305,6 +305,11 @@ export class JobsService {
     }
   }
 
+  /** Comprueba que el trabajo es del tenant y es una transcripción terminada con subtítulos (404/409 si no), sin leerlos. */
+  async requireTranscription(tenantId: string, id: string): Promise<void> {
+    await this.completedTranscription(tenantId, id);
+  }
+
   async getSegments(tenantId: string, id: string): Promise<{ segments: (Segment & { index: number })[]; etag: string }> {
     const { segmentsKey } = await this.completedTranscription(tenantId, id);
     const { segments, etag } = await this.readSegments(segmentsKey);

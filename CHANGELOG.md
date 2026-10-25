@@ -8,9 +8,11 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
-## [1.3.0] - Sin publicar
+## [1.3.0] - 2026-10-25
 
-Modo Rápido: de un clic a un video con subtítulos, sin decidir nada técnico. «Control total» sigue ahí para quien lo quiera. Iniciativas «Sube y olvídate» y «Resultado rápido vs Control total» de la [hoja de ruta](docs/ROADMAP.md).
+Modo Rápido («Sube y olvídate»), galería de temas visuales y editor guiado de calidad: de un clic a un video con subtítulos, ver cómo quedarán antes de quemarlos y corregir los problemas de lectura donde se edita. «Control total» sigue ahí para quien lo quiera. Iniciativas de la [hoja de ruta](docs/ROADMAP.md).
+
+### Modo Rápido y «Sube y olvídate» (iniciativas 1 y 2)
 
 [ADR 0025](docs/adr/0025-modo-rapido-y-orquestacion-en-el-cliente.md)
 
@@ -39,6 +41,20 @@ Modo Rápido: de un clic a un video con subtítulos, sin decidir nada técnico. 
 - Galería accesible (`radiogroup`, flechas, Inicio/Fin); un tema vertical se desactiva con motivo si el video supera el tope o el servidor no ofrece la plantilla.
 - Preferencias `cf-prefs` v2 (`burnTheme`), con migración tolerante desde la v1. «Control total» elige el tema del quemado encadenado.
 - Fuentes de la vista previa (Montserrat y Nunito, OFL) recortadas al alfabeto latino, con hash verificado. Textos en los 6 idiomas.
+
+### Editor guiado de calidad (iniciativa 4)
+
+[ADR 0027](docs/adr/0027-editor-guiado-por-problemas.md)
+
+- **`POST /v1/jobs/:id/quality/check`**, sin estado: mide los subtítulos que manda el cliente (aún sin guardar) con las mismas reglas del ADR 0021 y devuelve el informe más, por subtítulo,
+  la edición que lo arregla (`fixes`). No lee ni escribe subtítulos; mismos topes que `PUT /segments` y mismo aislamiento por tenant.
+- **Insignia y cabecera**: «Calidad 92 % · 3 avisos» con «Revisar», y una ficha por regla con plural («3 demasiado rápidos», «1 solapamiento») que lleva al primer subtítulo afectado.
+- **Marcas en cada fila afectada** con icono y palabra de gravedad (nunca solo color), la frase de la regla y «Ignorar» (solo en la sesión).
+- **Arreglo de 1 clic** («Arreglar: partir en líneas · final a 3,25 s») y «Arreglar todos» (también por tipo): escribe un borrador, no guarda, y se vuelve a medir solo (espera de 600 ms, cancelación y descarte de respuestas viejas).
+- **Deshacer** en el estado local del editor (`editor-state`): pila de 50 pasos que revierte solo lo que tocó cada arreglo.
+- **Minimapa lógico**: lista de botones con los tramos de tiempo que tienen problemas, sin onda de audio; pulsar uno lleva el foco al subtítulo.
+- Si lo escrito tiene un valor que el servidor rechazaría (rango, largo, línea en blanco, tiempo ilegible), la medición se pausa y se explica por qué.
+- Textos en los 6 idiomas (es, en, de, fr, it, pt). «Sube y olvídate» no se bloquea: la insignia aparece al abrir el resultado.
 
 ### Cambiado
 
