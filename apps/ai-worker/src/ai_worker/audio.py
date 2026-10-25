@@ -67,8 +67,8 @@ def join_wavs(parts: Sequence[Path], out: Path) -> None:
                     target.writeframes(chunk)
 
 
-async def _stream_lines(media: Path) -> list[str]:
-    """Líneas `Stream #...` de `ffmpeg -i` (sin salida termina con error, pero lista los flujos)."""
+async def media_info(media: Path) -> str:
+    """Salida completa de `ffmpeg -i` (sin salida termina con error, pero describe el archivo: flujos, rotación…)."""
     process = await asyncio.create_subprocess_exec(
         *with_ffmpeg_path(["ffmpeg", "-hide_banner", "-i", str(media)]),
         stdout=asyncio.subprocess.DEVNULL,
@@ -76,7 +76,12 @@ async def _stream_lines(media: Path) -> list[str]:
         env=ffmpeg_env(),
     )
     _, stderr = await process.communicate()
-    return [line for line in stderr.decode("utf-8", "replace").splitlines() if "Stream #" in line]
+    return stderr.decode("utf-8", "replace")
+
+
+async def _stream_lines(media: Path) -> list[str]:
+    """Líneas `Stream #...` de `ffmpeg -i`."""
+    return [line for line in (await media_info(media)).splitlines() if "Stream #" in line]
 
 
 async def has_audio_stream(video: Path) -> bool:
