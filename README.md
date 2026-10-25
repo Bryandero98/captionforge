@@ -15,6 +15,8 @@ caps, graceful shutdown and recovery of orphaned jobs. Its known limits are decl
   **translation** to any language with [argos-translate](https://github.com/argosopentech/argos-translate),
   and **burned-in subtitles** with [ffmpeg](https://ffmpeg.org/) in four caption styles
   (Modern, TikTok bold, YouTube classic, Minimal), with optional word-by-word karaoke.
+- **Shorts / Reels / TikTok export**: a *Vertical Shorts 9:16* format renders the video at 1080x1920 over its own blurred background, with animated word-by-word
+  caption templates (bold pop, rounded sweep, clean colour) in bundled Montserrat and Nunito fonts. Up to 10 minutes per video. See [ADR 0024](docs/adr/0024-subtitulos-ass-y-formato-vertical.md).
 - **Output** as `.srt` (plus `.vtt` and `.ass` in the local package), or the video with the captions burned in.
 - **Editable**: fix text and retime segments before burning; a stale edit is rejected (`409`)
   instead of silently overwriting someone else's.
@@ -168,7 +170,7 @@ it. Every route under `/v1/jobs` requires `X-API-Key: <key>` (or `Authorization:
 | `GET /v1/quality/profiles` | Subtitle quality standards (`netflix`, `netflix-es`, `bbc`, `accessible`, `shorts`) with their limits and how well each was verified |
 | `GET /v1/jobs/:id/quality` | Quality report of the captions against a standard (`?profile=`): characters per second and per line, duration, gaps and overlaps |
 | `POST /v1/jobs/:id/quality/fix` | Proposes a fix of end times and line breaks only (never the text); apply it with `PUT …/segments` and the same `etag` |
-| `POST /v1/jobs/:id/burn` | Burns the current captions: `{ "style": "modern", "karaoke": false }`. `202` |
+| `POST /v1/jobs/:id/burn` | Burns the current captions: `{ "style": "modern", "karaoke": false }`, or for 9:16 `{ "template": "bold-pop", "canvas": "vertical" }` (`template`: `bold-pop`, `rounded-sweep`, `clean-color`; `canvas`: `source`, `vertical`; vertical is limited to 10 minutes, `413 job_too_large`). `202` |
 | `GET /v1/jobs/:id/artifacts/:name` | `srt`, `segments`, `waveform` (transcription) or `video` (burn); supports `Range` |
 
 ## Architecture

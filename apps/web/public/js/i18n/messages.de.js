@@ -174,7 +174,7 @@ const de = {
   "guide.s5.title": "Herunterladen",
   "guide.s5.body": "Lade die .srt (funktioniert in fast jedem Player und Editor) oder die .vtt (fürs Web) herunter. Speichere vorher deine Änderungen, damit die .srt sie enthält.",
   "guide.s6.title": "Untertitel ins Video einbrennen",
-  "guide.s6.body": "Wähle einen Stil und aktiviere Karaoke, wenn das Video Zeiten pro Wort hat. „Video mit Untertiteln erstellen“ erzeugt ein neues Video, das du direkt hier ansehen und herunterladen kannst.",
+  "guide.s6.body": "Wähle das Format: „Klassisch 16:9“ (ein Stil und, wenn das Video Zeiten pro Wort hat, Karaoke) oder „Vertical Shorts 9:16“ für Shorts, Reels und TikTok (animierte Vorlage, bis zu 10 Minuten). „Video mit Untertiteln erstellen“ erzeugt ein neues Video, das du direkt hier ansehen und herunterladen kannst.",
   "guide.s7.title": "Mit dem eigenen Konto übersetzen und vertonen (optional)",
   "guide.s7.body": "Wenn du unter „Externe Schlüssel“ einen OpenAI- oder ElevenLabs-Schlüssel gespeichert hast, verbraucht jede Übersetzung oder Vertonung Guthaben deines Kontos, nicht von CaptionForge. Vor dem Senden zeigen wir eine Schätzung und fragen nach Bestätigung. Zur Orientierung: Das wird je nach Sprechdauer üblicherweise an die KI gesendet:",
   "estimates.caption": "Empfohlener Verbrauch nach Sprechdauer",

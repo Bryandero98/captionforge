@@ -174,7 +174,7 @@ const pt = {
   "guide.s5.title": "Baixe",
   "guide.s5.body": "Baixe o .srt (funciona em quase qualquer player e editor) ou o .vtt (para a web). Salve as alterações antes para que o .srt as inclua.",
   "guide.s6.title": "Coloque as legendas no vídeo",
-  "guide.s6.body": "Escolha um estilo e, se o vídeo tiver tempos por palavra, ative o karaokê. “Criar vídeo com legendas” gera um vídeo novo que você pode assistir aqui mesmo e baixar.",
+  "guide.s6.body": "Escolha o formato: “Clássico 16:9” (um estilo e, se o vídeo tiver tempos por palavra, karaokê) ou “Vertical Shorts 9:16” para Shorts, Reels e TikTok (modelo animado, até 10 minutos). “Criar vídeo com legendas” gera um vídeo novo que você pode assistir aqui mesmo e baixar.",
   "guide.s7.title": "Traduzir e dublar com a sua própria conta (opcional)",
   "guide.s7.body": "Se você guardou uma chave da OpenAI ou da ElevenLabs em «Chaves externas», cada tradução ou dublagem gasta saldo da sua conta, não do CaptionForge. Antes de enviar mostramos uma estimativa e pedimos confirmação. Como referência, isto é o que costuma ser enviado à IA conforme a duração da fala:",
   "estimates.caption": "Consumo sugerido conforme a duração da fala",

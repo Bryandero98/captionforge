@@ -174,7 +174,7 @@ const fr = {
   "guide.s5.title": "Télécharge",
   "guide.s5.body": "Télécharge le .srt (compatible avec presque tous les lecteurs et éditeurs) ou le .vtt (pour le web). Enregistre d'abord les modifications pour que le .srt les inclue.",
   "guide.s6.title": "Mets les sous-titres dans la vidéo",
-  "guide.s6.body": "Choisis un style et, si la vidéo a des temps par mot, active le karaoké. « Créer la vidéo avec sous-titres » génère une nouvelle vidéo que tu peux regarder ici même et télécharger.",
+  "guide.s6.body": "Choisis le format : « Classique 16:9 » (un style et, si la vidéo a des temps par mot, le karaoké) ou « Vertical Shorts 9:16 » pour Shorts, Reels et TikTok (modèle animé, jusqu'à 10 minutes). « Créer la vidéo avec sous-titres » génère une nouvelle vidéo que tu peux regarder ici même et télécharger.",
   "guide.s7.title": "Traduire et doubler avec votre propre compte (facultatif)",
   "guide.s7.body": "Si vous avez enregistré une clé OpenAI ou ElevenLabs dans « Clés externes », chaque traduction ou doublage consomme le solde de votre compte, pas celui de CaptionForge. Avant l'envoi, nous affichons une estimation et demandons une confirmation. À titre indicatif, voici ce qui est généralement envoyé à l'IA selon la durée de la parole :",
   "estimates.caption": "Consommation suggérée selon la durée de la parole",
