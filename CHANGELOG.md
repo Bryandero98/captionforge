@@ -8,6 +8,24 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
+## [1.3.1] - 2026-10-25
+
+Más fácil para quien empieza y abierta a las IAs: guía interactiva, pantalla «¿Qué quieres hacer ahora?», más formatos de audio y video, acceso para IAs y asistente removible. Todo lo de IA, solo en modo local.
+
+### Añadido
+
+- **Guía interactiva** de seis pasos que se abre sola la primera vez (`cf-tour`) y vuelve con el botón **Ayuda**.
+- **«¿Qué quieres hacer ahora?»** al terminar una transcripción: descargar, traducir, doblar o poner los subtítulos en el video (un audio no ofrece el video), con acceso directo a «Claves externas».
+- **Más formatos**: audio OPUS (notas de voz), AAC, AMR, WMA, AIFF y WEBA; video M4V, 3GP, MPEG, WMV, FLV y OGV. Contrato, API, cliente y textos al día.
+- **Acceso para IAs** ([ADR 0028](docs/adr/0028-acceso-para-ias-mcp-y-asistente.md), [guía](docs/ai-access.md)): `GET /llms.txt` y `GET /openapi.json` (404 con `LOCAL_MODE=false`).
+- **Servidor MCP local** (`tools/mcp`, stdio, sin dependencias). Traducir, doblar, quemar, cancelar y editar exigen `confirmed: true`.
+- **Asistente removible** con la IA propia de la persona (clave solo en el navegador, `POST /v1/assistant/chat`, IP fijada, sin herramientas). `GET /v1/capabilities` anuncia `assistant`.
+
+### Corregido
+
+- Cabecera y selector de idiomas desbordaban en el celular.
+- Los textos hablaban de «video» aunque el archivo fuera un audio.
+
 ## [1.3.0] - 2026-10-25
 
 Modo Rápido («Sube y olvídate»), galería de temas visuales y editor guiado de calidad: de un clic a un video con subtítulos, ver cómo quedarán antes de quemarlos y corregir los problemas de lectura donde se edita. «Control total» sigue ahí para quien lo quiera. Iniciativas de la [hoja de ruta](docs/ROADMAP.md).

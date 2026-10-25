@@ -744,7 +744,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await chooseFiles(page, [...names.map((name) => videoFile(name, 20 * 1024)), videoFile("cola-notas.txt", 64)]);
     expect(await page.$$eval("#batch-list li", (items) => items.length)).toBe(3);
     expect(await text(page, "#file-problem")).toContain("cola-notas.txt");
-    expect(await text(page, "#start")).toBe("Generar subtítulos de 3 videos");
+    expect(await text(page, "#start")).toBe("Generar subtítulos de 3 archivos");
 
     await page.click("#start");
     await page.waitForFunction(() => document.querySelectorAll('#batch-list li[data-status="done"]').length === 3, { timeout: 40_000 });

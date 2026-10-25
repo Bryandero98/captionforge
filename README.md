@@ -17,6 +17,9 @@ caps, graceful shutdown and recovery of orphaned jobs. Its known limits are decl
   (Modern, TikTok bold, YouTube classic, Minimal), with optional word-by-word karaoke.
 - **Shorts / Reels / TikTok export**: a *Vertical Shorts 9:16* format renders the video at 1080x1920 over its own blurred background, with animated word-by-word
   caption templates (bold pop, rounded sweep, clean colour) in bundled Montserrat and Nunito fonts. Up to 10 minutes per video. See [ADR 0024](docs/adr/0024-subtitulos-ass-y-formato-vertical.md).
+- **What's new in v1.3.1**
+  - **Friendlier start**: an interactive tour (first visit, then the *Help* button) and a "What do you want to do now?" card after transcribing. More formats: voice notes (OPUS), AAC, AMR, WMA, AIFF, M4V, 3GP, WMV and more.
+  - **Open to AIs (local mode only)**: `/llms.txt` and `/openapi.json`, a local MCP server (`tools/mcp`; paid or destructive actions need explicit confirmation) and a removable in-page assistant that uses your own AI key, stored only in your browser. See [docs/ai-access.md](docs/ai-access.md) and [ADR 0028](docs/adr/0028-acceso-para-ias-mcp-y-asistente.md).
 - **What's new in v1.3.0**
   - **Quick mode ("upload and forget")**: suggests a profile from the file and chains the caption burn from the browser, so one click takes you from a video to a captioned video. "Full control" keeps every technical setting. See [ADR 0025](docs/adr/0025-modo-rapido-y-orquestacion-en-el-cliente.md).
   - **Visual theme gallery**: seven caption themes (classic and vertical) with an approximate live preview using your own text, before you spend a burn. See [ADR 0026](docs/adr/0026-temas-visuales-y-vista-previa-en-css.md).

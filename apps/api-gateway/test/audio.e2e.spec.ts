@@ -143,8 +143,8 @@ describe("subir audio", () => {
     expect(list.jobs.find((job) => job.id === id)?.mediaKind).toBe("audio");
   });
 
-  it("415 con un audio que no está en la lista (AAC suelto, WebM de audio) y con lo que no es multimedia", async () => {
-    for (const [name, type] of [["nota.aac", "audio/aac"], ["voz.weba", "audio/webm"], ["texto.txt", "text/plain"], ["x.bin", "application/octet-stream"]] as const) {
+  it("415 con un audio que no está en la lista (MIDI, un tipo inventado) y con lo que no es multimedia", async () => {
+    for (const [name, type] of [["pista.mid", "audio/midi"], ["voz.xyz", "audio/x-fake"], ["texto.txt", "text/plain"], ["x.bin", "application/octet-stream"]] as const) {
       const response = await upload(name, type);
       expect(response.status, type).toBe(415);
     }
