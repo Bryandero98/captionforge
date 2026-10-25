@@ -562,6 +562,20 @@ const it = {
   "tour.step.dub.body": "Prima traduci. Poi, in «Doppia con voce sintetica», scegli ElevenLabs o OpenAI, scrivi l'ID della voce e scegli la traduzione come testo. Ti serve la tua chiave in «Chiavi esterne». Prima di spendere, ti chiediamo conferma.",
   "tour.step.video.title": "Metti i sottotitoli sul video",
   "tour.step.video.body": "Scegli un tema (vedrai un'anteprima con il tuo testo) e premi «Crea il video con sottotitoli». Un audio non ha immagine: con un audio, scarica il .srt.",
+  "next.title": "Cosa vuoi fare adesso?",
+  "next.intro": "La tua trascrizione è pronta. Scegli un passo; sono tutti facoltativi.",
+  "next.srt.title": "Scarica i sottotitoli",
+  "next.srt.body": "Scarica il file .srt da usare in qualsiasi player o editor.",
+  "next.translate.title": "Traducili",
+  "next.translate.body": "In un'altra lingua, gratis con Argos o con la tua IA (DeepSeek, OpenAI…).",
+  "next.dub.title": "Doppiali con una voce",
+  "next.dub.body": "Una voce sintetica legge la traduzione. Ti serve la tua chiave ElevenLabs o OpenAI.",
+  "next.video.title": "Mettili sul video",
+  "next.video.body": "Crea un nuovo video con i sottotitoli incorporati e il tema che preferisci.",
+  "next.video.audio": "Un audio non ha immagine: non si può creare un video con sottotitoli.",
+  "next.go": "Vai",
+  "next.keys": "Apri «Chiavi esterne»",
+  "next.keys.note": "Per tradurre o doppiare con la tua IA, salva prima la tua chiave in «Chiavi esterne».",
 };
 
 export default it;

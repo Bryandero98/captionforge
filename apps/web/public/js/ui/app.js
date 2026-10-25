@@ -17,6 +17,7 @@ import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
 import { createAi } from "./ai.js";
 import { createBurn } from "./burn.js";
 import { createGuidedEditor } from "./guided-editor.js";
+import { createNextSteps } from "./next-steps.js";
 import { createTour } from "./tour.js";
 import { createQuality } from "./quality.js";
 import { createFollowUp } from "./follow-up.js";
@@ -140,6 +141,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let quality = null;
   /** @type {ReturnType<typeof createGuidedEditor> | null} */
   let guided = null;
+  /** @type {ReturnType<typeof createNextSteps> | null} */
+  let nextStepsCard = null;
   // Qué ofrece el servidor: lo usan la casilla de hablantes y los formularios de traducir y doblar.
   const found = capabilities({ baseUrl: config.baseUrl });
   const spend = createSpendConfirm({ doc, t: translate });
@@ -147,7 +150,13 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     burn?.refreshForm();
     ai?.refreshForm();
     quality?.refreshForm();
-  }, onOpen: (id, language) => void guided?.open(id, language), onClose: () => guided?.close() });
+  }, onOpen: (id, language) => {
+    void guided?.open(id, language);
+    nextStepsCard?.show(results.context?.job ?? {});
+  }, onClose: () => {
+    guided?.close();
+    nextStepsCard?.hide();
+  } });
   const history = createHistory({ doc, win, t: translate, lang: () => lang, onOpen: (entry) => void openJob(entry.id) });
   burn = createBurn({
     doc,
@@ -233,6 +242,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   // Editor guiado (ADR 0027): marcas por fila, minimapa y arreglos de 1 clic sobre el editor de subtítulos.
   guided = createGuidedEditor({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), editor: results.editor });
+
+  // «¿Qué quieres hacer ahora?» (v1.3.1): atajos a traducir, doblar y quemar tras transcribir.
+  nextStepsCard = createNextSteps({ doc, win, t: translate, reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true });
 
   // Guía interactiva (v1.3.1): se abre sola solo la primera vez; el botón «Ayuda» la reabre.
   const tour = createTour({ doc, win, t: translate, storage: safeStorage(win), reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true });
@@ -749,6 +761,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     quality?.refresh(translate);
     guided?.refresh(translate);
     tour.refresh(translate);
+    nextStepsCard?.refresh(translate);
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }

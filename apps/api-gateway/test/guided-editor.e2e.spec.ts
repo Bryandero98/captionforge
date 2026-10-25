@@ -244,4 +244,24 @@ describe.skipIf(browserPath === undefined)("editor guiado en un navegador real",
     expect((await flagsOf(page, 0)).length).toBe(total);
     expect(problems).toEqual([]);
   }, 180_000);
+
+  it("tras transcribir ofrece «¿Qué quieres hacer ahora?»: lleva al .srt, y con un audio no ofrece poner subtítulos en el video", async () => {
+    const problems: string[] = [];
+    const page = await open(problems, []);
+    await transcribed(page, `siguiente-${randomUUID().slice(0, 8)}.mp4`);
+    await waitFor(page, "#next-steps", "visible");
+    expect(await text(page, "#next-title")).toBe("¿Qué quieres hacer ahora?");
+    expect(await prop<boolean>(page, "#next-video", "disabled")).toBe(false);
+    await press(page, "#next-srt");
+    expect(await page.evaluate(() => (globalThis as unknown as { document: { activeElement: { id: string } } }).document.activeElement.id)).toBe("dl-srt");
+
+    // Con un audio no hay imagen: el paso de video queda desactivado y lo explica.
+    const audio = await open(problems, []);
+    await transcribed(audio, `siguiente-${randomUUID().slice(0, 8)}.mp3`);
+    await waitFor(audio, "#next-steps", "visible");
+    expect(await prop<boolean>(audio, "#next-video", "disabled")).toBe(true);
+    expect(await text(audio, "#next-video-body")).toContain("no tiene imagen");
+    expect(await prop<boolean>(audio, "#next-translate", "disabled")).toBe(false);
+    expect(problems).toEqual([]);
+  }, 180_000);
 });

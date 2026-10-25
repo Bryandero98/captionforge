@@ -330,6 +330,18 @@
             <label for="dl-speaker-prefix" data-i18n="speakers.prefix">Poner el nombre del hablante delante del texto en el .srt y el .vtt</label>
           </div>
         </fieldset>
+        <section class="next" id="next-steps" hidden aria-labelledby="next-title">
+          <h3 class="burn__title" id="next-title" data-i18n="next.title">¿Qué quieres hacer ahora?</h3>
+          <p class="panel__detail" data-i18n="next.intro">Tu transcripción está lista. Elige un paso; todos son opcionales.</p>
+          <ul class="next__list">
+            <li class="next__item" id="next-item-srt"><div class="next__text"><strong data-i18n="next.srt.title">Descargar los subtítulos</strong><span class="panel__detail" data-i18n="next.srt.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-srt" data-i18n="next.go">Ir</button></li>
+            <li class="next__item" id="next-item-translate"><div class="next__text"><strong data-i18n="next.translate.title">Traducirlos</strong><span class="panel__detail" data-i18n="next.translate.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-translate" data-i18n="next.go">Ir</button></li>
+            <li class="next__item" id="next-item-dub"><div class="next__text"><strong data-i18n="next.dub.title">Doblarlos con voz</strong><span class="panel__detail" data-i18n="next.dub.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-dub" data-i18n="next.go">Ir</button></li>
+            <li class="next__item" id="next-item-video"><div class="next__text"><strong data-i18n="next.video.title">Ponerlos en el video</strong><span class="panel__detail" id="next-video-body" data-i18n="next.video.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-video" data-i18n="next.go">Ir</button></li>
+          </ul>
+          <p class="panel__detail" id="next-keys-note" hidden data-i18n="next.keys.note">Para traducir o doblar con tu propia IA, guarda antes tu clave en «Claves externas».</p>
+          <button type="button" class="btn btn--ghost btn--small" id="next-keys" hidden data-i18n="next.keys">Abrir «Claves externas»</button>
+        </section>
         <form class="burn" id="burn-form" hidden>
           <h3 class="burn__title" data-i18n="burn.title">Poner los subtítulos en el video</h3>
           <div class="themes">

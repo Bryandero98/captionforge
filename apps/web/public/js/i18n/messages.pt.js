@@ -562,6 +562,20 @@ const pt = {
   "tour.step.dub.body": "Primeiro traduza. Depois, em «Dublar com voz sintética», escolha ElevenLabs ou OpenAI, escreva o ID da voz e escolha a tradução como texto. Você precisa da sua chave em «Chaves externas». Antes de gastar, pedimos confirmação.",
   "tour.step.video.title": "Coloque as legendas no vídeo",
   "tour.step.video.body": "Escolha um tema (verá uma prévia com o seu texto) e toque em «Criar vídeo com legendas». Um áudio não tem imagem: com um áudio, baixe o .srt.",
+  "next.title": "O que você quer fazer agora?",
+  "next.intro": "Sua transcrição está pronta. Escolha um passo; todos são opcionais.",
+  "next.srt.title": "Baixar as legendas",
+  "next.srt.body": "Baixe o arquivo .srt para usar em qualquer player ou editor.",
+  "next.translate.title": "Traduzi-las",
+  "next.translate.body": "Para outro idioma, grátis com o Argos ou com a sua própria IA (DeepSeek, OpenAI…).",
+  "next.dub.title": "Dublá-las com voz",
+  "next.dub.body": "Uma voz sintética lê a tradução. Você precisa da sua chave do ElevenLabs ou da OpenAI.",
+  "next.video.title": "Colocá-las no vídeo",
+  "next.video.body": "Crie um vídeo novo com as legendas embutidas e o tema que preferir.",
+  "next.video.audio": "Um áudio não tem imagem: não dá para criar um vídeo com legendas.",
+  "next.go": "Ir",
+  "next.keys": "Abrir «Chaves externas»",
+  "next.keys.note": "Para traduzir ou dublar com a sua própria IA, guarde antes a sua chave em «Chaves externas».",
 };
 
 export default pt;

@@ -562,6 +562,20 @@ const de = {
   "tour.step.dub.body": "Übersetze zuerst. Wähle dann unter „Mit synthetischer Stimme vertonen“ ElevenLabs oder OpenAI, gib die Stimmen-ID ein und wähle die Übersetzung als Text. Du brauchst deinen Schlüssel unter „Externe Schlüssel“. Vor jeder Ausgabe bitten wir um Bestätigung.",
   "tour.step.video.title": "Untertitel ins Video einbrennen",
   "tour.step.video.body": "Wähle ein Design (du siehst eine Vorschau mit deinem Text) und tippe auf „Video mit Untertiteln erstellen“. Ein Audio hat kein Bild: Bei einem Audio lade die .srt herunter.",
+  "next.title": "Was möchtest du jetzt tun?",
+  "next.intro": "Deine Transkription ist fertig. Wähle einen Schritt; alle sind optional.",
+  "next.srt.title": "Untertitel herunterladen",
+  "next.srt.body": "Hole dir die .srt-Datei für jeden Player oder Editor.",
+  "next.translate.title": "Übersetzen",
+  "next.translate.body": "In eine andere Sprache, kostenlos mit Argos oder mit deiner eigenen KI (DeepSeek, OpenAI…).",
+  "next.dub.title": "Mit Stimme vertonen",
+  "next.dub.body": "Eine synthetische Stimme liest die Übersetzung vor. Du brauchst deinen ElevenLabs- oder OpenAI-Schlüssel.",
+  "next.video.title": "Ins Video einbrennen",
+  "next.video.body": "Erstelle ein neues Video mit eingebrannten Untertiteln im Design deiner Wahl.",
+  "next.video.audio": "Ein Audio hat kein Bild: Ein Video mit Untertiteln kann nicht erstellt werden.",
+  "next.go": "Los",
+  "next.keys": "„Externe Schlüssel“ öffnen",
+  "next.keys.note": "Um mit deiner eigenen KI zu übersetzen oder zu vertonen, speichere zuerst deinen Schlüssel unter „Externe Schlüssel“.",
 };
 
 export default de;

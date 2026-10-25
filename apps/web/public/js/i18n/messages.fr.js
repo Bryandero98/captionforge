@@ -562,6 +562,20 @@ const fr = {
   "tour.step.dub.body": "Traduis d'abord. Ensuite, dans « Doubler avec une voix synthétique », choisis ElevenLabs ou OpenAI, saisis l'ID de la voix et choisis la traduction comme texte. Il te faut ta clé dans « Clés externes ». Avant toute dépense, nous te demandons de confirmer.",
   "tour.step.video.title": "Mets les sous-titres sur la vidéo",
   "tour.step.video.body": "Choisis un thème (tu verras un aperçu avec ton texte) et appuie sur « Créer la vidéo avec sous-titres ». Un audio n'a pas d'image : pour un audio, télécharge le .srt.",
+  "next.title": "Que veux-tu faire maintenant ?",
+  "next.intro": "Ta transcription est prête. Choisis une étape ; toutes sont facultatives.",
+  "next.srt.title": "Télécharger les sous-titres",
+  "next.srt.body": "Récupère le fichier .srt pour l'utiliser dans n'importe quel lecteur ou éditeur.",
+  "next.translate.title": "Les traduire",
+  "next.translate.body": "Vers une autre langue, gratuitement avec Argos ou avec ta propre IA (DeepSeek, OpenAI…).",
+  "next.dub.title": "Les doubler avec une voix",
+  "next.dub.body": "Une voix synthétique lit la traduction. Il te faut ta clé ElevenLabs ou OpenAI.",
+  "next.video.title": "Les mettre sur la vidéo",
+  "next.video.body": "Crée une nouvelle vidéo avec les sous-titres incrustés et le thème de ton choix.",
+  "next.video.audio": "Un audio n'a pas d'image : impossible de créer une vidéo avec sous-titres.",
+  "next.go": "Aller",
+  "next.keys": "Ouvrir « Clés externes »",
+  "next.keys.note": "Pour traduire ou doubler avec ta propre IA, enregistre d'abord ta clé dans « Clés externes ».",
 };
 
 export default fr;
