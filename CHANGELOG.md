@@ -8,7 +8,7 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
-## [1.3.0] - Sin publicar
+## [1.3.0] - 2026-10-25
 
 Modo Rápido («Sube y olvídate»), galería de temas visuales y editor guiado de calidad: de un clic a un video con subtítulos, ver cómo quedarán antes de quemarlos y corregir los problemas de lectura donde se edita. «Control total» sigue ahí para quien lo quiera. Iniciativas de la [hoja de ruta](docs/ROADMAP.md).
 
