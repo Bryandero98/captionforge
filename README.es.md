@@ -17,6 +17,10 @@ de trabajos huérfanos. Sus límites conocidos se declaran, no se esconden.
   negrita, YouTube clásico y Mínimo), con resaltado opcional palabra por palabra (karaoke).
 - **Exportación a Shorts / Reels / TikTok**: el formato *Vertical Shorts 9:16* genera el video en 1080x1920 sobre su propio fondo desenfocado, con plantillas animadas
   de subtítulos palabra por palabra (impacto, barrido redondeado, color limpio) y las fuentes Montserrat y Nunito incluidas. Hasta 10 minutos por video. Ver el [ADR 0024](docs/adr/0024-subtitulos-ass-y-formato-vertical.md).
+- **Novedades de la v1.3.0**
+  - **Modo Rápido («Sube y olvídate»)**: sugiere un perfil según el archivo y encadena el quemado desde el navegador, de modo que un clic lleva de un video a un video con subtítulos. «Control total» conserva todos los ajustes técnicos. Ver el [ADR 0025](docs/adr/0025-modo-rapido-y-orquestacion-en-el-cliente.md).
+  - **Galería de temas visuales**: siete temas de subtítulos (clásicos y verticales) con una vista previa aproximada y en vivo con tu propio texto, antes de gastar un quemado. Ver el [ADR 0026](docs/adr/0026-temas-visuales-y-vista-previa-en-css.md).
+  - **Editor guiado de calidad**: el editor marca los problemas de lectura (demasiado rápido, demasiado largo, solapamientos...) en cada fila afectada y en un mapa de tiempo, los arregla con un clic, vuelve a medir mientras escribes y permite deshacer. Ver el [ADR 0027](docs/adr/0027-editor-guiado-por-problemas.md).
 - **Salida** en `.srt` (y `.vtt` y `.ass` en el paquete local), o el video con los subtítulos quemados.
 - **Editable**: corrige el texto y ajusta los tiempos antes de quemar; una edición desactualizada se
   rechaza (`409`) en lugar de pisar en silencio la de otra persona.
