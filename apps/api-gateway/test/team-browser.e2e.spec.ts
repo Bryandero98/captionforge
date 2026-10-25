@@ -100,6 +100,7 @@ async function open(who: FakeProfile, path = "/") {
   await page.evaluateOnNewDocument(() => {
     try {
       localStorage.setItem("captionforge_lang", "es");
+      localStorage.setItem("cf-tour", "1"); // la guía interactiva no debe tapar los controles de la prueba
     } catch {
       // sin almacenamiento
     }

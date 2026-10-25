@@ -101,6 +101,7 @@ async function open(base: string, problems: string[], failures: string[]): Promi
   await page.evaluateOnNewDocument(() => {
     try {
       localStorage.setItem("captionforge_lang", "es");
+      localStorage.setItem("cf-tour", "1"); // la guía interactiva no debe tapar los controles de la prueba
     } catch {
       // sin almacenamiento
     }

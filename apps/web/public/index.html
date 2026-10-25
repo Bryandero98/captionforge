@@ -20,6 +20,7 @@
       <div class="top__text">
         <h1 class="brand" data-i18n="app.title">CaptionForge</h1>
         <p class="tagline" data-i18n="app.tagline">Subtítulos automáticos para tus videos.</p>
+        <button type="button" class="btn btn--ghost btn--small tour-help" id="help-open" aria-expanded="false" aria-controls="tour" data-i18n="tour.help">Ayuda</button>
       </div>
       <div class="lang" role="group" data-i18n-aria-label="lang.label" aria-label="Idioma de la interfaz">
         <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es" aria-label="ES, Español">ES</button>
@@ -148,6 +149,17 @@
 
     <main id="main" tabindex="-1">
       <div id="app-content">
+      <section class="tour" id="tour" hidden tabindex="-1" aria-labelledby="tour-title">
+        <p class="tour__count" id="tour-count" role="status"></p>
+        <h2 class="tour__title" id="tour-title"></h2>
+        <p class="tour__body" id="tour-body"></p>
+        <p class="panel__detail" data-i18n="tour.hint">Puedes volver a abrir esta guía con el botón «Ayuda».</p>
+        <div class="tour__actions">
+          <button type="button" class="btn btn--ghost btn--small" id="tour-prev" data-i18n="tour.prev">Anterior</button>
+          <button type="button" class="btn btn--primary btn--small" id="tour-next" data-i18n="tour.next">Siguiente</button>
+          <button type="button" class="btn btn--ghost btn--small" id="tour-close" data-i18n="tour.close">Cerrar guía</button>
+        </div>
+      </section>
       <details class="guide" id="guide">
         <summary data-i18n="guide.title">Cómo usar CaptionForge, paso a paso</summary>
         <ol class="guide__steps">

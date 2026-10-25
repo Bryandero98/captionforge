@@ -17,6 +17,7 @@ import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
 import { createAi } from "./ai.js";
 import { createBurn } from "./burn.js";
 import { createGuidedEditor } from "./guided-editor.js";
+import { createTour } from "./tour.js";
 import { createQuality } from "./quality.js";
 import { createFollowUp } from "./follow-up.js";
 import { createHistory } from "./history.js";
@@ -232,6 +233,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   // Editor guiado (ADR 0027): marcas por fila, minimapa y arreglos de 1 clic sobre el editor de subtítulos.
   guided = createGuidedEditor({ doc, win, baseUrl: config.baseUrl, t: translate, lang: () => lang, announce: (text) => announce(text), editor: results.editor });
+
+  // Guía interactiva (v1.3.1): se abre sola solo la primera vez; el botón «Ayuda» la reabre.
+  const tour = createTour({ doc, win, t: translate, storage: safeStorage(win), reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true });
 
   // ---------- estado ----------
 
@@ -744,6 +748,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     ai?.refresh();
     quality?.refresh(translate);
     guided?.refresh(translate);
+    tour.refresh(translate);
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
   }
