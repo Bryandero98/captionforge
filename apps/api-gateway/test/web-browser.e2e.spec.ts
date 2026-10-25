@@ -749,7 +749,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await page.click("#start");
     await page.waitForFunction(() => document.querySelectorAll('#batch-list li[data-status="done"]').length === 3, { timeout: 40_000 });
     await page.waitForSelector("#notice-panel:not([hidden])", { timeout: 10_000 });
-    expect(await text(page, "#notice-text")).toContain("Recibidos 3 videos");
+    expect(await text(page, "#notice-text")).toContain("Recibidos 3 archivos");
     for (const name of names) expect(await jobsNamed(`${token}-${name}`)).toHaveLength(1);
     expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(3);
     // Una subida terminada se puede abrir desde la propia cola.
