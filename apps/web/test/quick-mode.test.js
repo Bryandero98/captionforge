@@ -224,6 +224,19 @@ describe("modo rápido: ciclo de vida", () => {
     assert.equal(els["quick-warning"].hidden, false);
   });
 
+  it("un archivo ya subido deja de contar para el aviso (queda solo lo que falta por subir y lo pendiente)", async () => {
+    let pending = 1;
+    const { quick, els, item } = setup({ facts: { "short.mp4": PORTRAIT }, pending: () => pending });
+    quick.track([item("short.mp4")]);
+    await quick.settled();
+    assert.equal(els["quick-warning"].hidden, false);
+    quick.track([{ ...item("short.mp4"), done: true }]);
+    assert.equal(els["quick-warning"].hidden, false, "sigue el encadenado pendiente");
+    pending = 0;
+    quick.refresh();
+    assert.equal(els["quick-warning"].hidden, true);
+  });
+
   it("track solo analiza los archivos nuevos y olvida los que ya no están; reset vacía todo", async () => {
     const { quick, item, probed, els } = setup({ facts: { "a.mp4": PORTRAIT } });
     quick.track([item("a.mp4")]);

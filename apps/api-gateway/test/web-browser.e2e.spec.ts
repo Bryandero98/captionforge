@@ -122,6 +122,12 @@ async function openPage(base: string, throttleBytesPerSecond?: number): Promise<
 
 const text = (page: Page, selector: string) => page.$eval(selector, (element) => element.textContent ?? "");
 const isVisible = (page: Page, selector: string) => page.$eval(selector, (element) => !(element as unknown as { hidden: boolean }).hidden);
+/** «Control total» nace plegado: antes de tocar sus controles se abre como lo haría una persona (con su resumen). */
+async function openAdvanced(page: Page): Promise<void> {
+  const isOpen = () => page.$eval("#advanced", (details) => (details as unknown as { open: boolean }).open);
+  if (!(await isOpen())) await page.click("#advanced > summary");
+  await page.waitForFunction(() => (document.querySelector("#advanced") as unknown as { open: boolean }).open, { timeout: 5_000 });
+}
 const progress = (page: Page) => page.$eval("#bar", (element) => Number(element.getAttribute("aria-valuenow") ?? "-1"));
 
 async function chooseFile(page: Page, path: string): Promise<void> {
@@ -363,6 +369,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await chooseFile(page, videoFile(name, 20 * 1024));
     expect(await page.$eval("#opt-clean", (box) => (box as unknown as { checked: boolean }).checked)).toBe(false); // desactivada por defecto
     expect(await text(page, 'label[for="opt-clean"]')).toBe("Limpiar ruido de fondo (más lento, para música o ruido fuerte)");
+    await openAdvanced(page);
     await page.click("#opt-clean");
     await page.click("#start");
     await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
@@ -385,6 +392,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     const { page, spy } = await openPage(base);
     const name = "respaldo.mp4";
     await chooseFile(page, videoFile(name, 20 * 1024));
+    await openAdvanced(page);
     await page.click("#opt-clean");
     await page.click("#start");
     await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
@@ -438,6 +446,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await page.waitForFunction(() => !(document.querySelector("#opt-diarize") as unknown as { disabled: boolean }).disabled, { timeout: 10_000 });
     expect(await page.$eval("#opt-diarize", (box) => (box as unknown as { checked: boolean }).checked)).toBe(false); // desactivada por defecto
     expect(await isVisible(page, "#opt-diarize-hint")).toBe(false);
+    await openAdvanced(page);
     await page.click("#opt-diarize");
     await page.click("#start");
     await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
@@ -498,6 +507,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     const name = "sinhablantes.mp4";
     await chooseFile(page, videoFile(name, 20 * 1024));
     await page.waitForFunction(() => !(document.querySelector("#opt-diarize") as unknown as { disabled: boolean }).disabled, { timeout: 10_000 });
+    await openAdvanced(page);
     await page.click("#opt-diarize");
     await page.click("#start");
     await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
@@ -810,6 +820,127 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await session.detach();
     expect(await page.$eval("#burn-start", (button) => (button as unknown as { disabled: boolean }).disabled)).toBe(false);
     expect(await page.$$eval("#history-list li", (items) => items.length)).toBe(2);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  /**
+   * El Chrome de las pruebas no decodifica el video de relleno: se simulan los metadatos que daría con un video real vertical de 48 s
+   * (1080×1920). Lo que se prueba es la cadena entera de la interfaz, no el códec del navegador.
+   */
+  async function fakeVerticalMetadata(page: Page): Promise<void> {
+    await page.evaluate(`(() => {
+      Object.defineProperty(HTMLMediaElement.prototype, "src", {
+        configurable: true,
+        get() { return this.__src ?? ""; },
+        set(value) {
+          this.__src = value;
+          Object.defineProperty(this, "duration", { configurable: true, value: 48 });
+          Object.defineProperty(this, "videoWidth", { configurable: true, value: 1080 });
+          Object.defineProperty(this, "videoHeight", { configurable: true, value: 1920 });
+          setTimeout(() => this.dispatchEvent(new Event("loadedmetadata")), 0);
+        },
+      });
+    })()`);
+  }
+
+  it("sube y olvídate: un video vertical corto sugiere Vertical y, al completarse la transcripción, la pestaña pide sola el quemado 9:16", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    await fakeVerticalMetadata(page);
+    const name = "tiktok.mp4";
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    await page.waitForFunction(() => (document.querySelector("#quick-summary")?.textContent ?? "").includes("Vertical (Shorts/Reels)"), { timeout: 10_000 });
+    expect(await text(page, "#quick-summary")).toContain("video vertical 9:16");
+    expect(await isVisible(page, "#quick-suggestion")).toBe(true);
+    expect(await text(page, "#quick-suggestion-text")).toContain("Es vertical y dura 48 s");
+    expect(await isVisible(page, "#quick-warning")).toBe(true); // «no cierres la pestaña»
+    expect(await page.$eval("#advanced", (details) => (details as unknown as { open: boolean }).open)).toBe(false);
+
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+    const [job] = await jobsNamed(`${token}-${name}`);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job!.id } })).options).toMatchObject({ modelSize: "small", cleanAudio: false, diarize: false });
+
+    await workerCompletes(name, SEGMENTS);
+    await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 20_000 });
+    const burn = await burnJobOf(job!.id);
+    expect(burn.options).toMatchObject({ canvas: "vertical", template: "bold-pop" });
+    expect(await isVisible(page, "#quick-warning")).toBe(false); // ya no queda nada encadenado
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("sube y olvídate: «Descartar» la sugerencia sube con lo de siempre y no se encadena nada", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    await fakeVerticalMetadata(page);
+    const name = "descartado.mp4";
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    await page.waitForFunction(() => document.querySelector("#quick-suggestion")?.getAttribute("hidden") === null, { timeout: 10_000 });
+    await page.click("#quick-suggestion-dismiss");
+    expect(await isVisible(page, "#quick-suggestion")).toBe(false);
+    expect(await isVisible(page, "#quick-warning")).toBe(false);
+    expect(await text(page, "#quick-summary")).toContain("Estándar");
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+    const [job] = await jobsNamed(`${token}-${name}`);
+    await workerCompletes(name, SEGMENTS);
+    await page.waitForSelector("#result-panel:not([hidden])", { timeout: 15_000 });
+    expect(await prisma.job.count({ where: { parentJobId: job!.id } })).toBe(0);
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("control total: nace plegado, conserva lo ajustado al plegarlo y al recargar, y «Restablecer» lo borra", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    const isOpen = () => page.$eval("#advanced", (details) => (details as unknown as { open: boolean }).open);
+    const value = (selector: string) => page.$eval(selector, (element) => (element as unknown as { value: string }).value);
+    const checked = (selector: string) => page.$eval(selector, (element) => (element as unknown as { checked: boolean }).checked);
+    expect(await isOpen()).toBe(false);
+    expect(await text(page, "#quick-summary")).toContain("Perfil: Estándar");
+
+    await openAdvanced(page);
+    await page.click("#opt-clean");
+    await page.select("#opt-model", "medium");
+    expect(await text(page, "#quick-summary")).toContain("Ajustes manuales");
+    await page.click("#advanced > summary"); // plegar y volver a abrir no pierde nada
+    expect(await isOpen()).toBe(false);
+    await openAdvanced(page);
+    expect(await value("#opt-model")).toBe("medium");
+    expect(await checked("#opt-clean")).toBe(true);
+
+    await page.reload({ waitUntil: "networkidle0" });
+    expect(await isOpen()).toBe(false); // siempre empieza en modo rápido
+    expect(await value("#opt-model")).toBe("medium");
+    expect(await checked("#opt-clean")).toBe(true);
+    expect(await text(page, "#quick-summary")).toContain("Ajustes manuales");
+
+    await openAdvanced(page);
+    await page.click("#advanced-reset");
+    expect(await value("#opt-model")).toBe("small");
+    expect(await checked("#opt-clean")).toBe(false);
+    expect(await page.evaluate(() => localStorage.getItem("cf-prefs"))).toBeNull();
+    expect(await text(page, "#quick-summary")).toContain("Perfil: Estándar");
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("control total: con el almacenamiento del navegador bloqueado todo funciona y solo se pierde la preferencia", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    await page.evaluateOnNewDocument(`Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("bloqueado"); } })`);
+    await page.reload({ waitUntil: "networkidle0" });
+    await openAdvanced(page);
+    await page.click("#opt-clean");
+    expect(await text(page, "#quick-summary")).toMatch(/Ajustes manuales|Manual settings/); // sin almacenamiento tampoco se lee el idioma guardado
+    const name = "sinalmacen.mp4";
+    await chooseFile(page, videoFile(name, 20 * 1024));
+    await page.click("#start");
+    await page.waitForSelector("#job-panel:not([hidden])", { timeout: 20_000 });
+    const [job] = await jobsNamed(`${token}-${name}`);
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job!.id } })).options).toMatchObject({ cleanAudio: true });
     expect(spy.problems).toEqual([]);
     await page.close();
   }, 90_000);

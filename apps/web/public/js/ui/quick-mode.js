@@ -54,7 +54,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     warning: $("quick-warning"),
   };
 
-  /** @type {Map<string | number, { facts: import("../domain/profiles.js").MediaFacts | null }>} */
+  /** @type {Map<string | number, { facts: import("../domain/profiles.js").MediaFacts | null, done: boolean }>} */
   const entries = new Map();
   /** @type {Set<Promise<unknown>>} */
   const probing = new Set();
@@ -140,8 +140,14 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
 
   /** Plan del primer archivo (o el de un archivo desconocido): es lo que reflejan los controles. */
   function firstPlan() {
-    const first = entries.keys().next();
-    return planOf(first.done ? "" : first.value);
+    const [first] = shownKeys();
+    return planOf(first ?? "");
+  }
+
+  /** Los archivos que aún faltan por subir; si ya no falta ninguno, todos (el resumen sigue describiendo lo que se hizo). */
+  function shownKeys() {
+    const waiting = [...entries].filter(([, entry]) => !entry.done).map(([key]) => key);
+    return waiting.length > 0 ? waiting : [...entries.keys()];
   }
 
   function syncControlsFromPlan() {
@@ -162,7 +168,7 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
   function summaryText() {
     const c = readControls();
     const parts = [];
-    const plans = [...entries.keys()].map(planOf);
+    const plans = shownKeys().map(planOf);
     if (manual) parts.push(t("quick.sum.manual"));
     else if (plans.length > 1) {
       const counts = new Map();
@@ -186,8 +192,9 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
   /** Primer archivo con un perfil sugerido distinto de Estándar (solo en automático). */
   function suggestion() {
     if (manual || profileChoice !== "auto") return null;
-    for (const entry of entries.values()) {
-      if (entry.facts === null) continue;
+    for (const key of shownKeys()) {
+      const entry = entries.get(key);
+      if (!entry || entry.facts === null) continue;
       const result = analyze(entry.facts, caps());
       if (result.profileId !== "standard") {
         const reason = result.reasons[0];
@@ -218,7 +225,8 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
     els.suggestion.hidden = hint === null;
     if (hint !== null) els.suggestionText.textContent = t("quick.suggest", { profile: profileName(hint.profileId), reason: hint.reason });
 
-    const chains = [...entries.keys()].some((key) => planOf(key).followUp !== null) || (entries.size === 0 && firstPlan().followUp !== null);
+    const waiting = [...entries].filter(([, entry]) => !entry.done).map(([key]) => key);
+    const chains = waiting.some((key) => planOf(key).followUp !== null) || (entries.size === 0 && firstPlan().followUp !== null);
     els.warning.hidden = !(chains || pending() > 0);
   }
 
@@ -263,13 +271,17 @@ export function createQuickMode({ doc, t, storage, getCaps, probe, announce, pen
   refresh();
 
   return {
-    /** Analiza los archivos nuevos de la cola y olvida los que ya no están. @param {{ key: string | number, file: any, kind: string }[]} items */
+    /** Analiza los archivos nuevos de la cola y olvida los que ya no están. @param {{ key: string | number, file: any, kind: string, done?: boolean }[]} items */
     track(items) {
       const keys = new Set(items.map((item) => item.key));
       for (const key of [...entries.keys()]) if (!keys.has(key)) entries.delete(key);
       for (const item of items) {
-        if (entries.has(item.key)) continue;
-        const entry = { facts: /** @type {import("../domain/profiles.js").MediaFacts | null} */ (null) };
+        const known = entries.get(item.key);
+        if (known) {
+          known.done = item.done === true;
+          continue;
+        }
+        const entry = { facts: /** @type {import("../domain/profiles.js").MediaFacts | null} */ (null), done: item.done === true };
         entries.set(item.key, entry);
         const job = probe(item.file, item.kind)
           .then((facts) => {

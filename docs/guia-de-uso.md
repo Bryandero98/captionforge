@@ -19,7 +19,14 @@ ningún marcador `{x}`).
 
 1. **Elige tus videos.** Arrastra hasta 20 a la zona punteada o pulsa «Elige un archivo». Formatos: MP4, MOV, MKV, WEBM
    y AVI, o audio: MP3, WAV, M4A, OGG y FLAC (ver «Audio»). Los archivos que no sirven se descartan y se explica por qué.
-2. **Ajusta las opciones.** *Modelo*: Base es el más rápido y Medium el más preciso. *Idioma del audio*: déjalo en
+2. **Mira el resumen (Modo Rápido).** Al elegir un archivo, la página lee su duración y su forma en tu navegador (no sube nada) y
+   te dice qué va a hacer en una línea, por ejemplo «Perfil: Vertical (Shorts/Reels) · Modelo: Small · Después: video vertical 9:16».
+   Si el archivo parece un Short, un podcast, una reunión o un clip, te sugiere ese perfil con el motivo; puedes
+   «Cambiar» el perfil o «Descartar» la sugerencia. Si te vale, pulsa «Generar subtítulos» y listo. En los perfiles con quemado
+   (Vertical y Clip Rápido) la pestaña pide sola el video con subtítulos cuando termina la transcripción: **mantén la pestaña
+   abierta** (si la cierras, la transcripción sigue en el servidor y puedes crear el video a mano desde el resultado).
+   Para ajustar a mano, abre **«Control total»** (siempre empieza plegado):
+   *Modelo*: Base es el más rápido y Medium el más preciso. *Idioma del audio*: déjalo en
    «Autodetectar» salvo que lo sepas. *Traducir a*: opcional, para obtener los subtítulos en otro idioma.
    *Limpiar ruido de fondo* (desactivado por defecto): actívalo si hay música o ruido fuerte sobre la voz. Tarda más, porque
    antes de transcribir se aísla la voz. Si no se puede limpiar, el trabajo sigue con el audio original y el resultado lo
@@ -28,6 +35,8 @@ ningún marcador `{x}`).
    entrevistas y reuniones. Tarda más y solo aparece activa si el servidor tiene un token de Hugging Face (ver
    «Activar la identificación de hablantes»). Si no se puede, el trabajo entrega la transcripción normal y el
    resultado lo avisa («Hablantes identificados: No»).
+   Lo que ajustes en «Control total» se recuerda en este navegador (solo ajustes, nunca claves ni nombres de archivo);
+   «Restablecer preferencias» lo borra.
 3. **Genera los subtítulos.** Pulsa «Generar subtítulos». Verás la subida y después las etapas del trabajo (preparar el
    audio, transcribir, traducir…). Con varios videos, se suben de uno en uno; si uno falla, la cola se detiene ahí y lo
    ya subido se conserva. Puedes cerrar la página: el trabajo sigue en el servidor y queda en «Recientes».

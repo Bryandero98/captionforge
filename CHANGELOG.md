@@ -8,6 +8,36 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
+## [1.3.0] - Sin publicar
+
+Modo Rápido: de un clic a un video con subtítulos, sin decidir nada técnico. «Control total» sigue ahí para quien lo quiera. Iniciativas «Sube y olvídate» y «Resultado rápido vs Control total» de la [hoja de ruta](docs/ROADMAP.md).
+
+[ADR 0025](docs/adr/0025-modo-rapido-y-orquestacion-en-el-cliente.md)
+
+### Añadido
+
+- **Modo Rápido**: un botón principal «Generar subtítulos» y un resumen vivo (`aria-live`) de lo que se va a hacer. Los controles técnicos (modelo, idioma,
+  traducción, limpieza de ruido, hablantes) pasan a **«Control total»**, un `<details id="advanced">` que nace plegado en cada visita.
+- **Cinco perfiles** (Vertical (Shorts/Reels), Podcast, Reunión, Clip Rápido, Estándar) que el navegador sugiere según la duración y las dimensiones del archivo,
+  con el motivo y los botones «Cambiar» y «Descartar». Son una tabla del cliente: el contrato de `POST /v1/jobs/transcribe` no cambia.
+- **Lectura local de metadatos** con `preload="metadata"` (tiempo máximo de 4 s, sin subir ni decodificar el archivo); si no se puede leer, se usa Estándar.
+- **«Sube y olvídate»**: al completarse la transcripción, la pestaña pide sola el quemado que el perfil o los ajustes encadenaron (vertical 9:16 o clásico), una
+  sola vez por archivo y sin reintentos si falla. Lotes incluidos. Un aviso pide mantener la pestaña abierta y el navegador confirma antes de cerrarla.
+- **Identificar hablantes** solo en Podcast y Reunión, con duración conocida menor de 60 minutos y solo si el servidor lo ofrece.
+- **Preferencias en este navegador** (`cf-prefs`, lista blanca de ajustes no sensibles; nunca claves, URL ni nombres de archivo) y botón «Restablecer preferencias».
+  Con el almacenamiento bloqueado todo funciona igual.
+- `GET /v1/capabilities` informa `limits.verticalMaxSeconds` y `burn.templates`; `VERTICAL_MAX_SECONDS` (600 por defecto, máximo 86 400) se comparte entre el API y el worker.
+- Textos de los perfiles, del resumen, de los motivos y del aviso de pestaña en los 6 idiomas (es, en, de, fr, it, pt).
+
+### Cambiado
+
+- La subida calcula sus opciones con un plan puro (`domain/plan.js`) en vez de leer los controles directamente; sin tocar «Control total» el resultado equivale a los valores de siempre.
+- Los tests de navegador abren «Control total» antes de usar los controles técnicos.
+
+### Notas
+
+- El encadenado vive en el navegador (fase 1): si se cierra la pestaña se pierde solo el encadenado; la transcripción sigue en el servidor y «Crear video» sigue disponible a mano. La orquestación en el servidor queda para la fase 3 de la hoja de ruta.
+
 ## [1.2.0] - 2026-10-24
 
 Subtítulos dinámicos y formato vertical para Shorts, Reels y TikTok, con dos parches de seguridad. Issue #13 (parte 2), PR #35 y PR #36.

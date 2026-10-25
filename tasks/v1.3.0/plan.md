@@ -2,7 +2,7 @@
 
 Rama: `feat/v1.3.0-ux-onboarding` (desde `main` en v1.2.0). Hoja de ruta: [`docs/ROADMAP.md`](../../docs/ROADMAP.md).
 Alcance de este documento: **solo las iniciativas 1 y 2**, arquitectura del cliente (JS vainilla con módulos ES, sin build) y ajustes mínimos de la API.
-Reglas: rojo → verde, una suite del API a la vez, commits por tarea, PR único solo cuando lo ordene el Tech Lead. Estado: **decisiones aprobadas por el Tech Lead (ver §0); T1–T6 hechas hasta el Checkpoint 2; la interfaz (T7–T11) espera su luz verde.**
+Reglas: rojo → verde, una suite del API a la vez, commits por tarea, PR único solo cuando lo ordene el Tech Lead. Estado: **decisiones aprobadas por el Tech Lead (ver §0); T1–T11 hechas; PR abierto, a la espera de la revisión del Tech Lead antes de fusionar.**
 
 ## 0. Decisiones aprobadas
 
@@ -143,11 +143,11 @@ Fallos: un 413 (`job_too_large`) o 409 se muestran como aviso junto al resultado
 | T4 ✅ | `domain/media-probe.js` | Pruebas con elementos falsos: éxito, `error`, tiempo agotado, revocación de la URL siempre, archivo sin duración | — | S |
 | T5 ✅ | API: `capabilities.limits/burn` y `verticalMaxSeconds` configurable | Pruebas e2e de capacidades y de coherencia con `/burn`; compose actualizado | — | M |
 | T6 ✅ | Cliente de capacidades: lee `limits`/`burn` con valores por defecto | Pruebas con respuestas antiguas, raras y nuevas | T5 | S |
-| T7 | `ui/quick-mode.js` + marcado de `index.html` + estilos | Pruebas con DOM falso: valores seguros por defecto, resumen, chip, «Cambiar», paso a manual, lote mixto, capacidades apagadas | T1–T4, T6 | L |
-| T8 | `ui/follow-up.js` y cableado en `app.js` | Pruebas: encadena al completar, 409/413 no hacen bucle, nada si el usuario cerró o cambió de trabajo | T7 | M |
-| T9 | i18n en los 6 idiomas (≈35 claves `quick.*`, `profile.*`, `advanced.*`) y guía actualizada | La comprobación de idiomas pasa; revisión de longitudes en alemán | T7 | M |
-| T10 | e2e de navegador | Un clic con valores por defecto crea el mismo trabajo que hoy; un video vertical muestra la sugerencia y encadena el quemado; las preferencias sobreviven a la recarga; con `localStorage` bloqueado todo funciona; teclado y lector (roles/etiquetas) | T7–T9 | M |
-| T11 | ADR 0025, CHANGELOG `[Sin publicar]`, README y guía | Pruebas de documentación | todas | S |
+| T7 ✅ | `ui/quick-mode.js` + marcado de `index.html` + estilos | Pruebas con DOM falso: valores seguros por defecto, resumen, chip, «Cambiar», paso a manual, lote mixto, capacidades apagadas | T1–T4, T6 | L |
+| T8 ✅ | `ui/follow-up.js` y cableado en `app.js` | Pruebas: encadena al completar, 409/413 no hacen bucle, nada si el usuario cerró o cambió de trabajo | T7 | M |
+| T9 ✅ | i18n en los 6 idiomas (≈35 claves `quick.*`, `profile.*`, `advanced.*`) y guía actualizada | La comprobación de idiomas pasa; revisión de longitudes en alemán | T7 | M |
+| T10 ✅ | e2e de navegador | Un clic con valores por defecto crea el mismo trabajo que hoy; un video vertical muestra la sugerencia y encadena el quemado; las preferencias sobreviven a la recarga; con `localStorage` bloqueado todo funciona; teclado y lector (roles/etiquetas) | T7–T9 | M |
+| T11 ✅ | ADR 0025, CHANGELOG `[Sin publicar]`, README y guía | Pruebas de documentación | todas | S |
 
 **Checkpoints.** Tras T1–T4 (dominio puro, sin DOM); tras T5–T6 (backend y capacidades; se reporta el estado de las pruebas del API antes de tocar la interfaz); tras T7–T10 (interfaz completa).
 

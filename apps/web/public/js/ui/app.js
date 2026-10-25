@@ -193,6 +193,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     setTimeout: (/** @type {() => void} */ fn, /** @type {number} */ ms) => win.setTimeout(fn, ms),
     clearTimeout: (/** @type {number} */ id) => win.clearTimeout(id),
   };
+  fillSelects(); // los <select> existen antes del modo rápido: así las preferencias guardadas encuentran su opción
   const quick = createQuickMode({
     doc,
     t: translate,
@@ -204,7 +205,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     languageName: (code) => languageNames().find((entry) => entry.code === code)?.label ?? code,
   });
   /** Los archivos de la cola, para que el modo rápido lea sus metadatos (solo los nuevos) y mantenga el resumen al día. */
-  const syncQuick = () => quick.track(batch.items.map((item) => ({ key: item.key, file: item.file, kind: isAudioMime(videoMimeType(/** @type {File} */ (item.file))) ? "audio" : "video" })));
+  const syncQuick = () => quick.track(batch.items.map((item) => ({ key: item.key, file: item.file, kind: isAudioMime(videoMimeType(/** @type {File} */ (item.file))) ? "audio" : "video", done: item.status === "done" })));
 
   // Calidad de los subtítulos (ADR 0021): el informe y el arreglo los calcula el API; aquí solo se piden y se pintan.
   quality = createQuality({
@@ -267,6 +268,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
       dispatch({ type: "accepted", job });
       history.add({ id: job.id, name: item.file.name, kind: "TRANSCRIBE", at: Date.now() });
       followUp.register(job.id, plan.followUp, item.file.name);
+      syncQuick(); // este archivo ya está subido: el aviso de pestaña solo queda por lo que falta o está pendiente
       void tracker.follow(job.id);
       accepted = true;
     } catch (error) {
@@ -697,7 +699,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     onTranslate(t); // la cuenta (ui/account.js) repinta lo que depende de los datos
   }
 
-  const languageNames = () => languageNamesFor(lang);
+  function languageNames() {
+    return languageNamesFor(lang);
+  }
 
   /** Reconstruye los <select> conservando lo elegido. */
   function fillSelects() {
