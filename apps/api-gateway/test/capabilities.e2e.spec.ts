@@ -1,5 +1,8 @@
 // GET /v1/capabilities y la regla de identificar hablantes (diarize): solo si el servidor la tiene disponible.
 // PostgreSQL, Redis y S3 reales (npm run infra:up).
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { afterAll, describe, expect, it } from "vitest";
 
 import { loadConfig } from "../src/config/config.js";
@@ -8,9 +11,10 @@ import { PrismaService } from "../src/prisma/prisma.service.js";
 import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
+const LIMITS_AND_BURN = { limits: { verticalMaxSeconds: 600 }, burn: { templates: ["bold-pop", "rounded-sweep", "clean-color"] } };
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
-async function start(diarization: boolean, appSecret?: string, allowPrivateBaseUrls = false): Promise<{ base: string; prisma: PrismaService }> {
+async function start(diarization: boolean, appSecret?: string, allowPrivateBaseUrls = false, burn?: { verticalMaxSeconds: number }): Promise<{ base: string; prisma: PrismaService }> {
   await sharedTenant();
   const app = await createApp({
     ...baseConfig,
@@ -18,6 +22,7 @@ async function start(diarization: boolean, appSecret?: string, allowPrivateBaseU
     webRoot: undefined,
     features: { diarization },
     byok: { ...baseConfig.byok, appSecret, allowPrivateBaseUrls },
+    ...(burn ? { burn } : {}),
     reaper: { ...baseConfig.reaper, intervalMs: 0 },
     security: { ...baseConfig.security, rateLimitPerMinute: 0, uploadRateLimitPerMinute: 0, maxConcurrentUploads: 0, maxConcurrentUploadsPerClient: 0, uploadMinBytesPerSecond: 0 },
   });
@@ -45,8 +50,19 @@ describe("GET /v1/capabilities", () => {
       const { base } = await start(enabled);
       const response = await fetch(`${base}/v1/capabilities`);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false } });
+      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN });
     }
+  });
+
+  it("publica el tope del formato vertical que realmente aplica el servidor (configurable) y las plantillas del contrato", async () => {
+    const { base } = await start(false, undefined, false, { verticalMaxSeconds: 90 });
+    const body = (await (await fetch(`${base}/v1/capabilities`)).json()) as { limits: { verticalMaxSeconds: number }; burn: { templates: string[] } };
+    expect(body.limits.verticalMaxSeconds).toBe(90);
+    // Las plantillas anunciadas son exactamente las que acepta el esquema del contrato: no pueden divergir.
+    const schema = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../packages/contracts/schemas/burn-job.v1.json"), "utf8")) as {
+      properties: { options: { properties: { template: { enum: string[] } } } };
+    };
+    expect(body.burn.templates).toEqual(schema.properties.options.properties.template.enum);
   });
 
   it("anuncia las claves externas propias solo con APP_SECRET, con los proveedores y sin exponer el secreto", async () => {
@@ -55,7 +71,7 @@ describe("GET /v1/capabilities", () => {
     const response = await fetch(`${base}/v1/capabilities`);
     expect(response.status).toBe(200);
     const text = await response.text();
-    expect(JSON.parse(text)).toEqual({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false } });
+    expect(JSON.parse(text)).toEqual({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN });
     expect(text).not.toContain(secret);
   });
 

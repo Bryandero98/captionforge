@@ -20,6 +20,16 @@ function ports(block: string): string[] {
   return match === null ? [] : match[1]!.split("\n").filter((line) => line.trim() !== "").map((line) => line.trim().replace(/^- /, ""));
 }
 
+describe("docker-compose.yml: tope compartido del formato vertical", () => {
+  it("el API y el worker reciben VERTICAL_MAX_SECONDS con el mismo valor por defecto (una sola fuente, sin divergir)", () => {
+    const pick = (block: string): string | undefined => /^ {6}VERTICAL_MAX_SECONDS: (.*)$/m.exec(block)?.[1]?.trim();
+    const api = pick(service("api-gateway"));
+    const worker = pick(service("ai-worker"));
+    expect(api).toBe("${VERTICAL_MAX_SECONDS:-600}");
+    expect(worker).toBe(api);
+  });
+});
+
 describe("docker-compose.yml: canal interno del worker", () => {
   it("el API define el puerto interno y NO lo publica en el anfitrión", () => {
     const api = service("api-gateway");

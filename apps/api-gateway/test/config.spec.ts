@@ -65,6 +65,14 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, PORT: port })).toThrow(/PORT/);
   });
 
+  it("el tope del formato vertical sale de VERTICAL_MAX_SECONDS (600 s por defecto) y se valida", () => {
+    expect(loadConfig(base).burn.verticalMaxSeconds).toBe(600);
+    expect(loadConfig({ ...base, VERTICAL_MAX_SECONDS: "120" }).burn.verticalMaxSeconds).toBe(120);
+    for (const bad of ["abc", "-1", "0", "1.5", "99999999"]) {
+      expect(() => loadConfig({ ...base, VERTICAL_MAX_SECONDS: bad }), bad).toThrow(/VERTICAL_MAX_SECONDS/);
+    }
+  });
+
   it("rechaza un MAX_UPLOAD_BYTES inválido", () => {
     expect(() => loadConfig({ ...base, MAX_UPLOAD_BYTES: "mucho" })).toThrow(/MAX_UPLOAD_BYTES/);
   });

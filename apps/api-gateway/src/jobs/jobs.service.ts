@@ -20,6 +20,7 @@ import { Prisma, type Job, type JobStatus } from "../generated/prisma/client.js"
 import { PrismaService } from "../prisma/prisma.service.js";
 import { QueueService } from "../queue/queue.service.js";
 import { StorageService } from "../storage/storage.service.js";
+import { BURN_CANVASES, BURN_OPTION_KEYS, BURN_STYLES, BURN_TEMPLATES } from "./burn-options.js";
 import { KeyedMutex } from "./keyed-mutex.js";
 import { ALLOWED_CONTENT_TYPES, type MediaKind, mediaKindOf } from "./media-kind.js";
 import { type Segment, SegmentsError, applyEdits, parseEdits, parseSegments, segmentsToSrt } from "./segments.js";
@@ -118,13 +119,6 @@ const MAX_SEGMENTS_BYTES = 32 * 1024 * 1024;
 /** Error con `code` estable: la interfaz decide el texto por el código, no por el mensaje. */
 const coded = (Exception: new (response: object) => Error, status: number, error: string, code: string, message: string): Error =>
   new Exception({ statusCode: status, error, code, message });
-const BURN_STYLES = ["modern", "tiktok", "youtube", "minimal"] as const;
-/** Plantillas de subtítulos dinámicos (.ass) y formas del lienzo; las mismas del esquema burn-job. */
-const BURN_TEMPLATES = ["bold-pop", "rounded-sweep", "clean-color"] as const;
-const BURN_CANVASES = ["source", "vertical"] as const;
-const BURN_OPTION_KEYS = ["style", "karaoke", "template", "canvas"];
-/** Tope de duración del video en 9:16 (decisión del Tech Lead): el worker también lo recorta con `-t`. */
-const VERTICAL_MAX_SECONDS = 600;
 
 /** Nombre de descarga: el del video original con la extensión del artefacto (sin su extensión de video). */
 export function downloadName(originalFilename: string, artifact: string, kind?: Job["kind"]): string {
@@ -370,13 +364,15 @@ export class JobsService {
       throw coded(BadRequestException, 400, "Bad Request", "burn_not_available_for_audio", "Un audio no tiene imagen: no se pueden quemar subtítulos. Descarga el .srt.");
     }
     const duration = (parent.result as { durationSeconds?: unknown } | null)?.durationSeconds;
-    if (options.canvas === "vertical" && typeof duration === "number" && duration > VERTICAL_MAX_SECONDS) {
+    // Tope de duración del video en 9:16: una sola variable (VERTICAL_MAX_SECONDS) que también lee el worker, que además recorta con `-t`.
+    const verticalMax = this.config.burn.verticalMaxSeconds;
+    if (options.canvas === "vertical" && typeof duration === "number" && duration > verticalMax) {
       throw coded(
         PayloadTooLargeException,
         413,
         "Payload Too Large",
         "job_too_large",
-        `El video dura ${Math.ceil(duration)} s y el formato vertical 9:16 admite hasta ${VERTICAL_MAX_SECONDS / 60} minutos. Quémalo con la forma original.`,
+        `El video dura ${Math.ceil(duration)} s y el formato vertical 9:16 admite hasta ${verticalMax / 60} minutos. Quémalo con la forma original.`,
       );
     }
     const head = await this.storage.head(segmentsKey);

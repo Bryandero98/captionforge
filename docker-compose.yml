@@ -244,6 +244,8 @@ services:
       # URL base propia de un proveedor de IA (ADR 0022). Apagada: solo servidores públicos por https. Encendida: también Ollama/vLLM locales.
       ALLOW_PRIVATE_BASE_URLS: ${ALLOW_PRIVATE_BASE_URLS:-}
       MAX_JOB_SEGMENTS: ${MAX_JOB_SEGMENTS:-1000}
+      # Tope de duración del formato vertical 9:16 (segundos): el API lo anuncia y lo aplica (413), el worker recorta con él. Misma variable en ambos.
+      VERTICAL_MAX_SECONDS: ${VERTICAL_MAX_SECONDS:-600}
       # Páginas web ajenas (ADR 0011): solo estos nombres de host y estos orígenes de navegador. Vacío = solo mismo origen.
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
@@ -375,6 +377,8 @@ services:
       # URL base propia de un proveedor de IA (ADR 0022). Apagada: solo servidores públicos por https. Encendida: también Ollama/vLLM locales.
       ALLOW_PRIVATE_BASE_URLS: ${ALLOW_PRIVATE_BASE_URLS:-}
       MAX_JOB_SEGMENTS: ${MAX_JOB_SEGMENTS:-1000}
+      # Tope de duración del formato vertical 9:16 (segundos): el API lo anuncia y lo aplica (413), el worker recorta con él. Misma variable en ambos.
+      VERTICAL_MAX_SECONDS: ${VERTICAL_MAX_SECONDS:-600}
     volumes:
       - model_cache:/models
       # Archivos de trabajo (videos de hasta 4 GiB): volumen, no tmpfs, porque tmpfs cuenta
