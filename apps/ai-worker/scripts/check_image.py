@@ -109,4 +109,33 @@ with tempfile.TemporaryDirectory() as folder:
         f"Arial se resuelve a {arial!r} en vez de Liberation Sans (¿falta fonts-liberation?)"
     )
 
-print("imagen correcta: ffmpeg, decode_audio y el quemado de subtítulos (SRT y karaoke) funcionan")
+    # Subtítulos dinámicos (.ass paginado) en formato 9:16: las dos fuentes empaquetadas deben resolverse de verdad (libass avisa
+    # «fontselect» con la fuente elegida; si cayera a DejaVu el video saldría con otra tipografía y código 0).
+    from ai_worker.ass_render import TEMPLATES, get_template, paginate, render_ass
+    from ai_worker.vertical import CANVAS_HEIGHT, CANVAS_WIDTH, VideoGeometry, build_vertical_cmd
+
+    fonts_dir = "/usr/share/fonts/truetype/captionforge"  # el mismo valor por defecto que WorkerConfig.fonts_dir
+    for name in TEMPLATES:
+        template = get_template(name)
+        family = template.font
+        match = subprocess.run(["fc-match", "-f", "%{family}|%{file}", family], capture_output=True, text=True, check=True).stdout
+        assert family.split()[0] in match and fonts_dir in match, f"{family} se resuelve a {match!r}: ¿faltan las fuentes empaquetadas?"
+        words = [
+            WordTiming(start=i * 0.4, end=i * 0.4 + 0.4, text=word, probability=0.9)
+            for i, word in enumerate(("HOLA", "MUNDO", "esto", "es", "una", "prueba"))
+        ]
+        pages = paginate([Segment(start=0.0, end=2.4, text="HOLA MUNDO esto es una prueba", words=words)], template.max_words)
+        captions = os.path.join(folder, f"dinamico-{name}.ass")
+        with open(captions, "w", encoding="utf-8") as handle:
+            handle.write(render_ass(pages, template, (CANVAS_WIDTH, CANVAS_HEIGHT)))
+        output = os.path.join(folder, f"vertical-{name}.mp4")
+        cmd = build_vertical_cmd(background, captions, output, VideoGeometry(640, 360, 10.0), fonts_dir)
+        cmd[cmd.index("-v") + 1] = "verbose"
+        result = run_ffmpeg(cmd[1:])
+        stderr = result.stderr.decode(errors="replace")
+        assert result.returncode == 0, f"el quemado 9:16 ({name}) falló: {stderr[-600:]}"
+        picked = [line for line in stderr.splitlines() if "fontselect" in line and family in line]
+        assert picked and all("default" not in line.lower() for line in picked), f"libass no usó {family}: {stderr[-800:]}"
+        assert bright_pixels(output) >= MIN_TEXT_PIXELS, f"el quemado 9:16 ({name}) no dibujó texto"
+
+print("imagen correcta: ffmpeg, decode_audio, el quemado de subtítulos (SRT y karaoke) y el formato 9:16 con las fuentes empaquetadas funcionan")

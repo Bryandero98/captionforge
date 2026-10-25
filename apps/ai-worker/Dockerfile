@@ -21,6 +21,11 @@ RUN apt-get update \
  && mkdir -p /models /work \
  && chown worker:worker /models /work
 
+# Fuentes de los subtítulos dinámicos (Montserrat y Nunito ExtraBold, SIL OFL; ver apps/ai-worker/fonts/README.md). Se instalan
+# en la ruta fija que el worker pasa a `ass=…:fontsdir=` y se deja la caché hecha: el contenedor no escribe fuera de /work.
+COPY apps/ai-worker/fonts/*.ttf /usr/share/fonts/truetype/captionforge/
+RUN fc-cache -f
+
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_CONSTRAINT=/repo/apps/ai-worker/constraints.txt \

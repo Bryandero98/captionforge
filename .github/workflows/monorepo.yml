@@ -119,6 +119,10 @@ jobs:
           apps/ai-worker/.venv/bin/python -m pip install huggingface_hub tqdm imageio-ffmpeg
           apps/ai-worker/.venv/bin/python -m pip install -e "apps/ai-worker[dev]"
 
+      # Las fuentes de los subtítulos dinámicos se versionan como binarios: un cambio accidental o malicioso rompería el diseño en silencio.
+      - name: AI Worker - hashes de las fuentes (SHA256SUMS)
+        run: cd apps/ai-worker/fonts && sha256sum --check SHA256SUMS
+
       # El doblaje (T9) exporta MP3 con el ffmpeg del localizador: sin libmp3lame fallaría solo en producción.
       - name: AI Worker - ffmpeg con libmp3lame
         run: |
