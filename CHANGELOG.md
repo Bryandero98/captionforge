@@ -10,7 +10,7 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [1.2.0] - 2026-10-24
 
-Subtítulos dinámicos y formato vertical para Shorts, Reels y TikTok, con dos parches de seguridad. Issue #13 (parte 2), PR #35 y PR de la versión.
+Subtítulos dinámicos y formato vertical para Shorts, Reels y TikTok, con dos parches de seguridad. Issue #13 (parte 2), PR #35 y PR #36.
 
 ### Issue #13: subtítulos dinámicos ASS y formato vertical 9:16
 
