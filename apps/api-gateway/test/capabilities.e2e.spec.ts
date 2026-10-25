@@ -12,14 +12,18 @@ import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 
 const baseConfig = loadConfig();
 const LIMITS_AND_BURN = { limits: { verticalMaxSeconds: 600 }, burn: { templates: ["bold-pop", "rounded-sweep", "clean-color"] } };
+// El asistente (ADR 0028) solo se anuncia en modo local, haya o no claves externas.
+const ASSISTANT_OFF = { assistant: { enabled: false, allowPrivateBaseUrls: false } };
+const ASSISTANT_ON = { assistant: { enabled: true, allowPrivateBaseUrls: false } };
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
-async function start(diarization: boolean, appSecret?: string, allowPrivateBaseUrls = false, burn?: { verticalMaxSeconds: number }): Promise<{ base: string; prisma: PrismaService }> {
+async function start(diarization: boolean, appSecret?: string, allowPrivateBaseUrls = false, burn?: { verticalMaxSeconds: number }, localMode = true): Promise<{ base: string; prisma: PrismaService }> {
   await sharedTenant();
   const app = await createApp({
     ...baseConfig,
     port: 0,
     webRoot: undefined,
+    auth: { ...baseConfig.auth, localMode },
     features: { diarization },
     byok: { ...baseConfig.byok, appSecret, allowPrivateBaseUrls },
     ...(burn ? { burn } : {}),
@@ -50,7 +54,7 @@ describe("GET /v1/capabilities", () => {
       const { base } = await start(enabled);
       const response = await fetch(`${base}/v1/capabilities`);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN });
+      expect(await response.json()).toEqual({ diarization: { enabled }, byok: { enabled: false, providers: [], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN, ...ASSISTANT_ON });
     }
   });
 
@@ -71,8 +75,15 @@ describe("GET /v1/capabilities", () => {
     const response = await fetch(`${base}/v1/capabilities`);
     expect(response.status).toBe(200);
     const text = await response.text();
-    expect(JSON.parse(text)).toEqual({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN });
+    expect(JSON.parse(text)).toEqual({ diarization: { enabled: false }, byok: { enabled: true, providers: ["openai", "elevenlabs"], allowPrivateBaseUrls: false }, ...LIMITS_AND_BURN, ...ASSISTANT_ON });
     expect(text).not.toContain(secret);
+  });
+
+  it("el asistente solo se anuncia en modo local: con LOCAL_MODE=false queda apagado aunque haya claves externas", async () => {
+    const { base } = await start(false, "capacidades-secreto-de-32-bytes-o-mas!!", false, undefined, false);
+    const body = (await (await fetch(`${base}/v1/capabilities`)).json()) as { byok: { enabled: boolean }; assistant: { enabled: boolean } };
+    expect(body.byok.enabled).toBe(true);
+    expect(body.assistant).toEqual({ enabled: false, allowPrivateBaseUrls: false });
   });
 
   it("avisa de que se aceptan servidores locales (ALLOW_PRIVATE_BASE_URLS) solo si la función está activa", async () => {

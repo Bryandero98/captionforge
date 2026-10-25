@@ -1,0 +1,9 @@
+{
+  "name": "@captionforge/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor MCP local (stdio) para que una IA maneje CaptionForge. Sin dependencias.",
+  "bin": { "captionforge-mcp": "bin/captionforge-mcp.mjs" },
+  "scripts": { "test": "node --test mcp.test.mjs" }
+}

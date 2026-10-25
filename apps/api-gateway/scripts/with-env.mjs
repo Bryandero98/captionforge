@@ -50,7 +50,13 @@ const hijo = spawn(enWindows ? comando.join(" ") : comando[0], enWindows ? [] : 
     DATABASE_URL_WORKER: urlDe("cf_worker", requerido("CF_WORKER_DB_PASSWORD")),
     // Clave del tenant "Default" (ADR 0015): la semilla (`npm run seed`) la da de alta y la interfaz web local la recibe.
     // Inicio de sesión (ADR 0016): proveedores y modo, tal como están en el .env.
-    ...Object.fromEntries(["LOCAL_MODE", "PUBLIC_URL", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"].filter((n) => env[n]).map((n) => [n, env[n]])),
+    // Un valor puesto a propósito en la terminal (p. ej. `LOCAL_MODE=true PUBLIC_URL= npm test`) manda sobre el .env: sirve para probar con un .env
+    // preparado para una prueba manual (túnel, LOCAL_MODE=false) sin tocarlo.
+    ...Object.fromEntries(
+      ["LOCAL_MODE", "PUBLIC_URL", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+        .map((n) => [n, process.env[n] ?? env[n]])
+        .filter(([n, v]) => v !== undefined && (v !== "" || process.env[n] !== undefined)),
+    ),
     ...(env.DEFAULT_API_KEY ? { DEFAULT_API_KEY: env.DEFAULT_API_KEY, WEB_API_KEY: process.env.WEB_API_KEY ?? env.DEFAULT_API_KEY } : {}),
     REDIS_HOST: "127.0.0.1",
     REDIS_PORT: "6379",

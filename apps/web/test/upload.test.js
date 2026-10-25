@@ -89,6 +89,13 @@ describe("el tipo del archivo", () => {
     ["a.mkv", "video/x-matroska"],
     ["a.webm", "video/webm"],
     ["a.avi", "video/x-msvideo"],
+    ["a.m4v", "video/x-m4v"],
+    ["a.3gp", "video/3gpp"],
+    ["a.mpeg", "video/mpeg"],
+    ["a.mpg", "video/mpeg"],
+    ["a.wmv", "video/x-ms-wmv"],
+    ["a.flv", "video/x-flv"],
+    ["a.ogv", "video/ogg"],
   ]) {
     it(`deduce ${expected} de la extensión de ${name}`, () => {
       assert.equal(videoMimeType(fakeFile(name, { type: "application/octet-stream" })), expected);
@@ -101,6 +108,13 @@ describe("el tipo del archivo", () => {
     ["a.m4a", "audio/mp4"],
     ["a.ogg", "audio/ogg"],
     ["a.flac", "audio/flac"],
+    ["nota.opus", "audio/opus"],
+    ["a.aac", "audio/aac"],
+    ["a.amr", "audio/amr"],
+    ["a.wma", "audio/x-ms-wma"],
+    ["a.aiff", "audio/aiff"],
+    ["a.aif", "audio/aiff"],
+    ["a.weba", "audio/webm"],
   ]) {
     it(`deduce ${expected} de la extensión de ${name} cuando el navegador no informa el tipo`, () => {
       assert.equal(videoMimeType(fakeFile(name, { type: "" })), expected);
@@ -117,6 +131,11 @@ describe("el tipo del archivo", () => {
   it("un .m4a que el navegador declara como video/mp4 se envía como audio: es lo que es", () => {
     assert.equal(videoMimeType(fakeFile("nota.m4a", { type: "video/mp4" })), "audio/mp4");
     assert.equal(videoMimeType(fakeFile("clase.mp4", { type: "video/mp4" })), "video/mp4");
+  });
+
+  it("un .opus de WhatsApp que el navegador declara como audio/ogg se conserva como audio", () => {
+    assert.equal(videoMimeType(fakeFile("PTT-20261025.opus", { type: "audio/ogg" })), "audio/ogg");
+    assert.equal(precheckFile(fakeFile("PTT-20261025.opus", { type: "", bytes: 10 }), { maxBytes: 1000 }), null);
   });
 
   it("una extensión desconocida no se disfraza de video", () => {
@@ -146,8 +165,8 @@ describe("comprobaciones antes de subir", () => {
     for (const name of ["a.mp3", "a.wav", "a.m4a", "a.ogg", "a.flac"]) assert.equal(precheckFile(fakeFile(name, { type: "", bytes: 500 }), limits), null, name);
   });
 
-  it("un audio que el API no acepta (AAC suelto, WMA) -> unsupported_type", () => {
-    for (const [name, type] of [["a.aac", "audio/aac"], ["a.wma", "audio/x-ms-wma"], ["a.weba", "audio/webm"]]) {
+  it("un audio que el API no acepta (MIDI, un tipo inventado) -> unsupported_type", () => {
+    for (const [name, type] of [["a.mid", "audio/midi"], ["a.xyz", "audio/x-fake"]]) {
       assert.equal(precheckFile(fakeFile(name, { type, bytes: 10 }), limits)?.code, "unsupported_type", name);
     }
   });

@@ -17,6 +17,9 @@ de trabajos huérfanos. Sus límites conocidos se declaran, no se esconden.
   negrita, YouTube clásico y Mínimo), con resaltado opcional palabra por palabra (karaoke).
 - **Exportación a Shorts / Reels / TikTok**: el formato *Vertical Shorts 9:16* genera el video en 1080x1920 sobre su propio fondo desenfocado, con plantillas animadas
   de subtítulos palabra por palabra (impacto, barrido redondeado, color limpio) y las fuentes Montserrat y Nunito incluidas. Hasta 10 minutos por video. Ver el [ADR 0024](docs/adr/0024-subtitulos-ass-y-formato-vertical.md).
+- **Novedades de la v1.3.1**
+  - **Inicio más fácil**: una guía interactiva (primera visita y luego el botón *Ayuda*) y una tarjeta «¿Qué quieres hacer ahora?» tras transcribir. Más formatos: notas de voz (OPUS), AAC, AMR, WMA, AIFF, M4V, 3GP, WMV y más.
+  - **Abierta a las IAs (solo modo local)**: `/llms.txt` y `/openapi.json`, un servidor MCP local (`tools/mcp`; las acciones con costo o que cambian cosas piden confirmación explícita) y un asistente removible dentro de la página que usa tu propia clave de IA, guardada solo en tu navegador. Ver [docs/ai-access.md](docs/ai-access.md) y el [ADR 0028](docs/adr/0028-acceso-para-ias-mcp-y-asistente.md).
 - **Novedades de la v1.3.0**
   - **Modo Rápido («Sube y olvídate»)**: sugiere un perfil según el archivo y encadena el quemado desde el navegador, de modo que un clic lleva de un video a un video con subtítulos. «Control total» conserva todos los ajustes técnicos. Ver el [ADR 0025](docs/adr/0025-modo-rapido-y-orquestacion-en-el-cliente.md).
   - **Galería de temas visuales**: siete temas de subtítulos (clásicos y verticales) con una vista previa aproximada y en vivo con tu propio texto, antes de gastar un quemado. Ver el [ADR 0026](docs/adr/0026-temas-visuales-y-vista-previa-en-css.md).
@@ -110,7 +113,7 @@ Cada llamada necesita tu clave de API: añade `-H "X-API-Key: <clave>"` (la `DEF
 
 ## Archivos de audio
 
-Además de video (MP4, MOV, MKV, WEBM, AVI), CaptionForge acepta archivos de **solo audio**: **MP3, WAV, M4A, OGG y FLAC**. Siguen el mismo flujo (transcripción → traducción opcional → doblaje opcional). Con un audio la aplicación muestra un reproductor `<audio>` estándar con el original, oculta el quemado de subtítulos (no hay imagen) y la mezcla del doblaje con video, y entrega el doblaje como pista **`.mp3`**. Ver el [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md).
+Además de video (MP4, MOV, MKV, WEBM, AVI, M4V, 3GP, MPEG, WMV, FLV, OGV), CaptionForge acepta archivos de **solo audio**: **MP3, WAV, M4A, OGG, FLAC, OPUS (notas de voz), AAC, AMR, WMA, AIFF y WEBA**. Siguen el mismo flujo (transcripción → traducción opcional → doblaje opcional). Con un audio la aplicación muestra un reproductor `<audio>` estándar con el original, oculta el quemado de subtítulos (no hay imagen) y la mezcla del doblaje con video, y entrega el doblaje como pista **`.mp3`**. Ver el [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md).
 
 ## Idiomas compatibles
 

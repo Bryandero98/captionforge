@@ -18,7 +18,7 @@ placeholder changes).
 ## Step by step
 
 1. **Choose your videos.** Drag up to 20 onto the dotted area or press "Choose a file". Formats: MP4, MOV, MKV, WEBM
-   and AVI, or audio: MP3, WAV, M4A, OGG and FLAC (see "Audio"). Files that cannot be used are skipped and the reason is shown.
+   and AVI (plus M4V, 3GP, MPEG, WMV, FLV and OGV), or audio: MP3, WAV, M4A, OGG, FLAC, OPUS, AAC, AMR, WMA, AIFF and WEBA (see "Audio"). Files that cannot be used are skipped and the reason is shown.
 2. **Read the summary (Quick mode).** When you choose a file, the page reads its duration and shape in your browser (nothing is
    uploaded) and tells you what it will do in one line, for example "Profile: Vertical (Shorts/Reels) · Model: Small · Then: vertical
    9:16 video". If the file looks like a Short, a podcast, a meeting or a clip, it suggests that profile with the reason; you can
@@ -58,7 +58,7 @@ placeholder changes).
 
 ## Audio: podcasts, voice notes and recordings
 
-You can also upload **audio with no video**: MP3, WAV, M4A, OGG and FLAC. It is transcribed just like a video and, in addition:
+You can also upload **audio with no video**: MP3, WAV, M4A, OGG, FLAC, OPUS (voice notes), AAC, AMR, WMA, AIFF and WEBA. It is transcribed just like a video and, in addition:
 
 - An **audio player** with the original file appears so you can listen while you fix the captions. If the original has already
   expired, the player does not appear and everything else keeps working.

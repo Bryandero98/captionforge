@@ -17,8 +17,19 @@ describe("tipos admitidos", () => {
     }
   });
 
-  it("no se admite lo que no es ninguno de los dos (ni un audio exótico, ni texto ni ejecutables)", () => {
-    for (const type of ["audio/aac", "audio/webm", "text/plain", "application/octet-stream", "application/x-msdownload", "image/png", ""]) {
+  it("se admiten los formatos ampliados (v1.3.1): notas de voz y videos de celular, cámara o Windows", () => {
+    for (const type of ["audio/opus", "audio/aac", "audio/x-aac", "audio/amr", "audio/x-ms-wma", "audio/aiff", "audio/x-aiff", "audio/webm"]) {
+      expect(AUDIO_CONTENT_TYPES as readonly string[], type).toContain(type);
+      expect(mediaKindOf(type), type).toBe("audio");
+    }
+    for (const type of ["video/x-m4v", "video/3gpp", "video/mpeg", "video/x-ms-wmv", "video/x-flv", "video/ogg"]) {
+      expect(ALLOWED_CONTENT_TYPES as readonly string[], type).toContain(type);
+      expect(mediaKindOf(type), type).toBe("video");
+    }
+  });
+
+  it("no se admite lo que no es medio (texto, ejecutables, imágenes ni vacío)", () => {
+    for (const type of ["text/plain", "application/octet-stream", "application/x-msdownload", "application/zip", "image/png", "audio/x-fake", ""]) {
       expect(ALLOWED_CONTENT_TYPES as readonly string[], type).not.toContain(type);
     }
   });

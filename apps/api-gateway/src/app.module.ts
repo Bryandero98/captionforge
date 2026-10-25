@@ -2,6 +2,9 @@ import { type DynamicModule, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
 import { APP_CONFIG, type AppConfig } from "./config/config.js";
+import { AssistantController } from "./assistant/assistant.controller.js";
+import { AssistantService } from "./assistant/assistant.service.js";
+import { AiAccessController } from "./ai-access/ai-access.controller.js";
 import { AccountController } from "./auth/account.controller.js";
 import { AuthController } from "./auth/auth.controller.js";
 import { AuthService } from "./auth/auth.service.js";
@@ -33,7 +36,7 @@ export class AppModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, AiConfigController, JobsController, QualityController],
+      controllers: [HealthController, AiAccessController, AssistantController, CapabilitiesController, AuthController, AccountController, WorkspacesController, ExternalKeysController, AiConfigController, JobsController, QualityController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         PrismaService,
@@ -41,6 +44,7 @@ export class AppModule {
         QueueService,
         JobsService,
         QualityService,
+        AssistantService,
         AuthService,
         WorkspacesService,
         ExternalKeysService,

@@ -20,6 +20,8 @@
       <div class="top__text">
         <h1 class="brand" data-i18n="app.title">CaptionForge</h1>
         <p class="tagline" data-i18n="app.tagline">Subtítulos automáticos para tus videos.</p>
+        <button type="button" class="btn btn--ghost btn--small tour-help" id="help-open" aria-expanded="false" aria-controls="tour" data-i18n="tour.help">Ayuda</button>
+        <button type="button" class="btn btn--ghost btn--small tour-help" id="assistant-restore" hidden data-i18n="assistant.restore">Mostrar el asistente</button>
       </div>
       <div class="lang" role="group" data-i18n-aria-label="lang.label" aria-label="Idioma de la interfaz">
         <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es" aria-label="ES, Español">ES</button>
@@ -148,6 +150,17 @@
 
     <main id="main" tabindex="-1">
       <div id="app-content">
+      <section class="tour" id="tour" hidden tabindex="-1" aria-labelledby="tour-title">
+        <p class="tour__count" id="tour-count" role="status"></p>
+        <h2 class="tour__title" id="tour-title"></h2>
+        <p class="tour__body" id="tour-body"></p>
+        <p class="panel__detail" data-i18n="tour.hint">Puedes volver a abrir esta guía con el botón «Ayuda».</p>
+        <div class="tour__actions">
+          <button type="button" class="btn btn--ghost btn--small" id="tour-prev" data-i18n="tour.prev">Anterior</button>
+          <button type="button" class="btn btn--primary btn--small" id="tour-next" data-i18n="tour.next">Siguiente</button>
+          <button type="button" class="btn btn--ghost btn--small" id="tour-close" data-i18n="tour.close">Cerrar guía</button>
+        </div>
+      </section>
       <details class="guide" id="guide">
         <summary data-i18n="guide.title">Cómo usar CaptionForge, paso a paso</summary>
         <ol class="guide__steps">
@@ -178,7 +191,7 @@
           <legend class="visually-hidden" data-i18n="file.selected">Video elegido</legend>
 
           <label class="drop" id="drop">
-            <input class="visually-hidden" type="file" id="file-input" multiple accept=".mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.m4a,.ogg,.flac,video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/ogg,audio/flac">
+            <input class="visually-hidden" type="file" id="file-input" multiple accept=".mp4,.mov,.mkv,.webm,.avi,.m4v,.3gp,.mpeg,.mpg,.wmv,.flv,.ogv,.mp3,.wav,.m4a,.ogg,.flac,.opus,.aac,.amr,.wma,.aiff,.aif,.weba,video/*,audio/*">
             <svg class="drop__icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 16V4"/>
               <path d="m7 9 5-5 5 5"/>
@@ -318,6 +331,18 @@
             <label for="dl-speaker-prefix" data-i18n="speakers.prefix">Poner el nombre del hablante delante del texto en el .srt y el .vtt</label>
           </div>
         </fieldset>
+        <section class="next" id="next-steps" hidden aria-labelledby="next-title">
+          <h3 class="burn__title" id="next-title" data-i18n="next.title">¿Qué quieres hacer ahora?</h3>
+          <p class="panel__detail" data-i18n="next.intro">Tu transcripción está lista. Elige un paso; todos son opcionales.</p>
+          <ul class="next__list">
+            <li class="next__item" id="next-item-srt"><div class="next__text"><strong data-i18n="next.srt.title">Descargar los subtítulos</strong><span class="panel__detail" data-i18n="next.srt.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-srt" data-i18n="next.go">Ir</button></li>
+            <li class="next__item" id="next-item-translate"><div class="next__text"><strong data-i18n="next.translate.title">Traducirlos</strong><span class="panel__detail" data-i18n="next.translate.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-translate" data-i18n="next.go">Ir</button></li>
+            <li class="next__item" id="next-item-dub"><div class="next__text"><strong data-i18n="next.dub.title">Doblarlos con voz</strong><span class="panel__detail" data-i18n="next.dub.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-dub" data-i18n="next.go">Ir</button></li>
+            <li class="next__item" id="next-item-video"><div class="next__text"><strong data-i18n="next.video.title">Ponerlos en el video</strong><span class="panel__detail" id="next-video-body" data-i18n="next.video.body"></span></div><button type="button" class="btn btn--secondary btn--small" id="next-video" data-i18n="next.go">Ir</button></li>
+          </ul>
+          <p class="panel__detail" id="next-keys-note" hidden data-i18n="next.keys.note">Para traducir o doblar con tu propia IA, guarda antes tu clave en «Claves externas».</p>
+          <button type="button" class="btn btn--ghost btn--small" id="next-keys" hidden data-i18n="next.keys">Abrir «Claves externas»</button>
+        </section>
         <form class="burn" id="burn-form" hidden>
           <h3 class="burn__title" data-i18n="burn.title">Poner los subtítulos en el video</h3>
           <div class="themes">
@@ -519,6 +544,40 @@
       <p class="visually-hidden" id="announcer" aria-live="polite" aria-atomic="true"></p>
       </div>
     </main>
+    <button type="button" class="assistant-fab" id="assistant-open" hidden aria-expanded="false" aria-controls="assistant" data-i18n="assistant.open">Asistente</button>
+    <section class="assistant" id="assistant" hidden tabindex="-1" aria-labelledby="assistant-title">
+      <header class="assistant__head">
+        <h2 class="assistant__title" id="assistant-title" data-i18n="assistant.title">Asistente</h2>
+        <button type="button" class="btn btn--ghost btn--small" id="assistant-close" data-i18n="assistant.close">Cerrar</button>
+      </header>
+      <p class="panel__detail" data-i18n="assistant.intro">Pregúntame cómo usar CaptionForge.</p>
+      <details class="assistant__setup" id="assistant-setup">
+        <summary data-i18n="assistant.setup">Mi IA</summary>
+        <p class="panel__detail" data-i18n="assistant.setup.hint">Usa tu propia IA.</p>
+        <label class="assistant__label" for="assistant-service" data-i18n="extkeys.preset.label">Servicio de IA</label>
+        <select class="assistant__field" id="assistant-service"></select>
+        <label class="assistant__label" for="assistant-url" id="assistant-url-label" hidden data-i18n="assistant.url">Dirección de la API</label>
+        <input class="assistant__field" id="assistant-url" type="url" hidden autocomplete="off" spellcheck="false" placeholder="https://…/v1">
+        <label class="assistant__label" for="assistant-key" data-i18n="assistant.key">Clave de API</label>
+        <input class="assistant__field" id="assistant-key" type="password" autocomplete="off" spellcheck="false">
+        <label class="assistant__label" for="assistant-model" data-i18n="assistant.model">Modelo (opcional)</label>
+        <input class="assistant__field" id="assistant-model" type="text" list="assistant-models" autocomplete="off" spellcheck="false">
+        <datalist id="assistant-models"></datalist>
+        <div class="assistant__actions">
+          <button type="button" class="btn btn--primary btn--small" id="assistant-save" data-i18n="assistant.save">Guardar en este navegador</button>
+          <button type="button" class="btn btn--ghost btn--small" id="assistant-forget" data-i18n="assistant.forget">Olvidar mi clave</button>
+        </div>
+        <p class="panel__detail" data-i18n="assistant.privacy">La clave se guarda solo en este navegador.</p>
+      </details>
+      <ol class="assistant__log" id="assistant-log" role="log" aria-live="polite" data-i18n-aria-label="assistant.log.label" aria-label="Conversación con el asistente"></ol>
+      <p class="panel__detail assistant__status" id="assistant-status" role="status"></p>
+      <form class="assistant__form" id="assistant-form">
+        <label class="visually-hidden" for="assistant-input" data-i18n="assistant.input.label">Tu mensaje</label>
+        <textarea class="assistant__field assistant__input" id="assistant-input" rows="2" maxlength="4000"></textarea>
+        <button type="submit" class="btn btn--primary btn--small" id="assistant-send" data-i18n="assistant.send">Enviar</button>
+      </form>
+      <button type="button" class="btn btn--ghost btn--small assistant__dismiss" id="assistant-dismiss" data-i18n="assistant.dismiss">Quitar el asistente</button>
+    </section>
   </div>
 </body>
 </html>

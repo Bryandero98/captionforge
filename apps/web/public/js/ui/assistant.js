@@ -1,0 +1,250 @@
+// Asistente (v1.3.1, ADR 0028): botón flotante y panel de chat con la IA propia de la persona. Solo existe en modo local (el servidor lo
+// anuncia en las capacidades). El estado puro vive en domain/assistant.js; aquí solo hay DOM. Todo texto entra con textContent: lo que
+// responda la IA es un dato, nunca HTML. El asistente solo conversa: no ejecuta nada de la página.
+
+import { sendChat } from "../api/assistant.js";
+import { ApiError } from "../api/errors.js";
+import { findPreset, visiblePresets } from "../domain/ai-presets.js";
+import { MAX_TEXT, addTurn, aiPayload, canSend, dismissAssistant, forgetAi, loadAssistant, restoreAssistant, saveAssistant } from "../domain/assistant.js";
+
+/**
+ * @param {{
+ *   doc: Document, baseUrl: string,
+ *   t: (key: string, params?: Record<string, string | number>) => string,
+ *   storage: import("../domain/assistant.js").StorageLike | null,
+ *   jobId?: () => string | null,
+ *   announce?: (text: string) => void,
+ *   send?: typeof sendChat,
+ * }} deps
+ */
+export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = () => null, announce = () => {}, send = sendChat }) {
+  /** @type {(id: string) => any} */
+  const $ = (id) => {
+    const element = doc.getElementById(id);
+    if (!element) throw new Error(`Falta el elemento #${id}`);
+    return element;
+  };
+  const els = {
+    fab: $("assistant-open"), panel: $("assistant"), close: $("assistant-close"), setup: $("assistant-setup"), service: $("assistant-service"),
+    urlLabel: $("assistant-url-label"), url: $("assistant-url"), key: $("assistant-key"), model: $("assistant-model"), models: $("assistant-models"),
+    save: $("assistant-save"), forget: $("assistant-forget"), log: $("assistant-log"), status: $("assistant-status"), form: $("assistant-form"),
+    input: $("assistant-input"), send: $("assistant-send"), dismiss: $("assistant-dismiss"), restore: $("assistant-restore"),
+  };
+
+  let t = initialT;
+  let enabled = false;
+  let allowPrivate = false;
+  let open = false;
+  let busy = false;
+  let prefs = loadAssistant(storage);
+  /** @type {import("../domain/assistant.js").Turn[]} */
+  let turns = [];
+  /** @type {AbortController | null} */
+  let pending = null;
+
+  const presetLabel = (/** @type {string} */ id) => {
+    const preset = findPreset(id);
+    if (!preset) return id;
+    if (preset.name === undefined) return t(`extkeys.preset.${id}`);
+    return preset.local ? `${preset.name} (${t("extkeys.preset.local")})` : preset.name;
+  };
+
+  /** Lo que hay escrito en el formulario de «Mi IA». @returns {import("../domain/assistant.js").AiChoice} */
+  const readChoice = () => ({ preset: els.service.value || "openai", key: els.key.value, model: els.model.value, baseUrl: els.url.value });
+
+  function fillSelect() {
+    const wanted = els.service.value || prefs.ai?.preset || "openai";
+    els.service.replaceChildren(
+      ...visiblePresets({ allowPrivate }).map((preset) => {
+        const option = doc.createElement("option");
+        option.value = preset.id;
+        option.textContent = presetLabel(preset.id);
+        return option;
+      }),
+    );
+    els.service.value = visiblePresets({ allowPrivate }).some((preset) => preset.id === wanted) ? wanted : "openai";
+  }
+
+  function syncPreset() {
+    const preset = findPreset(els.service.value);
+    const custom = preset?.id === "custom";
+    els.url.hidden = !custom;
+    els.urlLabel.hidden = !custom;
+    els.models.replaceChildren(
+      ...(preset?.models ?? []).map((name) => {
+        const option = doc.createElement("option");
+        option.value = name;
+        return option;
+      }),
+    );
+  }
+
+  function renderLog() {
+    els.log.replaceChildren(
+      ...turns.map((turn) => {
+        const item = doc.createElement("li");
+        item.className = `assistant__turn assistant__turn--${turn.role}`;
+        const who = doc.createElement("span");
+        who.className = "assistant__who";
+        who.textContent = t(turn.role === "user" ? "assistant.you" : "assistant.bot");
+        const body = doc.createElement("span");
+        body.textContent = turn.content;
+        item.append(who, body);
+        return item;
+      }),
+    );
+    els.log.scrollTop = els.log.scrollHeight;
+  }
+
+  function renderState() {
+    const visible = enabled && !prefs.hidden;
+    els.fab.hidden = !visible || open;
+    els.fab.setAttribute("aria-expanded", String(open));
+    els.panel.hidden = !visible || !open;
+    els.restore.hidden = !(enabled && prefs.hidden);
+    els.send.disabled = busy;
+    els.input.disabled = busy;
+  }
+
+  function setStatus(/** @type {string} */ message) {
+    els.status.textContent = message;
+  }
+
+  function applyPrefsToForm() {
+    if (prefs.ai) {
+      els.service.value = prefs.ai.preset;
+      els.key.value = prefs.ai.key;
+      els.model.value = prefs.ai.model;
+      els.url.value = prefs.ai.baseUrl;
+    }
+    syncPreset();
+  }
+
+  function openPanel() {
+    if (!enabled || prefs.hidden) return;
+    open = true;
+    renderState();
+    // Sin IA configurada, lo primero es «Mi IA».
+    if (aiPayload(prefs.ai) === null) els.setup.open = true;
+    (aiPayload(prefs.ai) === null ? els.key : els.input).focus();
+  }
+
+  function closePanel() {
+    open = false;
+    renderState();
+    els.fab.focus();
+  }
+
+  function errorText(/** @type {unknown} */ error) {
+    const code = error instanceof ApiError ? error.code : "";
+    return code === "invalid_ai_config" || code === "ai_unavailable" ? t(`assistant.err.${code}`) : t("assistant.err.generic");
+  }
+
+  async function submit() {
+    const text = els.input.value;
+    const ai = aiPayload(prefs.ai);
+    if (ai === null) {
+      setStatus(t("assistant.need.ai"));
+      els.setup.open = true;
+      return;
+    }
+    if (!canSend({ text, ai: prefs.ai, busy }) || text.trim().length > MAX_TEXT) return;
+    turns = addTurn(turns, "user", text);
+    els.input.value = "";
+    busy = true;
+    setStatus(t("assistant.thinking"));
+    renderLog();
+    renderState();
+    pending = new AbortController();
+    try {
+      const reply = await send({ baseUrl, messages: turns, ai, ...(jobId() ? { jobId: /** @type {string} */ (jobId()) } : {}), signal: pending.signal });
+      turns = addTurn(turns, "assistant", reply);
+      setStatus("");
+      announce(reply.slice(0, 120));
+    } catch (error) {
+      if (!(error instanceof ApiError && error.code === "aborted")) setStatus(errorText(error));
+    } finally {
+      pending = null;
+      busy = false;
+      renderLog();
+      renderState();
+      if (open) els.input.focus();
+    }
+  }
+
+  els.fab.addEventListener("click", openPanel);
+  els.close.addEventListener("click", closePanel);
+  els.service.addEventListener("change", syncPreset);
+  els.save.addEventListener("click", () => {
+    const choice = readChoice();
+    if (aiPayload(choice) === null) {
+      setStatus(t("assistant.err.invalid_ai_config"));
+      return;
+    }
+    prefs = { ...prefs, ai: choice };
+    setStatus(saveAssistant(storage, prefs) ? t("assistant.saved") : t("assistant.saved.session"));
+    els.setup.open = false;
+  });
+  els.forget.addEventListener("click", () => {
+    pending?.abort();
+    prefs = { ...prefs, ai: null };
+    forgetAi(storage);
+    els.key.value = "";
+    els.model.value = "";
+    els.url.value = "";
+    setStatus(t("assistant.forgotten"));
+  });
+  els.form.addEventListener("submit", (/** @type {Event} */ event) => {
+    event.preventDefault();
+    void submit();
+  });
+  // Enter envía; Mayús+Enter hace salto de línea.
+  els.input.addEventListener("keydown", (/** @type {KeyboardEvent} */ event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      void submit();
+    }
+  });
+  els.panel.addEventListener("keydown", (/** @type {KeyboardEvent} */ event) => {
+    if (event.key === "Escape") closePanel();
+  });
+  els.dismiss.addEventListener("click", () => {
+    pending?.abort();
+    dismissAssistant(storage);
+    prefs = { ...prefs, hidden: true };
+    open = false;
+    renderState();
+    els.restore.focus();
+  });
+  els.restore.addEventListener("click", () => {
+    restoreAssistant(storage);
+    prefs = { ...prefs, hidden: false };
+    renderState();
+    openPanel();
+  });
+
+  fillSelect();
+  applyPrefsToForm();
+  renderState();
+
+  return {
+    /** Lo que anuncia el servidor: sin `enabled` el asistente no existe en la página. @param {{ enabled: boolean, allowPrivateBaseUrls: boolean }} caps */
+    applyCapabilities(caps) {
+      enabled = caps.enabled;
+      allowPrivate = caps.enabled && caps.allowPrivateBaseUrls;
+      fillSelect();
+      applyPrefsToForm();
+      renderState();
+    },
+    /** Repinta los textos al cambiar de idioma. @param {typeof t} next */
+    refresh(next) {
+      t = next;
+      fillSelect();
+      applyPrefsToForm();
+      renderLog();
+    },
+    get isOpen() {
+      return open;
+    },
+  };
+}

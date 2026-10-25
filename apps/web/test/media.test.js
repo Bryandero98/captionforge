@@ -22,6 +22,12 @@ describe("isAudioMime", () => {
     }
   });
 
+  it("reconoce también los audios ampliados (OPUS, AAC, AMR, WMA, AIFF, WEBA)", () => {
+    for (const type of ["audio/opus", "audio/aac", "audio/x-aac", "audio/amr", "audio/x-ms-wma", "audio/aiff", "audio/x-aiff", "audio/webm"]) {
+      assert.equal(isAudioMime(type), true, type);
+    }
+  });
+
   it("no confunde video ni tipos vacíos", () => {
     for (const type of ["video/mp4", "video/webm", "text/plain", "", undefined, null]) assert.equal(isAudioMime(type), false, String(type));
   });
@@ -40,7 +46,7 @@ describe("qué se ofrece según la clase", () => {
     assert.deepEqual(DUB_MIXES_FOR(null), ["none", "replace", "duck"]);
   });
 
-  it("las extensiones de audio son las cinco del producto", () => {
-    assert.deepEqual([...AUDIO_EXTENSIONS].sort(), ["flac", "m4a", "mp3", "ogg", "wav"]);
+  it("las extensiones de audio son las del producto (v1.3.1: con las notas de voz y los formatos de celular)", () => {
+    assert.deepEqual([...AUDIO_EXTENSIONS].sort(), ["aac", "aif", "aiff", "amr", "flac", "m4a", "mp3", "ogg", "opus", "wav", "weba", "wma"]);
   });
 });

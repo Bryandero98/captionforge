@@ -20,12 +20,26 @@ const MIME_BY_EXTENSION = {
   mkv: "video/x-matroska",
   webm: "video/webm",
   avi: "video/x-msvideo",
+  m4v: "video/x-m4v",
+  "3gp": "video/3gpp",
+  mpeg: "video/mpeg",
+  mpg: "video/mpeg",
+  wmv: "video/x-ms-wmv",
+  flv: "video/x-flv",
+  ogv: "video/ogg",
   // Audio puro (Issue #14): se transcribe y se dobla igual, sin imagen.
   mp3: "audio/mpeg",
   wav: "audio/wav",
   m4a: "audio/mp4",
   ogg: "audio/ogg",
   flac: "audio/flac",
+  opus: "audio/opus",
+  aac: "audio/aac",
+  amr: "audio/amr",
+  wma: "audio/x-ms-wma",
+  aiff: "audio/aiff",
+  aif: "audio/aiff",
+  weba: "audio/webm",
 };
 
 export const ALLOWED_MIME_TYPES = new Set([...Object.values(MIME_BY_EXTENSION), ...AUDIO_MIME_TYPES]);
