@@ -105,10 +105,16 @@ textarea {
 
 .top {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 32px;
+}
+/* En pantallas estrechas el texto y el selector de idiomas se apilan en vez de empujar la página fuera de la pantalla. */
+.top__text {
+  flex: 1 1 14rem;
+  min-width: 0;
 }
 
 .brand {
@@ -130,7 +136,7 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  flex-shrink: 0;
+  max-width: 100%;
   padding: 3px;
   gap: 2px;
   background: var(--surface);
