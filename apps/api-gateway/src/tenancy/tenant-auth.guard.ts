@@ -28,8 +28,8 @@ declare module "fastify" {
   }
 }
 
-/** Rutas sin autenticación: sondeos, funciones opcionales (solo booleanos) y el propio inicio de sesión. */
-const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/health", "/v1/capabilities"]);
+/** Rutas sin autenticación: sondeos, funciones opcionales (solo booleanos), el propio inicio de sesión y la documentación para IAs (404 fuera del modo local). */
+const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/health", "/v1/capabilities", "/llms.txt", "/openapi.json"]);
 const isPublic = (path: string): boolean => PUBLIC_PATHS.has(path) || path.startsWith("/auth/");
 
 /** Una clave de API actúa siempre como Editor (ADR 0019): ni lee menos ni gestiona claves ni miembros. */
