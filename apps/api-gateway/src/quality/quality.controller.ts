@@ -3,7 +3,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query } from "@nestjs/com
 import { JobIdPipe } from "../jobs/job-id.pipe.js";
 import { TenantId } from "../tenancy/tenant-auth.guard.js";
 import type { QualityProfile } from "./profiles.js";
-import { QualityService, type QualityFix, type QualityReportWithEtag } from "./quality.service.js";
+import { QualityService, type QualityCheck, type QualityFix, type QualityReportWithEtag } from "./quality.service.js";
 
 /** Calidad de subtítulos (ADR 0021). Solo lectura: cualquier rol que pueda ver la transcripción puede pedir el informe. */
 @Controller("v1")
@@ -35,5 +35,15 @@ export class QualityController {
   fix(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<QualityFix> {
     const profile = typeof body === "object" && body !== null && "profile" in body ? (body as { profile: unknown }).profile : undefined;
     return this.quality.fix(tenantId, id, typeof profile === "string" ? profile : undefined);
+  }
+
+  /**
+   * Mide subtítulos que aún no se guardaron: { "profile": "netflix", "segments": [ { "start": 0, "end": 2, "text": "..." } ] }.
+   * Sin estado: no lee ni escribe subtítulos. Devuelve el informe y, por subtítulo, la edición que lo arregla (editor guiado).
+   */
+  @Post("jobs/:id/quality/check")
+  @HttpCode(200)
+  check(@TenantId() tenantId: string, @Param("id", JobIdPipe) id: string, @Body() body: unknown): Promise<QualityCheck> {
+    return this.quality.check(tenantId, id, body);
   }
 }
