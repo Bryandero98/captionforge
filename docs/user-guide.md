@@ -19,7 +19,14 @@ placeholder changes).
 
 1. **Choose your videos.** Drag up to 20 onto the dotted area or press "Choose a file". Formats: MP4, MOV, MKV, WEBM
    and AVI, or audio: MP3, WAV, M4A, OGG and FLAC (see "Audio"). Files that cannot be used are skipped and the reason is shown.
-2. **Set the options.** *Model*: Base is the fastest, Medium the most accurate. *Audio language*: leave it on
+2. **Read the summary (Quick mode).** When you choose a file, the page reads its duration and shape in your browser (nothing is
+   uploaded) and tells you what it will do in one line, for example "Profile: Vertical (Shorts/Reels) · Model: Small · Then: vertical
+   9:16 video". If the file looks like a Short, a podcast, a meeting or a clip, it suggests that profile with the reason; you can
+   "Change" the profile or "Dismiss" the suggestion. If it looks right, press "Generate captions" and you are done. With the
+   profiles that burn the captions (Vertical and Quick clip) the tab requests the captioned video by itself when the transcription
+   finishes: **keep the tab open** (if you close it, the transcription keeps running on the server and you can create the
+   video by hand from the result). To adjust things yourself, open **"Full control"** (it always starts folded):
+   *Model*: Base is the fastest, Medium the most accurate. *Audio language*: leave it on
    "Auto-detect" unless you know it. *Translate to*: optional, to get the captions in another language.
    *Clean up background noise* (off by default): turn it on when music or loud noise covers the voice. It takes longer,
    because the voice is isolated before transcribing. If it cannot be done, the job continues with the original audio and
@@ -28,6 +35,8 @@ placeholder changes).
    meetings. It takes longer and is only enabled if the server has a Hugging Face token (see "Turning on speaker
    identification"). If it cannot be done, the job delivers the normal transcription and the result says so
    ("Speakers identified: No").
+   What you set in "Full control" is remembered in this browser (settings only, never keys or file names);
+   "Reset preferences" erases it.
 3. **Generate the captions.** Press "Generate captions". You will see the upload and then the job stages (preparing the
    audio, transcribing, translating…). With several videos they are uploaded one at a time; if one fails the queue stops
    there and what was already uploaded is kept. You can close the page: the job keeps running on the server and stays in

@@ -53,6 +53,8 @@ export interface AppConfig {
   byok: { appSecret: string | undefined; allowPrivateBaseUrls: boolean };
   /** Topes de gasto por trabajo de traducir/doblar (ADR 0020 §7): el dinero es de la persona usuaria. El worker aplica los mismos. */
   ai: { maxJobCharacters: number; maxJobSegments: number };
+  /** Tope de duración del video en el formato vertical 9:16 (VERTICAL_MAX_SECONDS, la misma variable que lee el worker). */
+  burn: { verticalMaxSeconds: number };
   /**
    * Canal interno del worker (ADR 0020), en un puerto aparte que no se publica. `port` 0 = apagado. `workerToken` es un secreto: no se
    * registra ni se devuelve. `rateLimitPerMinute` 0 = sin límite.
@@ -308,6 +310,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     features: { diarization: parseDiarization(env) },
     byok: { appSecret, allowPrivateBaseUrls: parseBooleanFlag(env, "ALLOW_PRIVATE_BASE_URLS") },
     ai: { maxJobCharacters: integer("MAX_JOB_CHARACTERS", 50_000), maxJobSegments: integer("MAX_JOB_SEGMENTS", 1_000) },
+    burn: { verticalMaxSeconds: integer("VERTICAL_MAX_SECONDS", 600, { max: 86_400 }) },
     internal: parseInternal(env, integer, appSecret),
     observability: parseObservability(env, integer),
     reaper: {

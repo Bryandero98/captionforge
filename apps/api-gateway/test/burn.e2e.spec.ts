@@ -275,6 +275,22 @@ describe("POST /v1/jobs/:id/burn", () => {
     created.push(((await response.json()) as { id: string }).id);
   });
 
+  it("el tope del 9:16 es el configurado (VERTICAL_MAX_SECONDS), no una constante del código", async () => {
+    const strict = await createApp({ ...config, port: 0, burn: { verticalMaxSeconds: 120 } }, { logger: ["error"] });
+    await strict.listen(0, "127.0.0.1");
+    try {
+      const url = await strict.getUrl();
+      const over = await completedTranscription(SEGMENTS, 121);
+      expect((await fetch(`${url}/v1/jobs/${over.id}/burn`, json({ canvas: "vertical" }))).status).toBe(413);
+      const exact = await completedTranscription(SEGMENTS, 120);
+      const ok = await fetch(`${url}/v1/jobs/${exact.id}/burn`, json({ canvas: "vertical" }));
+      expect(ok.status).toBe(202);
+      created.push(((await ok.json()) as { id: string }).id);
+    } finally {
+      await strict.close();
+    }
+  });
+
   it("el quemado lleva el etag de los subtítulos YA editados", async () => {
     const { id, etag } = await completedTranscription();
     await put(`/v1/jobs/${id}/segments`, { segments: [{ index: 0, text: "Corregido" }] });

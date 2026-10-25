@@ -201,31 +201,65 @@
             <button type="button" class="btn btn--ghost" id="file-remove" data-i18n="file.remove">Quitar</button>
           </div>
 
-          <div class="options">
-            <div class="field">
-              <label for="opt-model" data-i18n="options.model">Modelo</label>
-              <select id="opt-model"></select>
+          <section class="quick" aria-labelledby="quick-title">
+            <h2 class="quick__title" id="quick-title" data-i18n="quick.title">Modo rápido</h2>
+            <p class="quick__summary" id="quick-summary" role="status" aria-live="polite"></p>
+            <div class="quick__suggestion" id="quick-suggestion" hidden>
+              <p class="quick__suggestion-text" id="quick-suggestion-text"></p>
+              <div class="quick__suggestion-actions">
+                <button type="button" class="btn btn--ghost" id="quick-suggestion-change" data-i18n="quick.suggest.change">Cambiar</button>
+                <button type="button" class="btn btn--ghost" id="quick-suggestion-dismiss" data-i18n="quick.suggest.dismiss">Descartar</button>
+              </div>
             </div>
-            <div class="field">
-              <label for="opt-source" data-i18n="options.source">Idioma del audio</label>
-              <select id="opt-source"></select>
-            </div>
-            <div class="field">
-              <label for="opt-translate" data-i18n="options.translate">Traducir a</label>
-              <select id="opt-translate"></select>
-            </div>
-            <div class="field field--check">
-              <input type="checkbox" id="opt-clean" />
-              <label for="opt-clean" data-i18n="options.clean">Limpiar ruido de fondo (más lento, para música o ruido fuerte)</label>
-            </div>
-            <div class="field field--check">
-              <input type="checkbox" id="opt-diarize" disabled aria-describedby="opt-diarize-hint" />
-              <label for="opt-diarize" data-i18n="options.diarize">Identificar quién habla (más lento, para entrevistas y reuniones)</label>
-            </div>
-            <p class="panel__detail field__hint" id="opt-diarize-hint" data-i18n="options.diarize.unavailable">No disponible en este servidor: necesita un token de Hugging Face (ver la guía).</p>
-          </div>
+            <p class="panel__detail panel__detail--notice" id="quick-warning" hidden data-i18n="quick.warning">Mantén esta pestaña abierta hasta que termine: el video con subtítulos se pide desde aquí al acabar la transcripción.</p>
+            <p class="problem" id="quick-chain-problem" role="alert" hidden></p>
+          </section>
 
-          <button type="submit" class="btn btn--primary btn--wide" id="start" disabled data-i18n="action.start">Generar subtítulos</button>
+          <button type="submit" class="btn btn--primary btn--hero" id="start" disabled data-i18n="action.start">Generar subtítulos</button>
+
+          <details class="advanced" id="advanced" open>
+            <summary class="advanced__summary" data-i18n="advanced.title">Control total</summary>
+            <div class="options">
+              <div class="field">
+                <label for="opt-profile" data-i18n="advanced.profile">Perfil</label>
+                <select id="opt-profile"></select>
+              </div>
+              <div class="field">
+                <label for="opt-model" data-i18n="options.model">Modelo</label>
+                <select id="opt-model"></select>
+              </div>
+              <div class="field">
+                <label for="opt-source" data-i18n="options.source">Idioma del audio</label>
+                <select id="opt-source"></select>
+              </div>
+              <div class="field">
+                <label for="opt-translate" data-i18n="options.translate">Traducir a</label>
+                <select id="opt-translate"></select>
+              </div>
+              <div class="field field--check">
+                <input type="checkbox" id="opt-clean" />
+                <label for="opt-clean" data-i18n="options.clean">Limpiar ruido de fondo (más lento, para música o ruido fuerte)</label>
+              </div>
+              <div class="field field--check">
+                <input type="checkbox" id="opt-diarize" disabled aria-describedby="opt-diarize-hint" />
+                <label for="opt-diarize" data-i18n="options.diarize">Identificar quién habla (más lento, para entrevistas y reuniones)</label>
+              </div>
+              <p class="panel__detail field__hint" id="opt-diarize-hint" data-i18n="options.diarize.unavailable">No disponible en este servidor: necesita un token de Hugging Face (ver la guía).</p>
+              <div class="field field--check">
+                <input type="checkbox" id="opt-autoburn" />
+                <label for="opt-autoburn" data-i18n="advanced.autoburn">Crear el video con subtítulos al terminar (mantén la pestaña abierta)</label>
+              </div>
+              <div class="field">
+                <label for="opt-burn-format" data-i18n="burn.format">Formato</label>
+                <select id="opt-burn-format" disabled></select>
+              </div>
+              <div class="field">
+                <label for="opt-burn-template" data-i18n="burn.template">Plantilla</label>
+                <select id="opt-burn-template" disabled></select>
+              </div>
+              <button type="button" class="btn btn--ghost" id="advanced-reset" data-i18n="advanced.reset">Restablecer preferencias</button>
+            </div>
+          </details>
         </fieldset>
       </form>
 

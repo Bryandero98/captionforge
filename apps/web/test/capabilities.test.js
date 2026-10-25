@@ -39,6 +39,40 @@ describe("getCapabilities", () => {
     assert.equal(NO_CAPABILITIES.byok.allowPrivateBaseUrls, false);
   });
 
+  it("lee el tope del formato vertical y las plantillas que anuncia el servidor", async () => {
+    const fetchImpl = async () => json({ limits: { verticalMaxSeconds: 90 }, burn: { templates: ["clean-color", "bold-pop"] } });
+    const caps = await getCapabilities({ baseUrl: "", fetchImpl });
+    assert.equal(caps.limits.verticalMaxSeconds, 90);
+    assert.deepEqual(caps.burn.templates, ["clean-color", "bold-pop"]);
+  });
+
+  it("sin esos datos (servidor anterior) o con datos raros usa los valores de siempre: 600 s y las tres plantillas", async () => {
+    assert.equal(NO_CAPABILITIES.limits.verticalMaxSeconds, 600);
+    assert.deepEqual(NO_CAPABILITIES.burn.templates, ["bold-pop", "rounded-sweep", "clean-color"]);
+    const odd = [
+      {},
+      { limits: null, burn: null },
+      { limits: { verticalMaxSeconds: "90" } },
+      { limits: { verticalMaxSeconds: 0 } },
+      { limits: { verticalMaxSeconds: -5 } },
+      { limits: { verticalMaxSeconds: 1.5 } },
+      { limits: { verticalMaxSeconds: 10 ** 9 } },
+      { burn: { templates: "bold-pop" } },
+      { burn: { templates: [] } },
+      { burn: { templates: [1, null, "neon"] } },
+    ];
+    for (const body of odd) {
+      const caps = await getCapabilities({ baseUrl: "", fetchImpl: async () => json(body) });
+      assert.equal(caps.limits.verticalMaxSeconds, 600, JSON.stringify(body));
+      assert.deepEqual(caps.burn.templates, ["bold-pop", "rounded-sweep", "clean-color"], JSON.stringify(body));
+    }
+  });
+
+  it("de las plantillas anunciadas solo conserva las que la interfaz sabe dibujar, sin duplicados", async () => {
+    const fetchImpl = async () => json({ burn: { templates: ["neon", "rounded-sweep", "rounded-sweep", "<img>"] } });
+    assert.deepEqual((await getCapabilities({ baseUrl: "", fetchImpl })).burn.templates, ["rounded-sweep"]);
+  });
+
   it("un servidor viejo sin /v1/capabilities no rompe nada", async () => {
     assert.equal((await getCapabilities({ baseUrl: "", fetchImpl: async () => json({ message: "Cannot GET" }, { status: 404 }) })).diarization.enabled, false);
   });
