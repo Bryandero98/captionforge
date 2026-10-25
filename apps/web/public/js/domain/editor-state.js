@@ -7,11 +7,14 @@ import { MAX_SECONDS, MAX_SPEAKER_CHARS, MAX_TEXT_CHARS } from "./limits.js";
 /**
  * @typedef {{ index: number, start: number, end: number, text: string, words: unknown[] | null, speaker?: string }} Segment
  * @typedef {{ text?: string, start?: number, end?: number, speaker?: string }} Draft
- * @typedef {{ segments: Segment[], etag: string, drafts: Record<number, Draft> }} EditorState
+ * @typedef {{ index: number, fields: ("text" | "start" | "end")[], before: Draft }} UndoChange campos tocados por un arreglo y su borrador previo (ausente = sin borrador)
+ * @typedef {{ segments: Segment[], etag: string, drafts: Record<number, Draft>, undo: UndoChange[][] }} EditorState
  * @typedef {{ index: number, text?: string, start?: number, end?: number, speaker?: string }} Edit
  */
 
 const FIELDS = /** @type {const} */ (["text", "start", "end", "speaker"]);
+const FIX_FIELDS = /** @type {const} */ (["text", "start", "end"]);
+const UNDO_LIMIT = 50;
 
 /**
  * @param {Segment[]} segments
@@ -19,7 +22,7 @@ const FIELDS = /** @type {const} */ (["text", "start", "end", "speaker"]);
  * @returns {EditorState}
  */
 export function openEditor(segments, etag) {
-  return { segments, etag, drafts: {} };
+  return { segments, etag, drafts: {}, undo: [] };
 }
 
 /**
@@ -123,7 +126,7 @@ export function editsOf(state) {
 
 /** @param {EditorState} state */
 export function discard(state) {
-  return { ...state, drafts: {} };
+  return { ...state, drafts: {}, undo: [] };
 }
 
 /**
@@ -137,7 +140,7 @@ export function discard(state) {
  */
 export function saved(state, segments, etag, sent) {
   /** @type {EditorState} */
-  let next = { segments, etag, drafts: {} };
+  let next = { segments, etag, drafts: {}, undo: [] };
   if (sent === undefined) return next;
   for (const edit of editsOf(state)) {
     const was = sent.find((candidate) => candidate.index === edit.index);
@@ -195,4 +198,69 @@ export function issuesOf(state) {
     if (problem !== undefined) issues[Number(key)] = problem;
   }
   return issues;
+}
+
+/**
+ * Los subtítulos tal como se ven ahora (guardado + borrador), solo con lo que mide el verificador de calidad.
+ * @param {EditorState} state
+ * @returns {{ start: number, end: number, text: string }[]}
+ */
+export function currentSegments(state) {
+  return state.segments.map((segment, index) => {
+    const draft = state.drafts[index];
+    return { start: draft?.start ?? segment.start, end: draft?.end ?? segment.end, text: draft?.text ?? segment.text };
+  });
+}
+
+/**
+ * Aplica arreglos (ediciones propuestas por el servidor) como borradores y los apunta como UN paso de deshacer.
+ * No guarda nada. Un índice inexistente o una edición vacía se ignoran; si no queda nada, no crea paso.
+ * @param {EditorState} state
+ * @param {{ index: number, edit: { text?: string, start?: number, end?: number } }[]} fixes
+ * @returns {EditorState}
+ */
+export function applyFixes(state, fixes) {
+  let next = state;
+  /** @type {UndoChange[]} */
+  const changes = [];
+  for (const { index, edit } of fixes) {
+    if (state.segments[index] === undefined) continue;
+    /** @type {Draft} */
+    const before = {};
+    let touched = false;
+    for (const field of FIX_FIELDS) {
+      const value = edit[field];
+      if (value === undefined) continue;
+      touched = true;
+      const previous = next.drafts[index]?.[field];
+      if (previous !== undefined) Object.assign(before, { [field]: previous });
+      next = setField(next, index, field, value);
+    }
+    if (touched) changes.push({ index, before, fields: FIX_FIELDS.filter((field) => edit[field] !== undefined) });
+  }
+  if (changes.length === 0) return state;
+  return { ...next, undo: [...state.undo, changes].slice(-UNDO_LIMIT) };
+}
+
+/** @param {EditorState} state */
+export function canUndo(state) {
+  return state.undo.length > 0;
+}
+
+/**
+ * Revierte el último arreglo: cada campo que tocó vuelve a su borrador anterior (o al valor guardado si no había).
+ * Lo escrito en otros subtítulos o campos se conserva.
+ * @param {EditorState} state
+ * @returns {EditorState}
+ */
+export function undo(state) {
+  const last = state.undo.at(-1);
+  if (last === undefined) return state;
+  let next = { ...state, undo: state.undo.slice(0, -1) };
+  for (const change of [...last].reverse()) {
+    const original = state.segments[change.index];
+    if (original === undefined) continue;
+    for (const field of change.fields) next = setField(next, change.index, field, change.before[field] ?? original[field]);
+  }
+  return next;
 }
