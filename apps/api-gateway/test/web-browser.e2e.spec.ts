@@ -835,7 +835,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     expect(await isVisible(page, "#burn-notice")).toBe(false);
     await workerFinishesBurn(burn.id, { usedKaraoke: true, approximateSegments: 2 });
     await page.waitForFunction(() => (document.querySelector("#burn-status")?.textContent ?? "").includes("Video listo"), { timeout: 10_000 });
-    await page.waitForFunction(() => !document.querySelector("#burn-notice")?.hasAttribute("hidden"), { timeout: 10_000 });
+    await page.waitForFunction(() => document.querySelector("#burn-notice")?.getAttribute("hidden") === null, { timeout: 10_000 });
     expect(await text(page, "#burn-notice")).toContain("2 subtítulos");
     expect(spy.problems).toEqual([]);
     await page.close();
