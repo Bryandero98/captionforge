@@ -258,7 +258,9 @@ export function createResults({ doc, win, baseUrl, t, lang, announce, fetchSegme
       if (job === null || editor.segments.length === 0) return null;
       const hasWords = editor.segments.some((segment) => Array.isArray(segment.words) && segment.words.length > 0);
       const language = /** @type {{ detectedLanguage?: unknown } | null} */ (job.result ?? null)?.detectedLanguage;
-      return { job, hasWords, dirty: editor.dirty, characters: characterCount(editor.segments), language: typeof language === "string" ? language : null };
+      // El primer subtítulo con texto: la vista previa de los temas se dibuja con las palabras de la persona.
+      const sample = editor.segments.find((segment) => typeof segment.text === "string" && segment.text.trim() !== "")?.text ?? "";
+      return { job, hasWords, dirty: editor.dirty, characters: characterCount(editor.segments), language: typeof language === "string" ? language : null, sample };
     },
   };
 }

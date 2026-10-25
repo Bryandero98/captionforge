@@ -29,6 +29,17 @@ Modo Rápido: de un clic a un video con subtítulos, sin decidir nada técnico. 
 - `GET /v1/capabilities` informa `limits.verticalMaxSeconds` y `burn.templates`; `VERTICAL_MAX_SECONDS` (600 por defecto, máximo 86 400) se comparte entre el API y el worker.
 - Textos de los perfiles, del resumen, de los motivos y del aviso de pestaña en los 6 idiomas (es, en, de, fr, it, pt).
 
+### Temas visuales (iniciativa 3)
+
+[ADR 0026](docs/adr/0026-temas-visuales-y-vista-previa-en-css.md)
+
+- **Galería de siete temas** en lugar de los selectores de formato, estilo y plantilla: Minimal profesional, Clásico YouTube, Moderno, TikTok en negrita, Shorts dinámico, Redondeado suave y Limpio de color. Cada tema se traduce a las opciones de siempre de `POST /v1/jobs/:id/burn` (el contrato no cambia).
+- **Vista previa aproximada en CSS** con el texto de tu primer subtítulo, rotulada «Vista aproximada»; solo se mueve el tema elegido y respeta «reducir movimiento».
+- Catálogo único `packages/contracts/themes.v1.json` con prueba de paridad contra las plantillas ASS y los estilos clásicos del worker.
+- Galería accesible (`radiogroup`, flechas, Inicio/Fin); un tema vertical se desactiva con motivo si el video supera el tope o el servidor no ofrece la plantilla.
+- Preferencias `cf-prefs` v2 (`burnTheme`), con migración tolerante desde la v1. «Control total» elige el tema del quemado encadenado.
+- Fuentes de la vista previa (Montserrat y Nunito, OFL) recortadas al alfabeto latino, con hash verificado. Textos en los 6 idiomas.
+
 ### Cambiado
 
 - La subida calcula sus opciones con un plan puro (`domain/plan.js`) en vez de leer los controles directamente; sin tocar «Control total» el resultado equivale a los valores de siempre.

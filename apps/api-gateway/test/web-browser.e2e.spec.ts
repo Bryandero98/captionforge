@@ -128,6 +128,8 @@ async function openAdvanced(page: Page): Promise<void> {
   if (!(await isOpen())) await page.click("#advanced > summary");
   await page.waitForFunction(() => (document.querySelector("#advanced") as unknown as { open: boolean }).open, { timeout: 5_000 });
 }
+/** El tema marcado en la galería del quemado (el `radio` con aria-checked). */
+const checkedTheme = (page: Page) => page.$eval('#burn-themes [role="radio"][aria-checked="true"]', (card) => (card as unknown as { dataset: { theme: string } }).dataset.theme);
 const progress = (page: Page) => page.$eval("#bar", (element) => Number(element.getAttribute("aria-valuenow") ?? "-1"));
 
 async function chooseFile(page: Page, path: string): Promise<void> {
@@ -785,7 +787,7 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     // Estos subtítulos no traen tiempos por palabra: el karaoke no se puede elegir y se dice por qué.
     expect(await page.$eval("#burn-karaoke", (box) => (box as unknown as { disabled: boolean }).disabled)).toBe(true);
     expect(await text(page, "#burn-hint")).toContain("tiempos por palabra");
-    await page.select("#burn-style", "tiktok");
+    await page.click('#burn-themes [data-theme="tiktok-bold"]');
     await page.click("#burn-start");
 
     await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 15_000 });
@@ -945,19 +947,85 @@ describe.skipIf(browserPath === undefined)("la interfaz web en un navegador real
     await page.close();
   }, 90_000);
 
+  it("temas visuales: la galería se maneja con el teclado, la vista previa usa tu texto y el quemado manda las opciones del tema", async () => {
+    const base = await startApi();
+    const { page, spy, jobId } = await openEditorFor(base, "temas.mp4");
+    // La vista previa es aproximada, se rotula así y pinta las palabras del primer subtítulo (SEGMENTS: « Hola & bienvenidos <b>todos</b>»).
+    expect(await text(page, "#burn-preview-note")).toContain("Vista aproximada");
+    const words = await page.$$eval("#burn-preview-text .cf-word", (spans) => spans.map((span) => span.textContent));
+    expect(words.slice(0, 3)).toEqual(["Hola", "&", "bienvenidos"]);
+    expect(words.join(" ")).not.toContain("<b>");
+    // Teclado: la galería es un radiogroup con una sola parada de tabulador; las flechas eligen y mueven el foco.
+    expect(await page.$$eval('#burn-themes [role="radio"][tabindex="0"]', (cards) => cards.length)).toBe(1);
+    await page.focus('#burn-themes [data-theme="modern"]');
+    await page.keyboard.press("ArrowRight");
+    expect(await checkedTheme(page)).toBe("tiktok-bold");
+    expect(await page.evaluate(() => (document.activeElement as unknown as { dataset: { theme: string } }).dataset.theme)).toBe("tiktok-bold");
+    await page.keyboard.press("ArrowRight");
+    expect(await checkedTheme(page)).toBe("shorts-dynamic");
+    expect(await page.$eval("#burn-preview", (frame) => (frame as unknown as { dataset: { frame: string } }).dataset.frame)).toBe("vertical");
+    await page.keyboard.press("End");
+    expect(await checkedTheme(page)).toBe("clean-color");
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    expect(await checkedTheme(page)).toBe("modern");
+    await page.keyboard.press("ArrowLeft");
+    expect(await checkedTheme(page)).toBe("classic-youtube");
+    await page.click("#burn-start");
+    await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 15_000 });
+    const burn = await burnJobOf(jobId);
+    expect(burn.options).toMatchObject({ style: "youtube" });
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("temas visuales: un video de más de 10 minutos desactiva los temas verticales y lo explica", async () => {
+    const base = await startApi();
+    const opened = await openPage(base);
+    const { page, spy } = opened;
+    const name = "largo.mp4";
+    await uploadAndFollow(page, name);
+    await workerCompletes(name, SEGMENTS, { durationSeconds: 1800 });
+    await page.waitForFunction(() => document.querySelectorAll("#result-segments li").length === 3, { timeout: 15_000 });
+    expect(await page.$eval('#burn-themes [data-theme="shorts-dynamic"]', (card) => card.getAttribute("aria-disabled"))).toBe("true");
+    expect(await text(page, '#burn-themes [data-theme="shorts-dynamic"] .theme-card__desc')).toContain("10 min");
+    await page.click('#burn-themes [data-theme="shorts-dynamic"]');
+    expect(await checkedTheme(page)).toBe("modern");
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("temas visuales: las preferencias de la fase 1 (formato y plantilla) se migran al tema equivalente", async () => {
+    const base = await startApi();
+    const { page, spy } = await openPage(base);
+    await page.evaluate(() => localStorage.setItem("cf-prefs", JSON.stringify({ v: 1, autoBurn: true, burnFormat: "vertical", burnTemplate: "rounded-sweep" })));
+    await page.reload({ waitUntil: "networkidle0" });
+    await openAdvanced(page);
+    expect(await page.$eval("#opt-burn-theme", (select) => (select as unknown as { value: string }).value)).toBe("soft-rounded");
+    expect(await page.$eval("#opt-autoburn", (box) => (box as unknown as { checked: boolean }).checked)).toBe(true);
+    // Al tocar cualquier control se vuelve a guardar, ya como v2 y sin los campos antiguos.
+    await page.click("#opt-clean");
+    const stored = JSON.parse((await page.evaluate(() => localStorage.getItem("cf-prefs"))) as string);
+    expect(stored).toMatchObject({ v: 2, burnTheme: "soft-rounded", autoBurn: true, cleanAudio: true });
+    expect(stored.burnFormat).toBeUndefined();
+    expect(stored.burnTemplate).toBeUndefined();
+    expect(spy.problems).toEqual([]);
+    await page.close();
+  }, 90_000);
+
   it("quemado 9:16: el formato vertical manda plantilla y lienzo, y avisa si los tiempos son aproximados", async () => {
     const base = await startApi();
     const { page, spy, jobId } = await openEditorFor(base, "vertical.mp4");
-    // Por defecto es «Clásico 16:9»: estilo y karaoke visibles, plantilla oculta.
-    expect(await text(page, "#burn-format")).toContain("Clásico 16:9");
+    // Por defecto es el tema «Moderno» (el estilo de siempre): karaoke visible, aviso del formato vertical oculto.
+    expect(await checkedTheme(page)).toBe("modern");
     expect(await isVisible(page, "#burn-classic")).toBe(true);
     expect(await isVisible(page, "#burn-vertical")).toBe(false);
-    await page.select("#burn-format", "vertical");
-    expect(await text(page, "#burn-format")).toContain("Vertical Shorts 9:16");
+    await page.click('#burn-themes [data-theme="soft-rounded"]');
+    expect(await checkedTheme(page)).toBe("soft-rounded");
     expect(await isVisible(page, "#burn-classic")).toBe(false);
     expect(await isVisible(page, "#burn-vertical")).toBe(true);
     expect(await text(page, "#burn-vertical-hint")).toContain("10 minutos");
-    await page.select("#burn-template", "rounded-sweep");
     await page.click("#burn-start");
     await page.waitForSelector("#burn-panel:not([hidden])", { timeout: 15_000 });
     const burn = await burnJobOf(jobId);

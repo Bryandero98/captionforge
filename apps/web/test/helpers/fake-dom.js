@@ -11,7 +11,9 @@ export class FakeElement {
     this.children = [];
     this.attributes = {};
     this.listeners = {};
-    this.style = {};
+    // `setProperty` como el de CSSOM (variables CSS); lo demás se asigna como propiedad (`style.transform = ...`).
+    this.style = { setProperty: (name, value) => (this.style[name] = String(value)), removeProperty: (name) => delete this.style[name] };
+    this.dataset = {};
     this.focused = false;
     const classes = () => this.className.split(/\s+/).filter(Boolean);
     this.classList = {
@@ -32,7 +34,7 @@ export class FakeElement {
   getAttribute(name) { return this.attributes[name]; }
   removeAttribute(name) { delete this.attributes[name]; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
-  fire(type) { for (const fn of this.listeners[type] ?? []) fn({ preventDefault() {} }); }
+  fire(type, event = {}) { for (const fn of this.listeners[type] ?? []) fn({ preventDefault() {}, stopPropagation() {}, ...event }); }
   click() { if (!this.disabled) this.fire("click"); }
   focus() { this.focused = true; }
   remove() {}

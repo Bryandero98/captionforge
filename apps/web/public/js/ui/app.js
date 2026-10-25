@@ -10,6 +10,7 @@ import { formatBytes, formatDuration } from "../domain/format.js";
 import { MAX_FILES, addFiles, currentOf, emptyBatch, markCancelled, markDone, markError, markUploading, removeItem, summaryOf } from "../domain/batch.js";
 import { trackingViewOf } from "../domain/job-state.js";
 import { isAudioMime } from "../domain/media.js";
+import { loadPrefs } from "../domain/prefs.js";
 import { probeMedia } from "../domain/media-probe.js";
 import { initialState, reduce, viewOf } from "../domain/upload-state.js";
 import { createTranslator, detectLang, REVIEWED_LANGS } from "../i18n/index.js";
@@ -110,6 +111,8 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   let controller = null;
   /** Evita dos arranques mientras se espera la lectura de metadatos. */
   let beginning = false;
+  /** Qué ofrece el servidor (límites y plantillas); hasta que responde, lo mínimo de siempre. */
+  let currentCaps = NO_CAPABILITIES;
   /** @type {number | undefined} */
   let countdown;
   /** Espera impuesta por el servidor (429/503): fecha límite, error al que pertenece y si sigue vigente. */
@@ -152,6 +155,10 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     onStarted: (job, parentName) => history.add({ id: job.id, name: parentName, kind: "BURN", at: Date.now(), ...(typeof job.parentJobId === "string" ? { parentId: job.parentJobId } : {}) }),
     onOpenParent: (parentId) => void openJob(parentId),
     follower,
+    getCaps: () => currentCaps,
+    // El tema que la persona dejó en «Control total» es el que la galería ofrece primero (solo lectura: el formulario no escribe preferencias).
+    initialTheme: loadPrefs(safeStorage(win)).burnTheme,
+    reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true,
   });
   ai = createAi({
     doc,
@@ -184,8 +191,6 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     },
     onPendingChange: () => quick.refresh(),
   });
-  /** Qué ofrece el servidor (límites y plantillas); hasta que responde, lo mínimo de siempre. */
-  let currentCaps = NO_CAPABILITIES;
   const probeEnv = {
     createElement: (/** @type {"audio" | "video"} */ tag) => doc.createElement(tag),
     createObjectURL: (/** @type {Blob} */ file) => globalThis.URL.createObjectURL(file),

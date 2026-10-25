@@ -8,8 +8,8 @@ import { createQuickMode } from "../public/js/ui/quick-mode.js";
 import { FakeElement } from "./helpers/fake-dom.js";
 
 const IDS = [
-  "advanced", "opt-profile", "opt-model", "opt-source", "opt-translate", "opt-clean", "opt-diarize", "opt-autoburn", "opt-burn-format",
-  "opt-burn-template", "advanced-reset", "quick-summary", "quick-suggestion", "quick-suggestion-text", "quick-suggestion-change",
+  "advanced", "opt-profile", "opt-model", "opt-source", "opt-translate", "opt-clean", "opt-diarize", "opt-autoburn", "opt-burn-theme",
+  "advanced-reset", "quick-summary", "quick-suggestion", "quick-suggestion-text", "quick-suggestion-change",
   "quick-suggestion-dismiss", "quick-warning",
 ];
 
@@ -32,8 +32,7 @@ function setup({ storage = memoryStorage(), caps = { ...NO_CAPABILITIES, diariza
   const els = Object.fromEntries(IDS.map((id) => [id, new FakeElement(id)]));
   els.advanced.open = true;
   els["opt-model"].value = "small";
-  els["opt-burn-format"].value = "classic";
-  els["opt-burn-template"].value = "bold-pop";
+  els["opt-burn-theme"].value = "modern";
   const doc = { getElementById: (id) => els[id] ?? null, createElement: () => new FakeElement() };
   const announced = [];
   const probed = [];
@@ -65,15 +64,14 @@ describe("modo rápido: arranque", () => {
   });
 
   it("con preferencias guardadas las aplica a los controles y queda en manual", () => {
-    const stored = JSON.stringify({ v: 1, modelSize: "medium", sourceLanguage: "es", translateTo: "en", cleanAudio: true, diarize: false, autoBurn: true, burnFormat: "vertical", burnTemplate: "clean-color", burnKaraoke: false, autoProfile: true });
+    const stored = JSON.stringify({ v: 2, modelSize: "medium", sourceLanguage: "es", translateTo: "en", cleanAudio: true, diarize: false, autoBurn: true, burnTheme: "clean-color", burnKaraoke: false, autoProfile: true });
     const { els, quick } = setup({ storage: memoryStorage({ [PREFS_KEY]: stored }) });
     assert.equal(els["opt-model"].value, "medium");
     assert.equal(els["opt-source"].value, "es");
     assert.equal(els["opt-translate"].value, "en");
     assert.equal(els["opt-clean"].checked, true);
     assert.equal(els["opt-autoburn"].checked, true);
-    assert.equal(els["opt-burn-format"].value, "vertical");
-    assert.equal(els["opt-burn-template"].value, "clean-color");
+    assert.equal(els["opt-burn-theme"].value, "clean-color");
     assert.equal(quick.plan("x").source, "manual");
     assert.match(summary(els), /quick\.sum\.manual/);
   });
@@ -95,7 +93,7 @@ describe("modo rápido: perfil sugerido", () => {
     assert.match(summary(els), /profile\.vertical/);
     assert.match(summary(els), /quick\.sum\.after\.vertical/);
     assert.equal(els["opt-autoburn"].checked, true);
-    assert.equal(els["opt-burn-format"].value, "vertical");
+    assert.equal(els["opt-burn-theme"].value, "shorts-dynamic");
     assert.equal(els["quick-suggestion"].hidden, false);
     assert.match(els["quick-suggestion-text"].textContent, /quick\.suggest/);
     assert.match(els["quick-suggestion-text"].textContent, /intent\.portrait_short/);
@@ -177,15 +175,15 @@ describe("modo rápido: Control total", () => {
     assert.match(summary(els), /quick\.sum\.clean/);
     const saved = JSON.parse(storage.data.get(PREFS_KEY));
     assert.equal(saved.cleanAudio, true);
-    assert.equal(saved.v, 1);
+    assert.equal(saved.v, 2);
   });
 
   it("«crear el video al terminar» activa el aviso de pestaña y habilita formato y plantilla", () => {
     const { quick, els } = setup();
-    assert.equal(els["opt-burn-format"].disabled, true);
+    assert.equal(els["opt-burn-theme"].disabled, true);
     els["opt-autoburn"].checked = true;
     els["opt-autoburn"].fire("change");
-    assert.equal(els["opt-burn-format"].disabled, false);
+    assert.equal(els["opt-burn-theme"].disabled, false);
     assert.equal(els["quick-warning"].hidden, false);
     assert.notEqual(quick.plan("x").followUp, null);
   });
@@ -204,7 +202,7 @@ describe("modo rápido: Control total", () => {
   });
 
   it("la casilla de hablantes se apaga si el servidor no los ofrece, pero la preferencia guardada se conserva", () => {
-    const stored = JSON.stringify({ v: 1, diarize: true });
+    const stored = JSON.stringify({ v: 2, diarize: true });
     const { quick, els, storage } = setup({ storage: memoryStorage({ [PREFS_KEY]: stored }), caps: NO_CAPABILITIES });
     els["opt-diarize"].disabled = true;
     els["opt-clean"].checked = true;

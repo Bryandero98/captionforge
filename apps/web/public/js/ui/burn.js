@@ -1,4 +1,4 @@
-// Quemado de subtítulos: formulario (estilo y karaoke) dentro del panel de resultados y panel propio del trabajo de
+// Quemado de subtítulos: formulario (galería de temas y karaoke) dentro del panel de resultados y panel propio del trabajo de
 // quemado, que es un trabajo aparte con su propio seguimiento SSE (ui/tracker.js). Al terminar muestra el video
 // (con Range, el navegador salta sin bajarlo entero) y su descarga.
 
@@ -7,10 +7,13 @@ import { ApiError } from "../api/errors.js";
 import { cancelJob, startBurn } from "../api/jobs.js";
 import { followJob } from "../api/sse.js";
 import { trackingViewOf } from "../domain/job-state.js";
+import { NO_CAPABILITIES } from "../api/capabilities.js";
 import { BURN_STYLES, BURN_TEMPLATES } from "../domain/burn-options.js";
 import { canBurn } from "../domain/media.js";
+import { burnRequestOf, themeById, unavailableReason } from "../domain/themes.js";
 import { detailText, statusText } from "./job-text.js";
 import { downloadName } from "./results.js";
+import { createThemeGallery } from "./theme-gallery.js";
 import { createTracker } from "./tracker.js";
 
 export { BURN_STYLES, BURN_TEMPLATES };
@@ -20,13 +23,14 @@ export { BURN_STYLES, BURN_TEMPLATES };
  *   doc: Document, win: Window, baseUrl: string,
  *   t: (key: string, params?: Record<string, string | number>) => string,
  *   announce: (text: string) => void,
- *   context: () => { job: import("../api/sse.js").JobView, hasWords: boolean, dirty: boolean } | null,
+ *   context: () => { job: import("../api/sse.js").JobView, hasWords: boolean, dirty: boolean, sample?: string } | null,
  *   onStarted: (job: import("../api/sse.js").JobView, parentName: string) => void,
  *   onOpenParent: (parentId: string) => void,
  *   follower?: typeof followJob, start?: typeof startBurn, cancel?: typeof cancelJob,
+ *   getCaps?: () => import("../api/capabilities.js").Capabilities, initialTheme?: string, reducedMotion?: () => boolean,
  * }} deps
  */
-export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted, onOpenParent, follower = followJob, start = startBurn, cancel = cancelJob }) {
+export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted, onOpenParent, follower = followJob, start = startBurn, cancel = cancelJob, getCaps = () => NO_CAPABILITIES, initialTheme, reducedMotion }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -35,11 +39,8 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   };
   const els = {
     form: $("burn-form"),
-    format: $("burn-format"),
     classic: $("burn-classic"),
     vertical: $("burn-vertical"),
-    template: $("burn-template"),
-    style: $("burn-style"),
     karaoke: $("burn-karaoke"),
     hint: $("burn-hint"),
     submit: $("burn-start"),
@@ -73,37 +74,22 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
   /** @type {Blob | null} */
   let videoBlob = null;
 
-  function fillStyles() {
-    const keep = els.style.value || "modern";
-    els.style.replaceChildren(
-      ...BURN_STYLES.map((style) => Object.assign(doc.createElement("option"), { value: style, textContent: t(`burn.style.${style}`) })),
-    );
-    els.style.value = keep;
-  }
+  // La galería de temas (ui/theme-gallery.js) sustituye a los selectores de formato, estilo y plantilla: cada tema se traduce a las
+  // mismas opciones de siempre (domain/themes.js), así que el cuerpo de POST /burn no cambia.
+  const gallery = createThemeGallery({ doc, t, onChange: () => refreshForm(), reducedMotion, initial: initialTheme });
+  const theme = () => themeById(gallery.value);
+  /** @type {string | null} */
+  let shownSample = null;
+  let availabilityKey = "";
 
-  function fillTemplates() {
-    const keep = els.template.value || BURN_TEMPLATES[0];
-    els.template.replaceChildren(
-      ...BURN_TEMPLATES.map((name) => Object.assign(doc.createElement("option"), { value: name, textContent: t(`burn.template.${name}`) })),
-    );
-    els.template.value = keep;
-  }
+  /** Un tema vertical es lo único que no es el formato original. */
+  const isVertical = () => theme().group === "vertical";
 
-  function fillFormats() {
-    const keep = els.format.value === "vertical" ? "vertical" : "classic";
-    els.format.replaceChildren(
-      ...["classic", "vertical"].map((name) => Object.assign(doc.createElement("option"), { value: name, textContent: t(`burn.format.${name}`) })),
-    );
-    els.format.value = keep;
-  }
-
-  /** «Vertical Shorts 9:16» es lo único que no es el formato clásico: cualquier otro valor se trata como clásico. */
-  const isVertical = () => els.format.value === "vertical";
-
-  /** Muestra solo las opciones del formato elegido: estilo y karaoke (clásico) o plantilla (vertical). */
+  /** Muestra solo las opciones del tema elegido: karaoke (clásico) o el aviso del formato vertical. */
   function showFormat() {
     els.classic.hidden = isVertical();
     els.vertical.hidden = !isVertical();
+    gallery.setKaraoke(!isVertical() && els.karaoke.checked && !els.karaoke.disabled);
   }
 
   /** Aviso cuando el resaltado palabra por palabra de algún subtítulo es un reparto aproximado (texto editado o traducido). */
@@ -186,9 +172,22 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     // Un audio no tiene imagen donde quemar subtítulos: el formulario no existe (el servidor también lo rechaza).
     els.form.hidden = ctx === null || !canBurn(ctx.job);
     if (ctx === null || !canBurn(ctx.job)) return;
-    showFormat();
     els.karaoke.disabled = !ctx.hasWords;
     if (!ctx.hasWords) els.karaoke.checked = false;
+    // La vista previa usa el primer subtítulo; los temas verticales se desactivan (con motivo) si el video supera el tope del servidor.
+    const sample = typeof ctx.sample === "string" ? ctx.sample : "";
+    if (sample !== shownSample) {
+      shownSample = sample;
+      gallery.setSample(sample);
+    }
+    const result = /** @type {{ durationSeconds?: unknown } | null | undefined} */ (ctx.job.result);
+    const caps = getCaps();
+    const key = `${result?.durationSeconds}|${caps.limits.verticalMaxSeconds}|${caps.burn.templates.join(",")}`;
+    if (key !== availabilityKey) {
+      availabilityKey = key;
+      gallery.setAvailability((candidate) => unavailableReason(candidate, { durationSeconds: result?.durationSeconds, caps }));
+    }
+    showFormat();
     const blocked = ctx.dirty ? t("burn.hint.dirty") : burning() ? t("burn.hint.busy") : startProblem;
     els.hint.textContent = blocked ?? (ctx.hasWords ? "" : t("burn.hint.nowords"));
     els.hint.hidden = els.hint.textContent === "";
@@ -255,11 +254,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     /** @type {import("../api/sse.js").JobView | null} */
     let job = null;
     try {
-      job = await start(
-        isVertical()
-          ? { baseUrl, jobId: ctx.job.id, canvas: "vertical", template: BURN_TEMPLATES.find((name) => name === els.template.value) ?? BURN_TEMPLATES[0] }
-          : { baseUrl, jobId: ctx.job.id, style: els.style.value, karaoke: els.karaoke.checked && !els.karaoke.disabled },
-      );
+      job = await start({ baseUrl, jobId: ctx.job.id, ...burnRequestOf(theme(), { karaoke: els.karaoke.checked && !els.karaoke.disabled }) });
     } catch (error) {
       if (mine !== epoch) return;
       if (!(error instanceof ApiError)) console.error(error);
@@ -287,10 +282,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     }
   }
 
-  els.format.addEventListener("change", () => {
-    showFormat();
-    refreshForm();
-  });
+  els.karaoke.addEventListener("change", () => showFormat());
   els.form.addEventListener("submit", (/** @type {Event} */ event) => {
     event.preventDefault();
     void submit();
@@ -330,9 +322,6 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     announce(els.detail.textContent);
   });
 
-  fillStyles();
-  fillTemplates();
-  fillFormats();
   showFormat();
   renderPanel();
 
@@ -340,9 +329,7 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
     refreshForm,
     /** Repinta los textos que dependen del idioma. */
     refresh() {
-      fillStyles();
-      fillTemplates();
-      fillFormats();
+      gallery.refresh();
       renderPanel();
     },
     /** Muestra un quemado ya existente (abierto desde el historial) y lo sigue si sigue en curso. @param {import("../api/sse.js").JobView} job */
@@ -357,6 +344,10 @@ export function createBurn({ doc, win, baseUrl, t, announce, context, onStarted,
       starting = false;
       startProblem = null;
       tracker.stop();
+    },
+    /** El tema elegido en la galería. */
+    get theme() {
+      return theme().id;
     },
   };
 }
