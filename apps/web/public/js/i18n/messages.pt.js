@@ -9,7 +9,7 @@ const pt = {
   "drop.title": "Arraste um vídeo ou um áudio para cá",
   "drop.or": "ou",
   "drop.choose": "Escolher um arquivo",
-  "drop.formats": "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A, OGG ou FLAC · até {max}",
+  "drop.formats": "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A, OGG, FLAC, OPUS e mais · até {max}",
   "file.remove": "Remover",
   "file.selected": "Arquivo escolhido",
   "audio.player.label": "Ouvir o áudio original",

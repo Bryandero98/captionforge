@@ -14,9 +14,17 @@ export const AUDIO_MIME_TYPES = Object.freeze([
   "audio/ogg",
   "audio/flac",
   "audio/x-flac",
+  "audio/opus",
+  "audio/aac",
+  "audio/x-aac",
+  "audio/amr",
+  "audio/x-ms-wma",
+  "audio/aiff",
+  "audio/x-aiff",
+  "audio/webm",
 ]);
 
-export const AUDIO_EXTENSIONS = Object.freeze(["mp3", "wav", "m4a", "ogg", "flac"]);
+export const AUDIO_EXTENSIONS = Object.freeze(["mp3", "wav", "m4a", "ogg", "flac", "opus", "aac", "amr", "wma", "aiff", "aif", "weba"]);
 
 const AUDIO_MIME_SET = new Set(AUDIO_MIME_TYPES);
 

@@ -15,6 +15,12 @@ class ContentType(StrEnum):
     video_x_matroska = 'video/x-matroska'
     video_webm = 'video/webm'
     video_x_msvideo = 'video/x-msvideo'
+    video_x_m4v = 'video/x-m4v'
+    video_3gpp = 'video/3gpp'
+    video_mpeg = 'video/mpeg'
+    video_x_ms_wmv = 'video/x-ms-wmv'
+    video_x_flv = 'video/x-flv'
+    video_ogg = 'video/ogg'
     audio_mpeg = 'audio/mpeg'
     audio_mp3 = 'audio/mp3'
     audio_wav = 'audio/wav'
@@ -26,6 +32,14 @@ class ContentType(StrEnum):
     audio_ogg = 'audio/ogg'
     audio_flac = 'audio/flac'
     audio_x_flac = 'audio/x-flac'
+    audio_opus = 'audio/opus'
+    audio_aac = 'audio/aac'
+    audio_x_aac = 'audio/x-aac'
+    audio_amr = 'audio/amr'
+    audio_x_ms_wma = 'audio/x-ms-wma'
+    audio_aiff = 'audio/aiff'
+    audio_x_aiff = 'audio/x-aiff'
+    audio_webm = 'audio/webm'
 
 
 class ObjectRef(BaseModel):

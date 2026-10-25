@@ -110,7 +110,7 @@ Cada llamada necesita tu clave de API: añade `-H "X-API-Key: <clave>"` (la `DEF
 
 ## Archivos de audio
 
-Además de video (MP4, MOV, MKV, WEBM, AVI), CaptionForge acepta archivos de **solo audio**: **MP3, WAV, M4A, OGG y FLAC**. Siguen el mismo flujo (transcripción → traducción opcional → doblaje opcional). Con un audio la aplicación muestra un reproductor `<audio>` estándar con el original, oculta el quemado de subtítulos (no hay imagen) y la mezcla del doblaje con video, y entrega el doblaje como pista **`.mp3`**. Ver el [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md).
+Además de video (MP4, MOV, MKV, WEBM, AVI, M4V, 3GP, MPEG, WMV, FLV, OGV), CaptionForge acepta archivos de **solo audio**: **MP3, WAV, M4A, OGG, FLAC, OPUS (notas de voz), AAC, AMR, WMA, AIFF y WEBA**. Siguen el mismo flujo (transcripción → traducción opcional → doblaje opcional). Con un audio la aplicación muestra un reproductor `<audio>` estándar con el original, oculta el quemado de subtítulos (no hay imagen) y la mezcla del doblaje con video, y entrega el doblaje como pista **`.mp3`**. Ver el [ADR 0023](docs/adr/0023-audio-puro-como-entrada.md).
 
 ## Idiomas compatibles
 

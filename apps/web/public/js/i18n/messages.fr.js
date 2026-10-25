@@ -9,7 +9,7 @@ const fr = {
   "drop.title": "Glisse une vidéo ou un audio ici",
   "drop.or": "ou",
   "drop.choose": "Choisis un fichier",
-  "drop.formats": "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A, OGG ou FLAC · jusqu'à {max}",
+  "drop.formats": "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A, OGG, FLAC, OPUS et plus · jusqu'à {max}",
   "file.remove": "Retirer",
   "file.selected": "Fichier choisi",
   "audio.player.label": "Écouter l'audio d'origine",

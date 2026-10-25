@@ -9,7 +9,7 @@ const it = {
   "drop.title": "Trascina qui un video o un audio",
   "drop.or": "o",
   "drop.choose": "Scegli un file",
-  "drop.formats": "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A, OGG o FLAC · fino a {max}",
+  "drop.formats": "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A, OGG, FLAC, OPUS e altri · fino a {max}",
   "file.remove": "Rimuovi",
   "file.selected": "File scelto",
   "audio.player.label": "Ascolta l'audio originale",

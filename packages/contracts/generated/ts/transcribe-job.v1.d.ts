@@ -39,6 +39,12 @@ export interface TranscribeJob {
       | "video/x-matroska"
       | "video/webm"
       | "video/x-msvideo"
+      | "video/x-m4v"
+      | "video/3gpp"
+      | "video/mpeg"
+      | "video/x-ms-wmv"
+      | "video/x-flv"
+      | "video/ogg"
       | "audio/mpeg"
       | "audio/mp3"
       | "audio/wav"
@@ -49,7 +55,15 @@ export interface TranscribeJob {
       | "audio/m4a"
       | "audio/ogg"
       | "audio/flac"
-      | "audio/x-flac";
+      | "audio/x-flac"
+      | "audio/opus"
+      | "audio/aac"
+      | "audio/x-aac"
+      | "audio/amr"
+      | "audio/x-ms-wma"
+      | "audio/aiff"
+      | "audio/x-aiff"
+      | "audio/webm";
     sizeBytes: number;
   };
   /**
