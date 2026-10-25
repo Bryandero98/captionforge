@@ -445,6 +445,13 @@ select:disabled {
   color: var(--text);
   opacity: 0.8;
 }
+.panel__detail--notice {
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  background: var(--surface-2);
+  border-radius: 6px;
+}
 .panel__detail--mono {
   font-family: var(--mono);
   font-size: 0.8125rem;
@@ -522,6 +529,17 @@ select:disabled {
 }
 .burn .options {
   align-items: end;
+}
+/* Los grupos de opciones de cada formato se reparten en la misma rejilla; el oculto no ocupa sitio. */
+.options__group {
+  display: contents;
+}
+.options__group[hidden] {
+  display: none;
+}
+.options__group .panel__detail {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 .field--check {
   display: flex;

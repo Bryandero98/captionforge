@@ -292,12 +292,25 @@
           <h3 class="burn__title" data-i18n="burn.title">Poner los subtítulos en el video</h3>
           <div class="options">
             <div class="field">
-              <label for="burn-style" data-i18n="burn.style">Estilo</label>
-              <select id="burn-style"></select>
+              <label for="burn-format" data-i18n="burn.format">Formato</label>
+              <select id="burn-format"></select>
             </div>
-            <div class="field field--check">
-              <input type="checkbox" id="burn-karaoke" />
-              <label for="burn-karaoke" data-i18n="burn.karaoke">Resaltar cada palabra (karaoke)</label>
+            <div class="options__group" id="burn-classic">
+              <div class="field">
+                <label for="burn-style" data-i18n="burn.style">Estilo</label>
+                <select id="burn-style"></select>
+              </div>
+              <div class="field field--check">
+                <input type="checkbox" id="burn-karaoke" />
+                <label for="burn-karaoke" data-i18n="burn.karaoke">Resaltar cada palabra (karaoke)</label>
+              </div>
+            </div>
+            <div class="options__group" id="burn-vertical" hidden>
+              <div class="field">
+                <label for="burn-template" data-i18n="burn.template">Plantilla</label>
+                <select id="burn-template" aria-describedby="burn-vertical-hint"></select>
+              </div>
+              <p class="panel__detail" id="burn-vertical-hint" data-i18n="burn.vertical.hint">El video se coloca centrado sobre un fondo desenfocado en 1080×1920 (9:16). Máximo 10 minutos.</p>
             </div>
           </div>
           <p class="panel__detail" id="burn-hint" role="status" hidden></p>
@@ -398,6 +411,7 @@
           <div class="bar__fill" id="burn-bar-fill"></div>
         </div>
         <p class="panel__detail" id="burn-detail" hidden></p>
+        <p class="panel__detail panel__detail--notice" id="burn-notice" role="status" hidden></p>
         <video class="burn__video" id="burn-video" controls preload="metadata" hidden data-i18n-aria-label="burn.video.label" aria-label="Vista previa del video con subtítulos"></video>
         <div class="panel__actions">
           <a class="btn btn--primary" id="burn-download" href="#" download hidden data-i18n="burn.download">Descargar video</a>
