@@ -248,7 +248,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
   nextStepsCard = createNextSteps({ doc, win, t: translate, reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true });
 
   // Asistente (v1.3.1, ADR 0028): chat con la IA propia de la persona; solo aparece si el servidor lo anuncia (modo local).
-  const assistant = createAssistant({ doc, baseUrl: config.baseUrl, t: translate, storage: safeStorage(win), jobId: () => results.context?.job?.id ?? null, announce: (text) => announce(text) });
+  const assistant = createAssistant({ doc, baseUrl: config.baseUrl, t: translate, storage: safeStorage(win), jobId: () => results.context?.job?.id ?? null, isAudio: () => results.context?.job?.mediaKind === "audio", languageName: (code) => languageNames().find((entry) => entry.code === code)?.label ?? code, announce: (text) => announce(text) });
 
   // Guía interactiva (v1.3.1): se abre sola solo la primera vez; el botón «Ayuda» la reabre.
   const tour = createTour({ doc, win, t: translate, storage: safeStorage(win), reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true });

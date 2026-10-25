@@ -1638,3 +1638,18 @@ select:disabled {
 .assistant__dismiss {
   align-self: flex-start;
 }
+
+/* Tarjetas de acciones que propone el asistente (la persona las aplica o las descarta). */
+.assistant__action {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.assistant__action-text {
+  margin: 0;
+  font-weight: 600;
+}

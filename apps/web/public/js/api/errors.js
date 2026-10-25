@@ -1,7 +1,7 @@
 // Errores del API como valores con código estable: la interfaz decide el texto por `code`, nunca por el
 // mensaje del servidor (que viene en español y puede cambiar). El `detail` del servidor se muestra solo como apoyo.
 
-/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"role_forbidden"|"gone"|"not_found"|"too_slow"|"conflict"|"last_owner"|"invite_limit"|"last_membership"|"invalid_key_format"|"invalid_base_url"|"invalid_model"|"same_language"|"burn_not_available_for_audio"|"mix_not_available_for_audio"|"byok_disabled"|"external_key_missing"|"job_too_large"|"invalid_ai_config"|"ai_unavailable"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
+/** @typedef {"invalid_request"|"unauthorized"|"forbidden"|"role_forbidden"|"gone"|"not_found"|"too_slow"|"conflict"|"last_owner"|"invite_limit"|"last_membership"|"invalid_key_format"|"invalid_base_url"|"invalid_model"|"same_language"|"burn_not_available_for_audio"|"mix_not_available_for_audio"|"byok_disabled"|"external_key_missing"|"job_too_large"|"invalid_ai_config"|"ai_unavailable"|"ai_timeout"|"too_large"|"unsupported_type"|"misdirected"|"rate_limited"|"busy"|"server"|"network"|"timeout"|"aborted"|"bad_response"|"unexpected"} ErrorCode */
 
 /** @type {Record<number, ErrorCode>} */
 const CODE_BY_STATUS = {
@@ -43,6 +43,7 @@ const BODY_CODE_STATUSES = {
   // Asistente (ADR 0028): la IA de la persona falta o es inválida, o no respondió.
   invalid_ai_config: [400],
   ai_unavailable: [502],
+  ai_timeout: [504],
 };
 
 const MAX_DETAIL = 300;

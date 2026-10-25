@@ -1,11 +1,13 @@
 // Asistente (v1.3.1, ADR 0028): botón flotante y panel de chat con la IA propia de la persona. Solo existe en modo local (el servidor lo
-// anuncia en las capacidades). El estado puro vive en domain/assistant.js; aquí solo hay DOM. Todo texto entra con textContent: lo que
-// responda la IA es un dato, nunca HTML. El asistente solo conversa: no ejecuta nada de la página.
+// anuncia en las capacidades). El estado puro vive en domain/assistant.js y domain/assistant-actions.js; aquí solo hay DOM. Todo texto entra
+// con textContent: lo que responda la IA es un dato, nunca HTML. La IA PROPONE acciones; cada una es una tarjeta y solo se ejecuta (accionando
+// los botones de la propia página) si la persona pulsa «Aplicar». Lo que cuesta pasa además por la confirmación de gasto de la página.
 
 import { sendChat } from "../api/assistant.js";
 import { ApiError } from "../api/errors.js";
 import { findPreset, visiblePresets } from "../domain/ai-presets.js";
-import { MAX_TEXT, addTurn, aiPayload, canSend, dismissAssistant, forgetAi, loadAssistant, restoreAssistant, saveAssistant } from "../domain/assistant.js";
+import { planAction } from "../domain/assistant-actions.js";
+import { MAX_TEXT, addTurn, aiPayload, canSend, dismissAssistant, forgetAi, loadAssistant, restoreAssistant, saveAssistant, toMessages } from "../domain/assistant.js";
 
 /**
  * @param {{
@@ -13,11 +15,13 @@ import { MAX_TEXT, addTurn, aiPayload, canSend, dismissAssistant, forgetAi, load
  *   t: (key: string, params?: Record<string, string | number>) => string,
  *   storage: import("../domain/assistant.js").StorageLike | null,
  *   jobId?: () => string | null,
+ *   isAudio?: () => boolean,
+ *   languageName?: (code: string) => string,
  *   announce?: (text: string) => void,
  *   send?: typeof sendChat,
  * }} deps
  */
-export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = () => null, announce = () => {}, send = sendChat }) {
+export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = () => null, isAudio = () => false, languageName = (code) => code, announce = () => {}, send = sendChat }) {
   /** @type {(id: string) => any} */
   const $ = (id) => {
     const element = doc.getElementById(id);
@@ -79,6 +83,106 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
     );
   }
 
+  /** Una operación sobre un botón o campo de la página. Falla (sin lanzar) si no existe, está oculto o desactivado. @param {import("../domain/assistant-actions.js").Op} op */
+  function runOp(op) {
+    const element = /** @type {any} */ (doc.getElementById(op.id));
+    if (!element || element.closest("[hidden]") !== null || element.disabled) return false;
+    if (op.type === "click") {
+      element.click();
+      return true;
+    }
+    if (op.type === "select") {
+      if (![...element.options].some((/** @type {HTMLOptionElement} */ option) => option.value === op.value)) return false;
+      element.value = op.value;
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }
+    element.value = op.value;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+
+  /** @param {import("../domain/assistant.js").TurnAction} action */
+  function actionText(action) {
+    const args = action.args;
+    switch (action.name) {
+      case "go_to_step":
+        return t("assistant.action.go_to_step", { step: t(`assistant.step.${String(args.step)}`) });
+      case "translate":
+        return t("assistant.action.translate", { language: languageName(String(args.targetLanguage)), provider: t(`assistant.provider.${String(args.provider)}`) });
+      case "dub":
+        return t("assistant.action.dub");
+      case "burn":
+        return t("assistant.action.burn");
+      default:
+        return t("assistant.action.download_srt");
+    }
+  }
+
+  /** La persona pulsó «Aplicar» en una tarjeta. @param {import("../domain/assistant.js").TurnAction} action */
+  function applyAction(action) {
+    const plan = planAction(action, { audio: isAudio() });
+    if (!plan.ok) {
+      action.state = "failed";
+      action.reason = plan.reason === "audio" ? t("assistant.action.audio") : t("assistant.action.failed");
+    } else {
+      // Se comprueba todo antes de tocar nada: o se aplica entera o no se cambia ningún campo.
+      const ready = plan.ops.every((op) => {
+        const element = /** @type {any} */ (doc.getElementById(op.id));
+        return element && element.closest("[hidden]") === null && !element.disabled && (op.type !== "select" || [...element.options].some((/** @type {HTMLOptionElement} */ option) => option.value === op.value));
+      });
+      if (ready && plan.ops.every(runOp)) action.state = "applied";
+      else {
+        action.state = "failed";
+        action.reason = t("assistant.action.failed");
+      }
+    }
+    renderLog();
+    announce(action.state === "applied" ? t("assistant.action.applied") : (action.reason ?? ""));
+  }
+
+  /** @param {import("../domain/assistant.js").TurnAction} action */
+  function actionCard(action) {
+    const card = doc.createElement("div");
+    card.className = "assistant__action";
+    const label = doc.createElement("p");
+    label.className = "assistant__action-text";
+    label.textContent = actionText(action);
+    card.append(label);
+    const plan = planAction(action, { audio: isAudio() });
+    if (action.state === "pending") {
+      if (plan.ok && plan.spend) {
+        const note = doc.createElement("p");
+        note.className = "panel__detail";
+        note.textContent = t("assistant.action.spend");
+        card.append(note);
+      }
+      const row = doc.createElement("div");
+      row.className = "assistant__actions";
+      const apply = doc.createElement("button");
+      apply.type = "button";
+      apply.className = "btn btn--primary btn--small";
+      apply.textContent = t("assistant.action.apply");
+      apply.addEventListener("click", () => applyAction(action));
+      const dismiss = doc.createElement("button");
+      dismiss.type = "button";
+      dismiss.className = "btn btn--ghost btn--small";
+      dismiss.textContent = t("assistant.action.dismiss");
+      dismiss.addEventListener("click", () => {
+        action.state = "dismissed";
+        renderLog();
+      });
+      row.append(apply, dismiss);
+      card.append(row);
+    } else {
+      const state = doc.createElement("p");
+      state.className = "panel__detail";
+      state.textContent = action.state === "applied" ? t("assistant.action.applied") : action.state === "dismissed" ? t("assistant.action.dismissed") : (action.reason ?? t("assistant.action.failed"));
+      card.append(state);
+    }
+    return card;
+  }
+
   function renderLog() {
     els.log.replaceChildren(
       ...turns.map((turn) => {
@@ -87,9 +191,14 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
         const who = doc.createElement("span");
         who.className = "assistant__who";
         who.textContent = t(turn.role === "user" ? "assistant.you" : "assistant.bot");
-        const body = doc.createElement("span");
-        body.textContent = turn.content;
-        item.append(who, body);
+        item.append(who);
+        // Un turno que solo trae acciones no repite el texto interno del historial.
+        if (!(turn.actions && turn.actions.length > 0 && /^\(.*\)$/.test(turn.content))) {
+          const body = doc.createElement("span");
+          body.textContent = turn.content;
+          item.append(body);
+        }
+        for (const action of turn.actions ?? []) item.append(actionCard(action));
         return item;
       }),
     );
@@ -137,7 +246,7 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
 
   function errorText(/** @type {unknown} */ error) {
     const code = error instanceof ApiError ? error.code : "";
-    return code === "invalid_ai_config" || code === "ai_unavailable" ? t(`assistant.err.${code}`) : t("assistant.err.generic");
+    return code === "invalid_ai_config" || code === "ai_unavailable" || code === "ai_timeout" ? t(`assistant.err.${code}`) : t("assistant.err.generic");
   }
 
   async function submit() {
@@ -157,10 +266,10 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
     renderState();
     pending = new AbortController();
     try {
-      const reply = await send({ baseUrl, messages: turns, ai, ...(jobId() ? { jobId: /** @type {string} */ (jobId()) } : {}), signal: pending.signal });
-      turns = addTurn(turns, "assistant", reply);
+      const { reply, actions } = await send({ baseUrl, messages: toMessages(turns), ai, ...(jobId() ? { jobId: /** @type {string} */ (jobId()) } : {}), signal: pending.signal });
+      turns = addTurn(turns, "assistant", reply, actions);
       setStatus("");
-      announce(reply.slice(0, 120));
+      announce((reply || actionText({ name: actions[0]?.name ?? "", args: actions[0]?.args ?? {} })).slice(0, 120));
     } catch (error) {
       if (!(error instanceof ApiError && error.code === "aborted")) setStatus(errorText(error));
     } finally {

@@ -174,7 +174,8 @@ describe.skipIf(browserPath === undefined)("asistente en un navegador real", () 
     expect(seen[0]?.body.model).toBe("modelo-prueba");
     expect(seen[0]?.body.messages[0]?.role).toBe("system");
     expect(seen[0]?.body.messages.at(-1)).toEqual({ role: "user", content: "¿Cómo traduzco?" });
-    expect(seen[0]?.body.tools).toBeUndefined(); // solo conversa: sin herramientas
+    // Solo la lista cerrada de herramientas que PROPONEN acciones; el servidor no ejecuta nada.
+    expect(((seen[0]?.body.tools ?? []) as { function: { name: string } }[]).map((tool) => tool.function.name).sort()).toEqual(["burn", "download_srt", "dub", "go_to_step", "translate"]);
     expect(problems).toEqual([]);
   }, 120_000);
 
