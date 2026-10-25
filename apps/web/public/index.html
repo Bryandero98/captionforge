@@ -21,6 +21,7 @@
         <h1 class="brand" data-i18n="app.title">CaptionForge</h1>
         <p class="tagline" data-i18n="app.tagline">Subtítulos automáticos para tus videos.</p>
         <button type="button" class="btn btn--ghost btn--small tour-help" id="help-open" aria-expanded="false" aria-controls="tour" data-i18n="tour.help">Ayuda</button>
+        <button type="button" class="btn btn--ghost btn--small tour-help" id="assistant-restore" hidden data-i18n="assistant.restore">Mostrar el asistente</button>
       </div>
       <div class="lang" role="group" data-i18n-aria-label="lang.label" aria-label="Idioma de la interfaz">
         <button type="button" class="lang__btn" id="lang-es" data-lang="es" aria-pressed="true" lang="es" aria-label="ES, Español">ES</button>
@@ -543,6 +544,40 @@
       <p class="visually-hidden" id="announcer" aria-live="polite" aria-atomic="true"></p>
       </div>
     </main>
+    <button type="button" class="assistant-fab" id="assistant-open" hidden aria-expanded="false" aria-controls="assistant" data-i18n="assistant.open">Asistente</button>
+    <section class="assistant" id="assistant" hidden tabindex="-1" aria-labelledby="assistant-title">
+      <header class="assistant__head">
+        <h2 class="assistant__title" id="assistant-title" data-i18n="assistant.title">Asistente</h2>
+        <button type="button" class="btn btn--ghost btn--small" id="assistant-close" data-i18n="assistant.close">Cerrar</button>
+      </header>
+      <p class="panel__detail" data-i18n="assistant.intro">Pregúntame cómo usar CaptionForge.</p>
+      <details class="assistant__setup" id="assistant-setup">
+        <summary data-i18n="assistant.setup">Mi IA</summary>
+        <p class="panel__detail" data-i18n="assistant.setup.hint">Usa tu propia IA.</p>
+        <label class="assistant__label" for="assistant-service" data-i18n="extkeys.preset.label">Servicio de IA</label>
+        <select class="assistant__field" id="assistant-service"></select>
+        <label class="assistant__label" for="assistant-url" id="assistant-url-label" hidden data-i18n="assistant.url">Dirección de la API</label>
+        <input class="assistant__field" id="assistant-url" type="url" hidden autocomplete="off" spellcheck="false" placeholder="https://…/v1">
+        <label class="assistant__label" for="assistant-key" data-i18n="assistant.key">Clave de API</label>
+        <input class="assistant__field" id="assistant-key" type="password" autocomplete="off" spellcheck="false">
+        <label class="assistant__label" for="assistant-model" data-i18n="assistant.model">Modelo (opcional)</label>
+        <input class="assistant__field" id="assistant-model" type="text" list="assistant-models" autocomplete="off" spellcheck="false">
+        <datalist id="assistant-models"></datalist>
+        <div class="assistant__actions">
+          <button type="button" class="btn btn--primary btn--small" id="assistant-save" data-i18n="assistant.save">Guardar en este navegador</button>
+          <button type="button" class="btn btn--ghost btn--small" id="assistant-forget" data-i18n="assistant.forget">Olvidar mi clave</button>
+        </div>
+        <p class="panel__detail" data-i18n="assistant.privacy">La clave se guarda solo en este navegador.</p>
+      </details>
+      <ol class="assistant__log" id="assistant-log" role="log" aria-live="polite" data-i18n-aria-label="assistant.log.label" aria-label="Conversación con el asistente"></ol>
+      <p class="panel__detail assistant__status" id="assistant-status" role="status"></p>
+      <form class="assistant__form" id="assistant-form">
+        <label class="visually-hidden" for="assistant-input" data-i18n="assistant.input.label">Tu mensaje</label>
+        <textarea class="assistant__field assistant__input" id="assistant-input" rows="2" maxlength="4000"></textarea>
+        <button type="submit" class="btn btn--primary btn--small" id="assistant-send" data-i18n="assistant.send">Enviar</button>
+      </form>
+      <button type="button" class="btn btn--ghost btn--small assistant__dismiss" id="assistant-dismiss" data-i18n="assistant.dismiss">Quitar el asistente</button>
+    </section>
   </div>
 </body>
 </html>

@@ -18,6 +18,7 @@ import { createAi } from "./ai.js";
 import { createBurn } from "./burn.js";
 import { createGuidedEditor } from "./guided-editor.js";
 import { createNextSteps } from "./next-steps.js";
+import { createAssistant } from "./assistant.js";
 import { createTour } from "./tour.js";
 import { createQuality } from "./quality.js";
 import { createFollowUp } from "./follow-up.js";
@@ -245,6 +246,9 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
 
   // «¿Qué quieres hacer ahora?» (v1.3.1): atajos a traducir, doblar y quemar tras transcribir.
   nextStepsCard = createNextSteps({ doc, win, t: translate, reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true });
+
+  // Asistente (v1.3.1, ADR 0028): chat con la IA propia de la persona; solo aparece si el servidor lo anuncia (modo local).
+  const assistant = createAssistant({ doc, baseUrl: config.baseUrl, t: translate, storage: safeStorage(win), jobId: () => results.context?.job?.id ?? null, announce: (text) => announce(text) });
 
   // Guía interactiva (v1.3.1): se abre sola solo la primera vez; el botón «Ayuda» la reabre.
   const tour = createTour({ doc, win, t: translate, storage: safeStorage(win), reducedMotion: () => win.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true });
@@ -761,6 +765,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     quality?.refresh(translate);
     guided?.refresh(translate);
     tour.refresh(translate);
+    assistant.refresh(translate);
     nextStepsCard?.refresh(translate);
     translateStatic(); // la espera de un 429 sigue su curso: renderError repinta con el tiempo que queda
     render();
@@ -821,6 +826,7 @@ export function createApp({ doc, win, config, uploader = uploadVideo, follower =
     if (!enabled) els.diarize.checked = false;
     els.diarizeHint.hidden = enabled;
     currentCaps = found;
+    assistant.applyCapabilities(found.assistant);
     quick.refresh();
   }
 

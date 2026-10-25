@@ -77,3 +77,19 @@ describe("getCapabilities", () => {
     assert.equal((await getCapabilities({ baseUrl: "", fetchImpl: async () => json({ message: "Cannot GET" }, { status: 404 }) })).diarization.enabled, false);
   });
 });
+
+describe("asistente", () => {
+  const caps = async (body) => getCapabilities({ baseUrl: "", fetchImpl: async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }) });
+
+  it("sin dato del servidor está apagado", () => {
+    assert.deepEqual(NO_CAPABILITIES.assistant, { enabled: false, allowPrivateBaseUrls: false });
+  });
+
+  it("se enciende solo con enabled:true; las URL privadas solo si además están permitidas", async () => {
+    assert.deepEqual((await caps({ assistant: { enabled: true, allowPrivateBaseUrls: true } })).assistant, { enabled: true, allowPrivateBaseUrls: true });
+    assert.deepEqual((await caps({ assistant: { enabled: true } })).assistant, { enabled: true, allowPrivateBaseUrls: false });
+    assert.deepEqual((await caps({ assistant: { enabled: false, allowPrivateBaseUrls: true } })).assistant, { enabled: false, allowPrivateBaseUrls: false });
+    assert.deepEqual((await caps({ assistant: { enabled: "true" } })).assistant, { enabled: false, allowPrivateBaseUrls: false });
+    assert.deepEqual((await caps({})).assistant, { enabled: false, allowPrivateBaseUrls: false });
+  });
+});

@@ -1511,3 +1511,123 @@ select:disabled {
   gap: 2px;
   min-width: 0;
 }
+
+/* Asistente (v1.3.1): botón flotante y panel; en el móvil el panel ocupa el ancho como una hoja inferior. */
+.assistant-fab {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  padding: 10px 16px;
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  background: var(--accent);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
+  cursor: pointer;
+}
+.assistant {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 28rem;
+  max-height: min(80dvh, 38rem);
+  margin-left: auto;
+  padding: 14px 16px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.45);
+}
+.assistant[hidden],
+.assistant-fab[hidden] {
+  display: none;
+}
+.assistant__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.assistant__title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.assistant__setup summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.assistant__label {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+.assistant__field {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.assistant__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.assistant__log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  min-height: 3rem;
+  overflow-y: auto;
+  list-style: none;
+}
+.assistant__turn {
+  max-width: 92%;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.assistant__turn--user {
+  align-self: flex-end;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent);
+}
+.assistant__who {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+.assistant__status:empty {
+  display: none;
+}
+.assistant__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.assistant__input {
+  flex: 1 1 auto;
+  resize: vertical;
+}
+.assistant__dismiss {
+  align-self: flex-start;
+}

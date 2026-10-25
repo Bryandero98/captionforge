@@ -13,8 +13,8 @@ import { disposeTestTenants, sharedTenant } from "./support/tenancy.js";
 const baseConfig = loadConfig();
 const LIMITS_AND_BURN = { limits: { verticalMaxSeconds: 600 }, burn: { templates: ["bold-pop", "rounded-sweep", "clean-color"] } };
 // El asistente (ADR 0028) solo se anuncia en modo local, haya o no claves externas.
-const ASSISTANT_OFF = { assistant: { enabled: false } };
-const ASSISTANT_ON = { assistant: { enabled: true } };
+const ASSISTANT_OFF = { assistant: { enabled: false, allowPrivateBaseUrls: false } };
+const ASSISTANT_ON = { assistant: { enabled: true, allowPrivateBaseUrls: false } };
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
 async function start(diarization: boolean, appSecret?: string, allowPrivateBaseUrls = false, burn?: { verticalMaxSeconds: number }, localMode = true): Promise<{ base: string; prisma: PrismaService }> {
@@ -83,7 +83,7 @@ describe("GET /v1/capabilities", () => {
     const { base } = await start(false, "capacidades-secreto-de-32-bytes-o-mas!!", false, undefined, false);
     const body = (await (await fetch(`${base}/v1/capabilities`)).json()) as { byok: { enabled: boolean }; assistant: { enabled: boolean } };
     expect(body.byok.enabled).toBe(true);
-    expect(body.assistant).toEqual({ enabled: false });
+    expect(body.assistant).toEqual({ enabled: false, allowPrivateBaseUrls: false });
   });
 
   it("avisa de que se aceptan servidores locales (ALLOW_PRIVATE_BASE_URLS) solo si la función está activa", async () => {

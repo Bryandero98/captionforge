@@ -33,13 +33,13 @@ export function artifactUrl(baseUrl, jobId, name) {
 }
 
 /**
- * @param {{ url: string, method?: string, body?: unknown, signal?: AbortSignal, fetchImpl?: typeof fetch }} request
+ * @param {{ url: string, method?: string, body?: unknown, signal?: AbortSignal, fetchImpl?: typeof fetch, timeoutMs?: number }} request
  * @returns {Promise<unknown>}
  */
-export async function requestJson({ url, method = "GET", body, signal, fetchImpl = (...args) => fetch(...args) }) {
+export async function requestJson({ url, method = "GET", body, signal, fetchImpl = (...args) => fetch(...args), timeoutMs = REQUEST_TIMEOUT_MS }) {
   if (signal?.aborted) throw ApiError.aborted();
   const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => timeout.abort(), timeoutMs);
   const abort = () => timeout.abort();
   signal?.addEventListener("abort", abort, { once: true });
   try {

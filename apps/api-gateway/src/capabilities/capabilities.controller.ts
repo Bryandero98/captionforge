@@ -13,7 +13,7 @@ export interface Capabilities {
   /** Plantillas de subtítulos dinámicos que acepta el quemado. */
   burn: { templates: readonly string[] };
   /** Asistente de la interfaz (ADR 0028): solo en modo local (la IA propia de la persona viaja en cada mensaje, no se guarda). */
-  assistant: { enabled: boolean };
+  assistant: { enabled: boolean; allowPrivateBaseUrls: boolean };
 }
 
 @Controller("v1/capabilities")
@@ -29,7 +29,7 @@ export class CapabilitiesController {
       byok: { enabled: byok, providers: byok ? EXTERNAL_PROVIDERS : [], allowPrivateBaseUrls: byok && this.config.byok.allowPrivateBaseUrls },
       limits: { verticalMaxSeconds: this.config.burn.verticalMaxSeconds },
       burn: { templates: BURN_TEMPLATES },
-      assistant: { enabled: this.config.auth.localMode },
+      assistant: { enabled: this.config.auth.localMode, allowPrivateBaseUrls: this.config.auth.localMode && this.config.byok.allowPrivateBaseUrls },
     };
   }
 }
