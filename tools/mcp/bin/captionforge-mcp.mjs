@@ -21,6 +21,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "JSON inválido" } })}\n`);
     continue;
   }
-  const response = await server.handle(message);
+  let response;
+  try {
+    response = await server.handle(message);
+  } catch {
+    response = { jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32603, message: "Error interno" } };
+  }
   if (response !== null) process.stdout.write(`${JSON.stringify(response)}\n`);
 }

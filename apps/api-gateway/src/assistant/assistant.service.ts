@@ -3,7 +3,7 @@ import { BadGatewayException, GatewayTimeoutException, Inject, Injectable, Logge
 import { APP_CONFIG, type AppConfig } from "../config/config.js";
 import { JobsService } from "../jobs/jobs.service.js";
 import { buildChatRequest, type JobContext, parseAiCredentials, parseChatResponse, type ProposedAction, sanitizeMessages } from "./chat.js";
-import { type ChatTransport, createPinnedTransport } from "./pinned-https.js";
+import { AiTransportError, type ChatTransport, createPinnedTransport } from "./pinned-https.js";
 
 export const CHAT_TRANSPORT = Symbol("CHAT_TRANSPORT");
 
@@ -41,7 +41,8 @@ export class AssistantService {
       return parseChatResponse(payload);
     } catch (error) {
       // Nunca se repite el mensaje original: podría llevar texto del proveedor. Solo qué falló, en general.
-      this.logger.warn(`El asistente no obtuvo respuesta de la IA (${(error as Error).name}).`);
+      const detail = error instanceof AiTransportError ? `${error.code}${error.status ? ` HTTP ${error.status}` : ""}` : (error as Error).name;
+      this.logger.warn(`El asistente no obtuvo respuesta de la IA (${detail}).`);
       if ((error as Error).name === "AiTimeoutError") {
         throw new GatewayTimeoutException({ statusCode: 504, error: "Gateway Timeout", code: "ai_timeout", message: "La IA tardó demasiado: prueba un modelo más rápido." });
       }

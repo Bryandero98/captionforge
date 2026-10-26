@@ -351,6 +351,9 @@ services:
     build:
       context: .
       dockerfile: apps/ai-worker/Dockerfile
+      args:
+        # 1 instala pyannote.audio (identificar quién habla, ADR 0014); hace falta además HF_TOKEN. Por defecto no se instala.
+        WITH_DIARIZATION: ${WITH_DIARIZATION:-0}
     restart: unless-stopped
     init: true # tini: recoge los procesos zombi de ffmpeg
     stop_grace_period: 60s # deja terminar o cancelar el trabajo en curso

@@ -137,15 +137,27 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
         action.reason = t("assistant.action.failed");
       }
     }
+    focusAction = action;
     renderLog();
     announce(action.state === "applied" ? t("assistant.action.applied") : (action.reason ?? ""));
   }
+
+  /** Acción cuya tarjeta acaba de cambiar de estado: al repintar, el foco vuelve a su texto de estado en vez de caer en <body>. @type {import("../domain/assistant.js").TurnAction | null} */
+  let focusAction = null;
+  /** @type {HTMLElement | null} */
+  let focusTarget = null;
+  let cardCount = 0;
 
   /** @param {import("../domain/assistant.js").TurnAction} action */
   function actionCard(action) {
     const card = doc.createElement("div");
     card.className = "assistant__action";
+    // 3. Cada tarjeta es un grupo con nombre: con varias, el lector de pantalla distingue a qué «Aplicar» se refiere.
+    card.setAttribute("role", "group");
+    const labelId = `assistant-action-${(cardCount += 1)}`;
+    card.setAttribute("aria-labelledby", labelId);
     const label = doc.createElement("p");
+    label.id = labelId;
     label.className = "assistant__action-text";
     label.textContent = actionText(action);
     card.append(label);
@@ -170,6 +182,7 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
       dismiss.textContent = t("assistant.action.dismiss");
       dismiss.addEventListener("click", () => {
         action.state = "dismissed";
+        focusAction = action;
         renderLog();
       });
       row.append(apply, dismiss);
@@ -177,6 +190,8 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
     } else {
       const state = doc.createElement("p");
       state.className = "panel__detail";
+      state.tabIndex = -1;
+      if (action === focusAction) focusTarget = state;
       state.textContent = action.state === "applied" ? t("assistant.action.applied") : action.state === "dismissed" ? t("assistant.action.dismissed") : (action.reason ?? t("assistant.action.failed"));
       card.append(state);
     }
@@ -184,6 +199,9 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
   }
 
   function renderLog() {
+    cardCount = 0;
+    focusTarget = null;
+    const hadFocus = els.log.contains(doc.activeElement);
     els.log.replaceChildren(
       ...turns.map((turn) => {
         const item = doc.createElement("li");
@@ -203,6 +221,9 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
       }),
     );
     els.log.scrollTop = els.log.scrollHeight;
+    // Solo si el foco estaba en el registro (el botón pulsado desaparece al repintar); si la acción lo llevó a otro sitio, se respeta.
+    if (hadFocus && focusTarget !== null) /** @type {HTMLElement} */ (focusTarget).focus();
+    focusAction = null;
   }
 
   function renderState() {
@@ -212,7 +233,8 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
     els.panel.hidden = !visible || !open;
     els.restore.hidden = !(enabled && prefs.hidden);
     els.send.disabled = busy;
-    els.input.disabled = busy;
+    els.input.readOnly = busy;
+    els.input.setAttribute("aria-busy", String(busy));
   }
 
   function setStatus(/** @type {string} */ message) {
@@ -269,9 +291,15 @@ export function createAssistant({ doc, baseUrl, t: initialT, storage, jobId = ()
       const { reply, actions } = await send({ baseUrl, messages: toMessages(turns), ai, ...(jobId() ? { jobId: /** @type {string} */ (jobId()) } : {}), signal: pending.signal });
       turns = addTurn(turns, "assistant", reply, actions);
       setStatus("");
-      announce((reply || actionText({ name: actions[0]?.name ?? "", args: actions[0]?.args ?? {} })).slice(0, 120));
+      // El registro no es una región viva (se repinta entero y se releería): la respuesta se anuncia una sola vez, aquí.
+      announce((reply || actionText({ name: actions[0]?.name ?? "", args: actions[0]?.args ?? {} })).slice(0, 400));
     } catch (error) {
-      if (!(error instanceof ApiError && error.code === "aborted")) setStatus(errorText(error));
+      if (!(error instanceof ApiError && error.code === "aborted")) {
+        setStatus(errorText(error));
+        // Que un fallo no se coma lo escrito: vuelve al campo y se quita el turno que no obtuvo respuesta.
+        turns = turns.slice(0, -1);
+        if (els.input.value === "") els.input.value = text;
+      }
     } finally {
       pending = null;
       busy = false;

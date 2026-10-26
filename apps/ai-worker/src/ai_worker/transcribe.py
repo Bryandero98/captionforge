@@ -176,6 +176,11 @@ class TranscribeRunner:
             await progress.report("diarizing", 1.0, "No se pudo identificar quién habla; se entrega la transcripción normal")
             return segments, False
         self._check(cancel)
+        if not turns:
+            # Sin ningún turno no hay nada que asignar: decir «identificado» sería mentir (la web mostraría el aviso de éxito sin hablantes).
+            log.warning("la identificación de hablantes no detectó ninguna voz; se entrega la transcripción normal")
+            await progress.report("diarizing", 1.0, "No se detectó ninguna voz distinguible; se entrega la transcripción normal")
+            return segments, False
         return assign_speakers(segments, turns), True
 
     async def _run(self, payload: TranscribeJob, progress: Progress, cancel: threading.Event, job_dir: Path) -> dict[str, Any]:

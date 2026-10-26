@@ -27,6 +27,12 @@ FORMATS = {
     "m4a": ("audio/mp4", ["-c:a", "aac"]),
     "ogg": ("audio/ogg", ["-c:a", "libvorbis"]),
     "flac": ("audio/flac", ["-c:a", "flac"]),
+    # v1.3.1: notas de voz de WhatsApp (Opus en Ogg), AAC suelto, WMA, AIFF y WebM de audio.
+    "opus": ("audio/opus", ["-c:a", "libopus"]),
+    "aac": ("audio/aac", ["-c:a", "aac"]),
+    "wma": ("audio/x-ms-wma", ["-c:a", "wmav2"]),
+    "aiff": ("audio/aiff", ["-c:a", "pcm_s16be"]),
+    "weba": ("audio/webm", ["-c:a", "libopus", "-f", "webm"]),
 }
 
 

@@ -51,6 +51,8 @@ class FakeDiarizer:
             self.cancel.set()
             raise DiarizationFailed("fallo mientras se cancelaba")
         await report("diarizing", 1.0)
+        if self.mode == "empty":
+            return []  # pyannote no detectó ninguna voz
         # FakeWhisper da 3 segmentos de 2,5 s cada 3 s: el primero y el tercero para uno, el segundo para otro.
         return [Turn(0.0, 2.9, "S_A"), Turn(2.9, 5.9, "S_B"), Turn(5.9, 9.0, "S_A")]
 
@@ -114,6 +116,15 @@ def test_failures_fall_back_to_the_plain_transcription(config, storage, new_job,
         result = run_job(config, storage, models, FakeDiarizer(log, models, mode=mode), payload)
         assert result["diarized"] is False and result["segmentCount"] == 3, mode
         assert all("speaker" not in s for s in stored_segments(storage, config, result, tmp_path)), mode
+
+
+def test_a_diarization_that_finds_no_voice_is_not_reported_as_identified(config, storage, new_job, tmp_path) -> None:  # noqa: ANN001
+    log: list[str] = []
+    models = make_models(log)
+    _, payload = new_job(options={"diarize": True})
+    result = run_job(config, storage, models, FakeDiarizer(log, models, mode="empty"), payload)
+    assert result["diarized"] is False and result["segmentCount"] == 3
+    assert all("speaker" not in s for s in stored_segments(storage, config, result, tmp_path))
 
 
 def test_the_fallback_is_announced_in_the_progress_message(config, storage, new_job) -> None:  # noqa: ANN001

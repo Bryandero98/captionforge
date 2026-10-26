@@ -263,6 +263,23 @@ describe("createPinnedTransport (servidor real en 127.0.0.1)", () => {
     });
   });
 
+  it("un proveedor que corta la conexión a mitad del cuerpo rechaza enseguida en vez de colgar la petición", async () => {
+    const { createServer } = await import("node:http");
+    const { createPinnedTransport } = await import("../src/assistant/pinned-https.js");
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json", "content-length": "500" });
+      res.write('{"choices":');
+      setTimeout(() => res.destroy(), 20);
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1/chat/completions`;
+      await expect(createPinnedTransport(true)(request(url))).rejects.toThrow(/cort/i);
+    } finally {
+      server.close();
+    }
+  }, 5000);
+
   it("con ALLOW_PRIVATE_BASE_URLS llega a un servidor local (Ollama) y devuelve el JSON", async () => {
     const { createPinnedTransport } = await import("../src/assistant/pinned-https.js");
     await withServer(async (url) => {

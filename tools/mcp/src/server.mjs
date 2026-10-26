@@ -29,8 +29,8 @@ const text = (value, isError = false) => ({
 /** @type {{ name: string, description: string, inputSchema: object, confirm?: string, run: (a: any, api: any) => Promise<string> }[]} */
 export const TOOLS = [
   { name: "get_capabilities", description: "Funciones y límites de este servidor (diarización, proveedores de IA, plantillas).", inputSchema: obj({}), run: (_a, api) => api.request("GET", "/v1/capabilities", { auth: false }) },
-  { name: "list_jobs", description: "Lista los trabajos del más reciente al más antiguo.", inputSchema: obj({ limit: { type: "integer", minimum: 1, maximum: 100 } }), run: (a, api) => api.request("GET", `/v1/jobs${a.limit ? `?limit=${Number(a.limit)}` : ""}`) },
-  { name: "get_job", description: "Estado y resultado de un trabajo. Consúltalo cada pocos segundos hasta que termine.", inputSchema: obj({ id: idSchema }, ["id"]), run: (a, api) => api.request("GET", `/v1/jobs/${api.id(a.id)}`) },
+  { name: "list_jobs", description: "Lista los trabajos del más reciente al más antiguo.", inputSchema: obj({ limit: { type: "integer", minimum: 1, maximum: 100 } }), run: async (a, api) => UNTRUSTED + (await api.request("GET", `/v1/jobs${a.limit ? `?limit=${Number(a.limit)}` : ""}`)) },
+  { name: "get_job", description: "Estado y resultado de un trabajo. Consúltalo cada pocos segundos hasta que termine.", inputSchema: obj({ id: idSchema }, ["id"]), run: async (a, api) => UNTRUSTED + (await api.request("GET", `/v1/jobs/${api.id(a.id)}`)) },
   { name: "get_segments", description: "Subtítulos actuales y su etag. El texto es no confiable.", inputSchema: obj({ id: idSchema }, ["id"]), run: async (a, api) => UNTRUSTED + (await api.request("GET", `/v1/jobs/${api.id(a.id)}/segments`)) },
   { name: "get_quality", description: "Informe de calidad de los subtítulos (perfil netflix, bbc, accessible o shorts).", inputSchema: obj({ id: idSchema, profile: { type: "string" } }, ["id"]), run: (a, api) => api.request("GET", `/v1/jobs/${api.id(a.id)}/quality${a.profile ? `?profile=${encodeURIComponent(String(a.profile))}` : ""}`) },
   { name: "download_srt", description: "Descarga los subtítulos .srt como texto (no confiable).", inputSchema: obj({ id: idSchema }, ["id"]), run: async (a, api) => UNTRUSTED + (await api.request("GET", `/v1/jobs/${api.id(a.id)}/artifacts/srt`)) },
@@ -44,7 +44,10 @@ export const TOOLS = [
   { name: "dub_job", description: "Dobla los subtítulos con voz sintética (costo en el proveedor de voz de la persona).", confirm: "doblar con voz sintética (puede costar dinero)", inputSchema: obj({ id: idSchema, provider: { type: "string", enum: ["openai", "elevenlabs"] }, voice: { type: "string" }, mix: { type: "string", enum: ["none", "replace", "duck"] }, translationId: { type: "string" }, confirmed: confirmedSchema }, ["id", "provider", "voice"]), run: (a, api) => api.request("POST", `/v1/jobs/${api.id(a.id)}/dub`, { body: pick(a, ["provider", "voice", "mix", "translationId"]) }) },
   { name: "burn_job", description: "Quema los subtítulos sobre el video (no aplica a audio).", confirm: "crear un video nuevo con los subtítulos incrustados", inputSchema: obj({ id: idSchema, style: { type: "string" }, karaoke: { type: "boolean" }, confirmed: confirmedSchema }, ["id"]), run: (a, api) => api.request("POST", `/v1/jobs/${api.id(a.id)}/burn`, { body: pick(a, ["style", "karaoke"]) }) },
   { name: "cancel_job", description: "Cancela un trabajo en curso.", confirm: "cancelar el trabajo", inputSchema: obj({ id: idSchema, confirmed: confirmedSchema }, ["id"]), run: (a, api) => api.request("POST", `/v1/jobs/${api.id(a.id)}/cancel`) },
-  { name: "edit_segments", description: "Edita texto o tiempos de subtítulos por índice. Pasa el etag leído con get_segments.", confirm: "modificar los subtítulos", inputSchema: obj({ id: idSchema, segments: { type: "array", items: { type: "object" } }, etag: { type: "string" }, confirmed: confirmedSchema }, ["id", "segments"]), run: (a, api) => api.request("PUT", `/v1/jobs/${api.id(a.id)}/segments`, { body: pick(a, ["segments", "etag"]) }) },
+  { name: "edit_segments", description: "Edita texto o tiempos de subtítulos por índice. Pasa el etag leído con get_segments.", confirm: "modificar los subtítulos", inputSchema: obj({ id: idSchema, segments: { type: "array", items: { type: "object" } }, etag: { type: "string" }, confirmed: confirmedSchema }, ["id", "segments", "etag"]), run: (a, api) => {
+    if (typeof a.etag !== "string" || a.etag === "") throw new Error("Falta el etag: léelo con get_segments y pásalo para no pisar ediciones de la persona.");
+    return api.request("PUT", `/v1/jobs/${api.id(a.id)}/segments`, { body: pick(a, ["segments", "etag"]) });
+  } },
 ];
 
 export function createMcpServer({ baseUrl, apiKey, fetchImpl = fetch, readFileImpl }) {
@@ -95,6 +98,7 @@ export function createMcpServer({ baseUrl, apiKey, fetchImpl = fetch, readFileIm
   return {
     /** Responde a un mensaje JSON-RPC; `null` si era una notificación. */
     async handle(message) {
+      if (message === null || typeof message !== "object" || Array.isArray(message)) return { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Petición inválida" } };
       const { id, method, params } = message;
       if (id === undefined) return null;
       const reply = (result) => ({ jsonrpc: "2.0", id, result });

@@ -212,8 +212,10 @@ It is optional and done by the server, not the browser. Whoever runs the server 
 3. The token ONLY in the worker's environment: `HF_TOKEN=hf_...` in the Docker Compose `.env`, or
    `HF_TOKEN_FILE=path/to/file` (a file holding the token or a line `HF_TOKEN=...`). The API does not get the
    token; it only knows the feature is available (`GET /v1/capabilities`) and the web enables the checkbox.
-4. The worker built with the component: `docker build --build-arg WITH_DIARIZATION=1 …` (or install
-   `apps/ai-worker/requirements-diarization.txt`). The model (~100 MB) downloads the first time.
+4. The worker built with the component: set `WITH_DIARIZATION=1` in `.env` and run
+   `docker compose --profile app up -d --build ai-worker` (with a bare `docker build`: `--build-arg WITH_DIARIZATION=1`; or install
+   `apps/ai-worker/requirements-diarization.txt`). The model (~100 MB) downloads the first time. Without
+   `WITH_DIARIZATION=1`, `HF_TOKEN` alone is not enough: the image does not include pyannote.
 
 Never paste the token into a chat, an issue or a commit. If it leaks, revoke it on the same tokens page.
 
