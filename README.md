@@ -34,7 +34,7 @@ caps, graceful shutdown and recovery of orphaned jobs. Its known limits are decl
 > | | What it is | Status |
 > |---|---|---|
 > | **Local package** | `pip install` + `captionforge serve` (Python 3.10+): one process, one video at a time, nothing leaves your machine. | Published on PyPI. See [`legacy/`](legacy/README.md). |
-> | **Service (this monorepo)** | API Gateway + queue + AI Worker + object storage, built to run several jobs and several users. | API and worker done; web client feature-complete (upload queue, live progress, editor, downloads, burned-in video; 6 languages), user accounts pending. |
+> | **Service (this monorepo)** | API Gateway + queue + AI Worker + object storage, built to run several jobs and several users. | API and worker done; web client feature-complete (upload queue, live progress, editor, downloads, burned-in video; 6 languages), accounts (GitHub/Google sign-in, API keys, teams with roles), per-tenant quotas and AI access (MCP, assistant) done. |
 
 ## Quickstart (one command)
 
