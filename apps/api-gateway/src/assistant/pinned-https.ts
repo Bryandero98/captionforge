@@ -12,6 +12,18 @@ import { type ChatRequest, chooseAddress } from "./chat.js";
 const TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 
+/** Error del transporte con un código estable (y el HTTP del proveedor si lo hubo): sirve para el log; nunca lleva el cuerpo. */
+export class AiTransportError extends Error {
+  constructor(
+    message: string,
+    readonly code: "https_only" | "http_status" | "not_json" | "too_large" | "cut_off" | "timeout",
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = code === "timeout" ? "AiTimeoutError" : "AiTransportError";
+  }
+}
+
 export type ChatTransport = (request: ChatRequest) => Promise<unknown>;
 
 export function createPinnedTransport(allowPrivate: boolean): ChatTransport {
@@ -19,7 +31,7 @@ export function createPinnedTransport(allowPrivate: boolean): ChatTransport {
     new Promise((resolve, reject) => {
       const url = new URL(request.url);
       if (url.protocol !== "https:" && !(allowPrivate && url.protocol === "http:")) {
-        reject(new Error("Solo se admite https."));
+        reject(new AiTransportError("Solo se admite https.", "https_only"));
         return;
       }
       // Node no llama a `lookup` con una IP literal: se valida aquí también (la URL base ya las rechaza al guardar; esto es defensa en profundidad).
@@ -56,25 +68,34 @@ export function createPinnedTransport(allowPrivate: boolean): ChatTransport {
           response.on("data", (chunk: Buffer) => {
             size += chunk.length;
             if (size > MAX_RESPONSE_BYTES) {
-              req.destroy(new Error("Respuesta demasiado grande."));
+              req.destroy(new AiTransportError("Respuesta demasiado grande.", "too_large"));
               return;
             }
             chunks.push(chunk);
           });
+          // Si el proveedor corta a mitad del cuerpo, `end` no llega: sin esto la promesa quedaría colgada hasta el tope del navegador.
+          response.on("error", () => reject(new AiTransportError("La IA cortó la respuesta a medias.", "cut_off", status)));
+          response.on("close", () => {
+            if (!response.complete) reject(new AiTransportError("La IA cortó la respuesta a medias.", "cut_off", status));
+          });
           response.on("end", () => {
             if (status < 200 || status >= 300) {
-              reject(new Error(`La IA respondió HTTP ${status}.`));
+              reject(new AiTransportError(`La IA respondió HTTP ${status}.`, "http_status", status));
               return;
             }
             try {
               resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
             } catch {
-              reject(new Error("La IA devolvió algo que no es JSON."));
+              reject(new AiTransportError("La IA devolvió algo que no es JSON.", "not_json", status));
             }
           });
         },
       );
-      req.on("timeout", () => req.destroy(Object.assign(new Error("La IA tardó demasiado en responder."), { name: "AiTimeoutError" })));
+      // `timeout` es de inactividad del socket; este plazo total corta también a quien suelta un byte cada tanto.
+      const abort = () => req.destroy(new AiTransportError("La IA tardó demasiado en responder.", "timeout"));
+      const overall = setTimeout(abort, TIMEOUT_MS);
+      req.on("close", () => clearTimeout(overall));
+      req.on("timeout", abort);
       req.on("error", reject);
       req.end(payload);
     });

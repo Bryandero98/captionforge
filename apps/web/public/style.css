@@ -1562,6 +1562,9 @@ select:disabled {
   font-size: 1.05rem;
 }
 .assistant__setup {
+  /* holgura para que el anillo de foco de los campos no se recorte con el desplazamiento */
+  padding: 5px;
+  margin: -5px;
   flex: 0 1 auto;
   min-height: 0;
   max-height: 55%;
@@ -1598,7 +1601,7 @@ select:disabled {
   flex-direction: column;
   gap: 8px;
   margin: 0;
-  padding: 0;
+  padding: 5px; /* holgura para el anillo de foco de las tarjetas */
   flex: 1 1 4rem;
   min-height: 4rem;
   overflow-y: auto;

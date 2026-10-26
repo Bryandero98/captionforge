@@ -210,8 +210,10 @@ Es opcional y la hace el servidor, no el navegador. Quien administra el servidor
 3. Poner el token SOLO en el entorno del worker: `HF_TOKEN=hf_...` en el `.env` de Docker Compose o
    `HF_TOKEN_FILE=ruta/al/archivo` (un archivo con el token o con una línea `HF_TOKEN=...`). El API no recibe el
    token; solo sabe que la función está disponible (`GET /v1/capabilities`) y la web activa la casilla.
-4. Construir el worker con el componente: `docker build --build-arg WITH_DIARIZATION=1 …` (o instalar
-   `apps/ai-worker/requirements-diarization.txt`). El modelo (~100 MB) se descarga la primera vez.
+4. Construir el worker con el componente: pon `WITH_DIARIZATION=1` en el `.env` y ejecuta
+   `docker compose --profile app up -d --build ai-worker` (con `docker build` suelto: `--build-arg WITH_DIARIZATION=1`; o instalar
+   `apps/ai-worker/requirements-diarization.txt`). El modelo (~100 MB) se descarga la primera vez. Sin `WITH_DIARIZATION=1`,
+   `HF_TOKEN` por sí solo no basta: la imagen no incluye pyannote.
 
 Nunca pegues el token en un chat, un issue ni un commit. Si se filtra, revócalo en la misma página de tokens.
 

@@ -8,6 +8,14 @@ repositorio [Bryandero98/captionforge](https://github.com/Bryandero98/captionfor
 
 ## [Sin publicar]
 
+### Corregido
+
+- **Identificar quién habla**: si pyannote no detecta ninguna voz, el trabajo ya no se marca como «identificado» sin hablantes; se avisa y se entrega la transcripción normal.
+- **Asistente**: una IA que corta la respuesta a medias ya no deja la petición colgada; plazo total de 60 s; el registro del servidor distingue clave rechazada, HTTP del proveedor, no-JSON, tamaño y corte (sin guardar cuerpos).
+- **Asistente (accesibilidad)**: el foco ya no cae al pulsar Aplicar/Descartar; el registro no se relee entero; cada tarjeta es un grupo con nombre; el anillo de foco ya no se recorta; si falla el envío, el texto vuelve al campo.
+- **MCP**: `edit_segments` exige `etag`; `get_job` y `list_jobs` marcan como no confiable lo que viene del servidor; un mensaje que no es un objeto recibe error JSON-RPC en vez de tumbar el proceso.
+- **Docker/Compose**: `WITH_DIARIZATION=1` en el `.env` instala pyannote en el worker al construir (antes solo se podía con `docker build --build-arg`).
+
 ## [1.3.1] - 2026-10-25
 
 Más fácil para quien empieza y abierta a las IAs: guía interactiva, pantalla «¿Qué quieres hacer ahora?», más formatos de audio y video, acceso para IAs y asistente removible. Todo lo de IA, solo en modo local.
