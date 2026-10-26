@@ -34,7 +34,7 @@ de trabajos huérfanos. Sus límites conocidos se declaran, no se esconden.
 > | | Qué es | Estado |
 > |---|---|---|
 > | **Paquete local** | `pip install` + `captionforge serve` (Python 3.10+): un proceso, un video a la vez, nada sale de tu equipo. | Publicado en PyPI. Ver [`legacy/`](legacy/README.es.md). |
-> | **Servicio (este monorepo)** | API Gateway + cola + AI Worker + almacenamiento de objetos, pensado para varios trabajos y varias personas. | API y worker hechos; cliente web y cuentas pendientes. |
+> | **Servicio (este monorepo)** | API Gateway + cola + AI Worker + almacenamiento de objetos, pensado para varios trabajos y varias personas. | API y worker hechos; cliente web completo (cola de subida, progreso en vivo, editor, descargas, video con subtítulos; 6 idiomas), cuentas (inicio de sesión con GitHub/Google, claves de API, equipos con roles), cuotas por tenant y acceso para IAs (MCP, asistente) hechos. |
 
 ## Puesta en marcha (un solo comando)
 

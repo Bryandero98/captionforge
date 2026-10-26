@@ -10,6 +10,8 @@ Las versiones publicadas están en el [CHANGELOG](../CHANGELOG.md).
 | 1.0 | Servicio completo: subida, transcripción, traducción, doblaje, edición, quemado, equipos, claves propias |
 | 1.1 | Multi-LLM con URL base propia y audio puro |
 | 1.2 | Subtítulos dinámicos ASS y formato vertical 9:16, parches de seguridad (carrera y TOCTOU) |
+| 1.3.0 | Modo Rápido, galería de temas con vista previa y editor guiado por problemas |
+| 1.3.1 | Guía interactiva, más formatos, acceso para IAs (MCP, llms.txt, OpenAPI) y asistente removible |
 
 ## v1.3.0: Experiencia de usuario y Product-Led Growth
 
