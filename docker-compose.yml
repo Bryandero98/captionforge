@@ -318,7 +318,7 @@ services:
 
   grafana:
     profiles: ["metrics"]
-    image: grafana/grafana:11.3.1
+    image: grafana/grafana:13.2.4
     restart: unless-stopped
     logging: *logging
     security_opt:
