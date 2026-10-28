@@ -2,7 +2,7 @@
 #   docker build -f apps/api-gateway/Dockerfile .
 # La misma imagen sirve para el servicio `migrate` (prisma migrate deploy) y para `api-gateway`.
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /repo
 
 # Primero solo los package.json: la capa de dependencias se reutiliza mientras no cambien.
@@ -19,7 +19,7 @@ COPY packages/contracts/generated/ts packages/contracts/generated/ts
 RUN npm run build -w @captionforge/api-gateway \
  && npm prune --omit=dev --ignore-scripts
 
-FROM node:22-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production
 WORKDIR /repo
 
