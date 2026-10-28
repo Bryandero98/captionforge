@@ -299,7 +299,7 @@ services:
 
   prometheus:
     profiles: ["metrics"]
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v3.15.1
     restart: unless-stopped
     logging: *logging
     security_opt:
