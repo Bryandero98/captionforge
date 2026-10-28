@@ -273,7 +273,7 @@ services:
   # Proxy inverso (ADR 0017). Es lo único que se expone a internet; el API sigue publicado solo en 127.0.0.1.
   caddy:
     profiles: ["proxy"]
-    image: caddy:2.9-alpine
+    image: caddy:2.11-alpine
     restart: unless-stopped
     logging: *logging
     security_opt:
