@@ -47,7 +47,7 @@
     "@types/pg": "^8.23.1",
     "fast-check": "^4.10.2",
     "puppeteer-core": "^25.15.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "unplugin-swc": "^2.0.0",
     "vitest": "^5.0.5"
   }
