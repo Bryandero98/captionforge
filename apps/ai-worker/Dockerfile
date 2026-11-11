@@ -6,7 +6,7 @@
 # Una sola etapa: todo se instala desde ruedas (no se compila nada), así que no hay herramientas de
 # construcción que dejar fuera, y se evita copiar entre etapas un entorno de ~2,5 GB.
 
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 # libgomp1: lo cargan ctranslate2 y onnxruntime. ffmpeg viene con imageio-ffmpeg (paquete heredado).
 # fontconfig + fuentes: libass (dentro de ffmpeg) las necesita para dibujar los subtítulos quemados; la imagen
