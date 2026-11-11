@@ -18,21 +18,21 @@
     "test": "node scripts/with-env.mjs api -- vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1154.0",
-    "@aws-sdk/lib-storage": "^3.1154.0",
+    "@aws-sdk/client-s3": "^3.1164.0",
+    "@aws-sdk/lib-storage": "^3.1164.0",
     "@captionforge/contracts": "^1.0.0",
-    "@fastify/cors": "^11.3.1",
-    "@fastify/multipart": "^10.1.4",
-    "@fastify/rate-limit": "^11.2.1",
-    "@fastify/static": "^10.1.7",
-    "@nestjs/common": "^12.2.0",
-    "@nestjs/core": "^12.2.0",
-    "@nestjs/platform-fastify": "^12.2.0",
+    "@fastify/cors": "^11.4.1",
+    "@fastify/multipart": "^10.1.8",
+    "@fastify/rate-limit": "^11.2.2",
+    "@fastify/static": "^10.1.10",
+    "@nestjs/common": "^12.4.0",
+    "@nestjs/core": "^12.4.0",
+    "@nestjs/platform-fastify": "^12.4.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "bullmq": "^6.3.19",
+    "bullmq": "^6.7.2",
     "fastify": "^5.12.7",
     "ioredis": "^5.11.1",
     "pg": "^8.23.1",
@@ -42,13 +42,13 @@
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
-    "@swc/core": "^1.16.18",
+    "@swc/core": "^1.16.22",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
     "fast-check": "^4.10.2",
-    "puppeteer-core": "^25.15.0",
+    "puppeteer-core": "^25.16.0",
     "typescript": "^6.0.3",
     "unplugin-swc": "^2.0.0",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }
