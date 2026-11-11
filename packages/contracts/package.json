@@ -15,7 +15,7 @@
   "devDependencies": {
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "json-schema-to-typescript": "^15.0.4"
+    "json-schema-to-typescript": "^16.0.0"
   },
   "exports": {
     "./schemas/*.json": "./schemas/*.json",
